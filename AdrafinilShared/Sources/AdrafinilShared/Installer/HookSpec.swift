@@ -178,17 +178,21 @@ struct HookSpec {
         return HookInstaller.InstallResult(summary: "removed hook entries", diff: diff)
     }
 
-    // Append our entry to the list under `event`, idempotent — skip if an adrafinil-tagged entry exists.
+    // Insert (or repair) our entry under `event`. Self-healing and idempotent: if an
+    // Adrafinil-tagged entry already exists we *replace* it with the canonical form, so
+    // re-running install upgrades a stale command (e.g. an old session-id variable) instead
+    // of leaving the broken one in place. A non-Adrafinil entry is never touched.
     private func mergeHookList(into hooks: inout [String: Any], event: String, command: String) {
         var arr = (hooks[event] as? [[String: Any]]) ?? []
-        let alreadyHave = arr.contains { entryReferencesAdrafinil($0) }
-        if !alreadyHave {
-            let hookEntry: [String: Any] = [
-                "hooks": [
-                    ["type": "command", "command": command, "_adrafinil": true]
-                ]
+        let canonical: [String: Any] = [
+            "hooks": [
+                ["type": "command", "command": command, "_adrafinil": true]
             ]
-            arr.append(hookEntry)
+        ]
+        if let idx = arr.firstIndex(where: { entryReferencesAdrafinil($0) }) {
+            arr[idx] = canonical
+        } else {
+            arr.append(canonical)
         }
         hooks[event] = arr
     }
@@ -238,8 +242,11 @@ struct HookSpec {
 
     private func mergeFlatHook(into hooks: inout [String: Any], event: String, command: String) {
         var arr = (hooks[event] as? [[String: Any]]) ?? []
-        if !arr.contains(where: { ($0["command"] as? String)?.contains("adrafinil") == true }) {
-            arr.append(["command": command, "_adrafinil": true])
+        let canonical: [String: Any] = ["command": command, "_adrafinil": true]
+        if let idx = arr.firstIndex(where: { ($0["command"] as? String)?.contains("adrafinil") == true }) {
+            arr[idx] = canonical
+        } else {
+            arr.append(canonical)
         }
         hooks[event] = arr
     }
@@ -288,8 +295,11 @@ struct HookSpec {
         var dict = readJSON() ?? [:]
         var hooks = (dict["hooks"] as? [String: Any]) ?? [:]
         var arr = (hooks["PreToolUse"] as? [[String: Any]]) ?? []
-        if !arr.contains(where: { ($0["command"] as? String)?.contains("adrafinil") == true }) {
-            arr.append(["command": "\(quotedCLI) acquire $CRUSH_SESSION_ID --tool crush"])
+        let canonical: [String: Any] = ["command": "\(quotedCLI) acquire $CRUSH_SESSION_ID --tool crush", "_adrafinil": true]
+        if let idx = arr.firstIndex(where: { ($0["command"] as? String)?.contains("adrafinil") == true }) {
+            arr[idx] = canonical
+        } else {
+            arr.append(canonical)
         }
         hooks["PreToolUse"] = arr
         dict["hooks"] = hooks
@@ -627,7 +637,10 @@ struct HookSpec {
 
     private func sessionEnvVar(for agent: AgentKind) -> String {
         switch agent {
-        case .claudeCode: "$CLAUDE_SESSION_ID"
+        // Claude Code exposes the session id as `CLAUDE_CODE_SESSION_ID` (verified against
+        // Claude Code 2.1.156 — it also passes `session_id` on the hook's stdin JSON). It is
+        // *not* `CLAUDE_SESSION_ID`; that name expands to empty and the CLI rejects the call.
+        case .claudeCode: "$CLAUDE_CODE_SESSION_ID"
         case .codex:      "$CODEX_SESSION_ID"
         case .geminiCLI:  "$GEMINI_SESSION_ID"
         default:          "$$"
