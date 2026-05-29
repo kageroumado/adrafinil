@@ -1,0 +1,44 @@
+disabled_rules:
+  # Formatting handled by SwiftFormat
+  - trailing_whitespace
+  - trailing_comma
+
+  # Too restrictive for this codebase
+  - identifier_name
+  - type_name
+  - large_tuple
+  - nesting
+  - for_where
+  - implicit_optional_initialization
+  - type_body_length
+
+  # Conflicts with SwiftUI idioms
+  - multiple_closures_with_trailing_closure
+
+  # "whitelist" is accurate technical terminology here
+  - inclusive_language
+
+# Length limits adjusted for codebase complexity
+file_length:
+  warning: 1000
+  error: 1200
+
+function_body_length:
+  warning: 60
+  error: 120
+
+line_length:
+  warning: 180
+  error: 250
+  ignores_comments: true
+  ignores_urls: true
+
+cyclomatic_complexity:
+  warning: 15
+  error: 25
+
+function_parameter_count:
+  warning: 6
+  error: 8
+
+indentation: 4

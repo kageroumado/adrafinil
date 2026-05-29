@@ -1,0 +1,77 @@
+import Foundation
+import Darwin
+
+/// Process-tree helpers shared by the CLI (to find which agent owns an `acquire`) and the
+/// daemon (to sweep for running agents).
+///
+/// The CLI is invoked from a hook command, typically as `agent → /bin/sh -c "adrafinil …" → adrafinil`.
+/// `getppid()` is therefore the *shell*, which exits the instant `adrafinil` returns. Watching that
+/// PID for exit would force-release the assertion immediately — while the agent is still working.
+/// `owningAgentPID` walks up the parent chain to the real agent process so the daemon can watch the
+/// process that actually matters.
+public enum ProcessResolver {
+
+    /// Walks up the parent chain from this process looking for an executable whose basename is in
+    /// `binaryNames`. Returns that PID, or `-1` if none is found (in which case the daemon must not
+    /// process-watch, to avoid a premature release).
+    public static func owningAgentPID(binaryNames: Set<String>) -> pid_t {
+        var pid = getppid()
+        var depth = 0
+        while pid > 1 && depth < 16 {
+            if let name = name(of: pid), binaryNames.contains(name) {
+                return pid
+            }
+            let parent = parentPID(of: pid)
+            guard parent > 0, parent != pid else { break }
+            pid = parent
+            depth += 1
+        }
+        return -1
+    }
+
+    /// All currently running processes as `(pid, executable-basename)`. Used by the daemon's
+    /// periodic sniff sweep (SPEC §5.4). Best-effort: processes we cannot read are skipped.
+    public static func runningProcesses() -> [(pid: pid_t, name: String)] {
+        let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard needed > 0 else { return [] }
+        let capacity = Int(needed) / MemoryLayout<pid_t>.stride + 16
+        var pids = [pid_t](repeating: 0, count: capacity)
+        let written = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pids, Int32(capacity * MemoryLayout<pid_t>.stride))
+        guard written > 0 else { return [] }
+        let count = Int(written) / MemoryLayout<pid_t>.stride
+
+        var result: [(pid_t, String)] = []
+        result.reserveCapacity(count)
+        for i in 0..<min(count, pids.count) {
+            let pid = pids[i]
+            guard pid > 0, let name = name(of: pid) else { continue }
+            result.append((pid, name))
+        }
+        return result
+    }
+
+    /// `PROC_PIDPATHINFO_MAXSIZE` (4 * MAXPATHLEN); the macro isn't visible to Swift.
+    private static let maxPathSize = 4 * 1024
+
+    /// Executable basename for a PID, or nil if it can't be read.
+    public static func name(of pid: pid_t) -> String? {
+        var buf = [CChar](repeating: 0, count: maxPathSize)
+        let n = proc_pidpath(pid, &buf, UInt32(buf.count))
+        guard n > 0 else { return nil }
+        let path = String(decoding: buf.prefix(Int(n)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        guard !path.isEmpty else { return nil }
+        return (path as NSString).lastPathComponent
+    }
+
+    /// Parent PID via `sysctl(KERN_PROC_PID)`. Returns `-1` on failure.
+    public static func parentPID(of pid: pid_t) -> pid_t {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        let r = mib.withUnsafeMutableBufferPointer { mibPtr in
+            sysctl(mibPtr.baseAddress, UInt32(mibPtr.count), &info, &size, nil, 0)
+        }
+        guard r == 0, size > 0 else { return -1 }
+        return info.kp_eproc.e_ppid
+    }
+}
