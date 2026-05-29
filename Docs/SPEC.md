@@ -99,13 +99,21 @@ The helper exposes a single mutating endpoint — `setSleepBlocked(Bool)` — pl
 
 ## 4. Sleep-blocking mechanism
 
-`IOPMAssertionCreateWithName` with public assertion types (`kIOPMAssertionTypePreventUserIdleSystemSleep`, etc.) does **not** override clamshell sleep — `caffeinate` confirms this.
+`IOPMAssertionCreateWithName` with public assertion types (`kIOPMAssertPreventUserIdleSystemSleep`, etc.) does **not** override clamshell sleep — its own header says "the system may still sleep for lid close", and `caffeinate` confirms it. So two mechanisms compose, both held by the helper:
 
-The helper uses **`pmset -a disablesleep 1`** (and `0` on release). It works system-wide and overrides clamshell sleep, at the cost of being blunt: it also disables idle sleep while set, so it must be cleared on release and on shutdown or it leaks. The helper additionally clears it on startup, in case a previous instance crashed while it was set.
+1. **Idle system sleep** (lid open) — a standard reference-counted `IOPMAssertion` (`kIOPMAssertPreventUserIdleSystemSleep`). The kernel auto-releases it if the helper dies. Visible in `pmset -g assertions`.
+2. **Clamshell (lid-closed) sleep** — the global **`SleepDisabled`** power setting, applied by shelling out to **`pmset -a disablesleep 1`**.
 
-A private IOPM clamshell-override assertion (e.g. via `IOPMSetValueInt` or `IOPMrootDomain::setProperty("PreventSystemSleep", …)`) would avoid the global idle-sleep side effect, but is unverified on current macOS — see §11.1. The helper API (`setSleepBlocked(Bool)`) is mechanism-agnostic, so the underlying call can change without affecting the daemon.
+> **Empirical note (macOS 26.3, real-device tested).** Three cleaner, in-process mechanisms were each tried and **none keep a displayless lid-closed Mac awake**:
+> - Private `RootDomainUserClient` selector 12 (`kPMSetClamshellSleepState` → `setClamShellSleepDisable`) — returns `kIOReturnSuccess`, Mac **still sleeps** (governs the external-display "clamshell mode" path, not no-display lid-close).
+> - Public `IORegistryEntrySetCFProperty(IOPMrootDomain, "SleepDisabled", …)` — `kIOReturnNotPermitted` (0xE00002E2) even as root.
+> - `IOPMSetSystemPowerSetting("SleepDisabled", CFNumber(1))` — this *is* the per-key call `pmset`'s disablesleep path makes (confirmed by disassembling `/usr/bin/pmset`: `disablesleep` → `CFDictionarySetValue(dict, "SleepDisabled", CFNumber)`; appliers at `0x100008ae4` `IOPMSetPMPreferences` and `0x100008e14` `IOPMSetSystemPowerSetting`). Called alone it returns `kIOReturnSuccess` but `pmset -g` still shows `SleepDisabled 0` and the **Mac sleeps on lid close** — `pmset` coordinates `IOPMSetPMPreferences` + activation around it, which the single call doesn't reproduce.
+>
+> Only the full `pmset -a disablesleep 1` was verified to keep the Mac awake (lid closed, no external display, on battery): heartbeat continuous across the closed period, vs. a clear sleep gap with it off. It is blunt — global, also suppresses idle sleep, persists in the power-management prefs until cleared — but it is the path that works, and it is Apple's own tested implementation. The call runs only on block-state flips, so the subprocess cost is negligible. Full investigation: `~/Developer/Research/macos-clamshell-sleep-private-api.md`.
 
-**Failure mode**: if the helper crashes while sleep is blocked, the daemon detects it (XPC invalidation) and respawns it; on respawn the helper resets to `disablesleep 0` before re-applying the current assertion count. Worst case: a brief window where sleep is allowed. Acceptable.
+`disablesleep` is **not** cleared on crash and can reset across a sleep/wake cycle. So: the helper clears it on release and again on startup (crash recovery), and the daemon re-applies the blocking state on system wake (§6.5).
+
+**Failure mode**: if the helper crashes while sleep is blocked, the daemon detects it (XPC invalidation) and respawns it; on respawn the helper clears any stale `disablesleep` before re-applying the current state. Worst case: a brief window where sleep is allowed. Acceptable.
 
 ---
 
@@ -132,8 +140,8 @@ Hook entry pattern (Claude/Codex/Gemini/Goose share this shape):
 ```json
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "adrafinil acquire $CLAUDE_SESSION_ID --tool claude-code"}]}],
-    "SessionEnd":   [{"hooks": [{"type": "command", "command": "adrafinil release $CLAUDE_SESSION_ID"}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "adrafinil acquire $CLAUDE_CODE_SESSION_ID --tool claude-code"}]}],
+    "SessionEnd":   [{"hooks": [{"type": "command", "command": "adrafinil release $CLAUDE_CODE_SESSION_ID --tool claude-code"}]}]
   }
 }
 ```
@@ -233,6 +241,10 @@ When the lid transitions open → closed AND `isBlocking == true`:
 
 When the lid transitions closed → open AND any assertion was held during the closed period:
 - Show the lid-open summary (§7.3).
+
+### 6.5 Wake re-assertion
+
+The private clamshell-disable bit (§4) can be reset by the kernel across a sleep/wake cycle. The daemon registers for system power notifications (`IORegisterForSystemPower`) and, on `kIOMessageSystemHasPoweredOn`, re-pushes the current blocking state to the helper so it re-applies the bit. The helper's `set` is idempotent and re-asserts the clamshell bit on every blocking call, so this is a no-op when nothing was lost and a repair when it was.
 
 ---
 
@@ -357,7 +369,7 @@ The privileged helper is bundled inside the app and installed via `SMAppService.
 
 ## 11. Open questions / research items
 
-1. **Private IOPM clamshell-override path** on current macOS. The app ships with `pmset disablesleep` (verified working); a private IOPM assertion would avoid disabling idle sleep globally, if a reliable one can be found (§4).
+1. **Wake-reset behavior of the clamshell bit** is not empirically pinned down — §6.5 re-asserts defensively on every wake. Worth confirming with a real sleep/wake test whether the bit actually survives wake (and whether the unprivileged path takes effect, or only the root helper's does).
 2. **Codex `SessionEnd`**: if Codex ships a real session-end event, §5.5 can drop the process-exit dependency.
 3. **Hook latency under load**: the <50ms target is met by design (thin socket protocol, static lookups), but hasn't been measured across all agents. If an agent's hook runner is slow, a fire-and-forget invocation may be needed — at the risk of the hook system killing backgrounded processes.
 4. **Crush `PreToolUse`-only**: when Crush ships `SessionStart`/`End`, move from process-watch release to hook-based release.
