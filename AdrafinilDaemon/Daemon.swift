@@ -18,6 +18,7 @@ final class Daemon {
     let idleMonitor = IdleMonitor()
     let thermalMonitor = ThermalMonitor()
     let chimePlayer = ChimePlayer()
+    let systemPowerMonitor = SystemPowerMonitor()
 
     var appXPCServer: AppXPCServer!
     var cliServer: CLISocketServer!
@@ -70,6 +71,8 @@ final class Daemon {
         // firing its end hook (SPEC §5.4 / §5.5). watch() is idempotent. pid <= 0 means the CLI
         // could not identify a real agent process and asked us not to watch.
         if assertion.pid > 0 { processWatcher.watch(pid: assertion.pid) }
+        let count = await registry.snapshot().count
+        log.notice("acquire key='\(assertion.key, privacy: .public)' tool='\(assertion.tool, privacy: .public)' pid=\(assertion.pid, privacy: .public) new=\(isNew, privacy: .public) -> \(count, privacy: .public) active")
         // Duplicate acquires are no-ops for the count (SPEC §5.6) — don't log/persist them.
         if isNew { await persistAndSync(event: .acquired) }
     }
@@ -78,6 +81,8 @@ final class Daemon {
     func handleRelease(key: String) async -> Bool {
         let existed = await registry.release(key: key)
         if existed {
+            let count = await registry.snapshot().count
+            log.notice("release key='\(key, privacy: .public)' existed=true -> \(count, privacy: .public) active")
             await persistAndSync(event: .released)
         } else {
             // Unknown key is a warning, not an error (SPEC §5.6).
@@ -134,6 +139,13 @@ final class Daemon {
     }
 
     private func wireMonitors() {
+        systemPowerMonitor.onWake = { [weak self] in
+            guard let self else { return }
+            // The helper's private clamshell-disable bit can be reset across a sleep/wake
+            // cycle, so re-push the current blocking state — the helper re-applies it.
+            Task { @MainActor in await self.syncHelperToRegistry() }
+        }
+
         lidMonitor.onChange = { [weak self] closed in
             guard let self else { return }
             Task { @MainActor in
