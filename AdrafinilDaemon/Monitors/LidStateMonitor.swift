@@ -22,7 +22,11 @@ final class LidStateMonitor {
     }
 
     func start() {
-        rootDomain = IORegistryEntryFromPath(kIOMainPortDefault, "IOService:/IOResources/IOPMrootDomain")
+        // Use service matching rather than a hardcoded registry path: the
+        // "IOService:/IOResources/IOPMrootDomain" path does not resolve on macOS 26.3
+        // (returns 0). `IOServiceGetMatchingService(…"IOPMrootDomain")` is the same lookup the
+        // helper's SleepBlocker uses and resolves reliably.
+        rootDomain = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
         guard rootDomain != 0 else {
             log.warning("Could not get IOPMrootDomain")
             return
@@ -36,6 +40,7 @@ final class LidStateMonitor {
         let propRaw = IORegistryEntryCreateCFProperty(rootDomain, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)
         let closed = (propRaw?.takeRetainedValue() as? Bool) ?? false
         if closed != isLidClosed {
+            log.notice("lid \(closed ? "CLOSED" : "OPENED", privacy: .public)")
             isLidClosed = closed
             onChange?(closed)
         }

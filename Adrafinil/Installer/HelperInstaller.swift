@@ -18,32 +18,63 @@ enum HelperInstaller {
         UserDefaults.standard.set(true, forKey: "AdrafinilDidCompleteFirstRun")
     }
 
-    static func installIfNeeded() async {
+    /// Outcome of a registration attempt, surfaced to the installer UI.
+    enum RegistrationResult: Equatable {
+        case enabled
+        case pendingApproval
+        case failed(String)
+    }
+
+    @discardableResult
+    static func installIfNeeded() async -> [(name: String, result: RegistrationResult)] {
         let helper = SMAppService.daemon(plistName: "LaunchDaemon.plist")
         let agent = SMAppService.agent(plistName: "LaunchAgent.plist")
 
-        await registerIfNeeded(service: helper, name: "Helper")
-        await registerIfNeeded(service: agent, name: "Daemon")
+        let results = [
+            (name: "Helper", result: await registerIfNeeded(service: helper, name: "Helper")),
+            (name: "Daemon", result: await registerIfNeeded(service: agent, name: "Daemon")),
+        ]
 
-        markFirstRunComplete()
+        // Only consider first-run "done" if nothing hard-failed; a pending approval still
+        // counts (the services are registered and enable once the user approves). A hard
+        // failure leaves the flag clear so the setup flow re-presents on next launch.
+        if !results.contains(where: { if case .failed = $0.result { return true } else { return false } }) {
+            markFirstRunComplete()
+        }
+        return results
     }
 
-    private static func registerIfNeeded(service: SMAppService, name: String) async {
+    private static func registerIfNeeded(service: SMAppService, name: String) async -> RegistrationResult {
         switch service.status {
         case .enabled:
-            log.info("\(name) already enabled")
+            log.notice("\(name, privacy: .public) already enabled")
+            return .enabled
         case .notRegistered, .notFound:
             do {
                 try service.register()
-                log.info("\(name) registered")
-            } catch {
-                log.error("\(name) registration failed: \(error.localizedDescription)")
+                log.notice("\(name, privacy: .public) registered — status now \(statusName(service.status), privacy: .public)")
+                return service.status == .enabled ? .enabled : .pendingApproval
+            } catch let error as NSError {
+                log.error("\(name, privacy: .public) registration FAILED: domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public) desc=\(error.localizedDescription, privacy: .public)")
+                return .failed("\(error.domain) \(error.code): \(error.localizedDescription)")
             }
         case .requiresApproval:
-            log.warning("\(name) requires user approval — opening Login Items")
+            log.notice("\(name, privacy: .public) requires user approval — opening Login Items")
             SMAppService.openSystemSettingsLoginItems()
+            return .pendingApproval
         @unknown default:
-            log.warning("\(name) in unknown SMAppService state")
+            log.error("\(name, privacy: .public) in unknown SMAppService state")
+            return .failed("unknown SMAppService state")
+        }
+    }
+
+    private static func statusName(_ status: SMAppService.Status) -> String {
+        switch status {
+        case .enabled: "enabled"
+        case .requiresApproval: "requiresApproval"
+        case .notRegistered: "notRegistered"
+        case .notFound: "notFound"
+        @unknown default: "unknown"
         }
     }
 }

@@ -6,7 +6,7 @@ Adrafinil is a macOS menu bar app that prevents the system from sleeping — inc
 
 It's the opposite of always-on wake utilities like `caffeinate` or Amphetamine. Adrafinil only intervenes when an agent (Claude Code, Codex, Cursor, …) is mid-task, and gets out of the way the moment that work finishes.
 
-> ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an unprivileged daemon. The mechanism is `pmset disablesleep`; see [Docs/SPEC.md](Docs/SPEC.md) §4 for the full rationale and the private-IOPM alternative.
+> ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses a private `IOPMrootDomain` user-client selector for clamshell (lid-closed) sleep, falling back to `pmset disablesleep` if that's ever unavailable. See [Docs/SPEC.md](Docs/SPEC.md) §4.
 
 ## Features
 

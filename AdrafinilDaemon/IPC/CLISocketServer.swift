@@ -7,7 +7,10 @@ import Darwin
 @MainActor
 final class CLISocketServer {
     private let log = Logger(subsystem: AdrafinilConstants.daemonBundleID, category: "CLISocket")
-    private let daemon: Daemon
+    // `nonisolated` so the socket worker (which runs on `queue`, not the main actor) can read it
+    // directly. `Daemon` is `@MainActor` and therefore Sendable; we only hop onto its actor via
+    // `runOnMain` before touching its state.
+    private nonisolated let daemon: Daemon
     private var listenSource: DispatchSourceRead?
     private var listenFD: Int32 = -1
     private let queue = DispatchQueue(label: "glass.kagerou.Adrafinil.Daemon.CLISocket")
@@ -63,16 +66,22 @@ final class CLISocketServer {
 
         listenFD = fd
         let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        src.setEventHandler { [weak self] in
-            self?.acceptOne()
+        // The handler runs on `queue` (a background serial queue). `setEventHandler`'s parameter
+        // is not `@Sendable`, so a closure literal written here — inside a `@MainActor` method —
+        // would inherit MainActor isolation and trap at runtime when libdispatch invokes it
+        // off-main (Swift 6.2 makes that isolation mismatch fatal). Typing it `@Sendable`
+        // detaches it from the actor; it only captures `self` weakly and the value `fd`, and
+        // calls the `nonisolated` `acceptOne`.
+        let handler: @Sendable () -> Void = { [weak self] in
+            self?.acceptOne(listenFD: fd)
         }
+        src.setEventHandler(handler: handler)
         src.resume()
         listenSource = src
         log.info("CLI socket listening at \(path)")
     }
 
-    private nonisolated func acceptOne() {
-        let listenFD = MainActor.assumeIsolated { self.listenFD }
+    private nonisolated func acceptOne(listenFD: Int32) {
         let client = Darwin.accept(listenFD, nil, nil)
         guard client >= 0 else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -96,7 +105,7 @@ final class CLISocketServer {
     }
 
     private nonisolated func process(_ req: CLIRequest) -> CLIResponse {
-        let daemonRef = MainActor.assumeIsolated { self.daemon }
+        let daemonRef = daemon
         switch req.op {
         case .ping:
             return CLIResponse(ok: true, error: nil, blocking: nil, assertionCount: nil, statusJSON: nil)

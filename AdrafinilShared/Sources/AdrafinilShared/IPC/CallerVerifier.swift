@@ -8,33 +8,73 @@ import Security
 /// The audit token is the canonical identifier for an XPC peer; we pull the signing
 /// identifier from it via the `SecCode` APIs and require our reverse-DNS prefix.
 public enum CallerVerifier {
-    /// Bundle-identifier prefix a caller must match. All Adrafinil components share it.
+    /// Reverse-DNS prefix the app bundle signs with. Command-line tool targets (the daemon and
+    /// helper) instead sign with their product name as the code identifier — `AdrafinilDaemon` /
+    /// `AdrafinilHelper` — because a non-bundle target's identifier defaults to `$(PRODUCT_NAME)`,
+    /// not its bundle id. Both shapes are accepted (see `isAdrafinilComponent`).
     public static let allowedPrefix = "glass.kagerou.adrafinil"
 
+    /// Authorize an incoming XPC peer.
+    ///
+    /// Two conditions, both required (when this process is itself signed with a team):
+    /// 1. The caller shares **our own Team Identifier** — read from `self` at runtime, so an
+    ///    open-source rebuild under a different Developer ID still authorizes its own components
+    ///    without code changes.
+    /// 2. The caller is an **Adrafinil component**, not just any app from the same team
+    ///    (the developer may ship others — e.g. sibling menu-bar apps — under the same team).
+    ///
+    /// If neither side is team-signed (an ad-hoc local dev build), the team check is skipped and
+    /// authorization falls back to the component-identifier check alone.
     public static func isAuthorized(_ connection: NSXPCConnection) -> Bool {
-        guard let signingID = signingIdentifier(for: connection) else {
-            return false
+        guard let caller = signingInfo(for: connection) else { return false }
+
+        if let ownTeam = ownTeamIdentifier(), let callerTeam = caller.team {
+            guard callerTeam == ownTeam else { return false }
         }
-        return signingID.hasPrefix(allowedPrefix)
+        return isAdrafinilComponent(caller.identifier)
     }
 
-    private static func signingIdentifier(for connection: NSXPCConnection) -> String? {
+    private static func isAdrafinilComponent(_ identifier: String) -> Bool {
+        identifier.hasPrefix(allowedPrefix) || identifier.hasPrefix("Adrafinil")
+    }
+
+    private struct SigningInfo {
+        let identifier: String
+        let team: String?
+    }
+
+    private static func signingInfo(for connection: NSXPCConnection) -> SigningInfo? {
         var token = connection.adrafinil_auditToken
         let tokenData = Data(bytes: &token, count: MemoryLayout.size(ofValue: token))
-        var codeRef: SecCode?
         let attrs = [kSecGuestAttributeAudit: tokenData] as CFDictionary
+        var codeRef: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &codeRef) == errSecSuccess,
-              let code = codeRef else { return nil }
+              let code = codeRef,
+              let stat = staticCode(for: code) else { return nil }
+        return signingInfo(of: stat)
+    }
 
+    /// Team Identifier of the *current* process, used as the reference for the caller's team.
+    private static func ownTeamIdentifier() -> String? {
+        var selfCode: SecCode?
+        guard SecCodeCopySelf([], &selfCode) == errSecSuccess,
+              let code = selfCode,
+              let stat = staticCode(for: code) else { return nil }
+        return signingInfo(of: stat)?.team
+    }
+
+    private static func staticCode(for code: SecCode) -> SecStaticCode? {
         var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
-              let stat = staticCode else { return nil }
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess else { return nil }
+        return staticCode
+    }
 
+    private static func signingInfo(of staticCode: SecStaticCode) -> SigningInfo? {
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(stat, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-              let dict = info as? [String: Any] else { return nil }
-
-        return dict[kSecCodeInfoIdentifier as String] as? String
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any],
+              let identifier = dict[kSecCodeInfoIdentifier as String] as? String else { return nil }
+        return SigningInfo(identifier: identifier, team: dict[kSecCodeInfoTeamIdentifier as String] as? String)
     }
 }
 

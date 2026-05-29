@@ -6,6 +6,8 @@ struct InstallerView: View {
     @State private var selected: Set<AgentKind> = []
     @State private var installLog: [String] = []
     @State private var step: Step = .helper
+    @State private var helperErrors: [String] = []
+    @State private var registering = false
 
     enum Step {
         case helper, agents, done
@@ -29,16 +31,31 @@ struct InstallerView: View {
             Text("Welcome to Adrafinil").font(.title)
             Text("Adrafinil needs to install a small privileged helper so it can block clamshell sleep while your AI agents are working. The helper is open source — see github.com/…/adrafinil/AdrafinilHelper.")
                 .foregroundStyle(.secondary)
+
+            if !helperErrors.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Setup couldn't register a background service", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    ForEach(helperErrors, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary) }
+                }
+            }
+
             Spacer()
             HStack {
                 Spacer()
-                Button("Continue") {
+                Button(registering ? "Registering…" : (helperErrors.isEmpty ? "Continue" : "Retry")) {
                     Task {
-                        await HelperInstaller.installIfNeeded()
-                        step = .agents
+                        registering = true
+                        let results = await HelperInstaller.installIfNeeded()
+                        registering = false
+                        helperErrors = results.compactMap { r in
+                            if case .failed(let msg) = r.result { return "\(r.name): \(msg)" } else { return nil }
+                        }
+                        if helperErrors.isEmpty { step = .agents }
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(registering)
             }
         }
     }
