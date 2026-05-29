@@ -11,14 +11,14 @@ import Darwin
 /// process that actually matters.
 public enum ProcessResolver {
 
-    /// Walks up the parent chain from this process looking for an executable whose basename is in
-    /// `binaryNames`. Returns that PID, or `-1` if none is found (in which case the daemon must not
-    /// process-watch, to avoid a premature release).
+    /// Walks up the parent chain from this process looking for an agent executable. Returns that
+    /// PID, or `-1` if none is found (in which case the daemon must not process-watch, to avoid a
+    /// premature release).
     public static func owningAgentPID(binaryNames: Set<String>) -> pid_t {
         var pid = getppid()
         var depth = 0
         while pid > 1 && depth < 16 {
-            if let name = name(of: pid), binaryNames.contains(name) {
+            if let path = path(of: pid), pathMatchesAgent(path, names: binaryNames) {
                 return pid
             }
             let parent = parentPID(of: pid)
@@ -29,9 +29,20 @@ public enum ProcessResolver {
         return -1
     }
 
-    /// All currently running processes as `(pid, executable-basename)`. Used by the daemon's
-    /// periodic sniff sweep (SPEC §5.4). Best-effort: processes we cannot read are skipped.
-    public static func runningProcesses() -> [(pid: pid_t, name: String)] {
+    /// Whether an executable path belongs to a known agent. Matches if **any path component** is in
+    /// `names`, not just the basename — agents are commonly installed under versioned paths whose
+    /// basename is a version string (e.g. `~/.local/share/claude/versions/2.1.156`, whose basename
+    /// `2.1.156` matches nothing, but whose component `claude` does). Component matching against the
+    /// specific agent-name set (claude, codex, gemini, …) is safe: those names don't collide with
+    /// generic path segments. Basename-only matching missed Claude entirely (pid resolved to -1),
+    /// leaving its assertion unwatchable.
+    public static func pathMatchesAgent(_ path: String, names: Set<String>) -> Bool {
+        (path as NSString).pathComponents.contains { names.contains($0) }
+    }
+
+    /// All currently running processes as `(pid, basename, fullPath)`. Used by the daemon's periodic
+    /// sniff sweep (SPEC §5.4). Best-effort: processes we cannot read are skipped.
+    public static func runningProcesses() -> [(pid: pid_t, name: String, path: String)] {
         let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
         guard needed > 0 else { return [] }
         let capacity = Int(needed) / MemoryLayout<pid_t>.stride + 16
@@ -40,12 +51,12 @@ public enum ProcessResolver {
         guard written > 0 else { return [] }
         let count = Int(written) / MemoryLayout<pid_t>.stride
 
-        var result: [(pid_t, String)] = []
+        var result: [(pid_t, String, String)] = []
         result.reserveCapacity(count)
         for i in 0..<min(count, pids.count) {
             let pid = pids[i]
-            guard pid > 0, let name = name(of: pid) else { continue }
-            result.append((pid, name))
+            guard pid > 0, let path = path(of: pid) else { continue }
+            result.append((pid, (path as NSString).lastPathComponent, path))
         }
         return result
     }
@@ -53,14 +64,19 @@ public enum ProcessResolver {
     /// `PROC_PIDPATHINFO_MAXSIZE` (4 * MAXPATHLEN); the macro isn't visible to Swift.
     private static let maxPathSize = 4 * 1024
 
-    /// Executable basename for a PID, or nil if it can't be read.
-    public static func name(of pid: pid_t) -> String? {
+    /// Full executable path for a PID, or nil if it can't be read.
+    public static func path(of pid: pid_t) -> String? {
         var buf = [CChar](repeating: 0, count: maxPathSize)
         let n = proc_pidpath(pid, &buf, UInt32(buf.count))
         guard n > 0 else { return nil }
         let path = String(decoding: buf.prefix(Int(n)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        guard !path.isEmpty else { return nil }
-        return (path as NSString).lastPathComponent
+        return path.isEmpty ? nil : path
+    }
+
+    /// Executable basename for a PID, or nil if it can't be read.
+    public static func name(of pid: pid_t) -> String? {
+        guard let p = path(of: pid) else { return nil }
+        return (p as NSString).lastPathComponent
     }
 
     /// Parent PID via `sysctl(KERN_PROC_PID)`. Returns `-1` on failure.

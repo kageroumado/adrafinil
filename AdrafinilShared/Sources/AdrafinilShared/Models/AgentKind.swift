@@ -56,6 +56,17 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         return map
     }()
 
+    /// Identify the agent owning a running process, matching the basename first and then any
+    /// path component — so versioned installs (e.g. `…/claude/versions/2.1.156`, basename
+    /// `2.1.156`) are still recognized by their `claude` path segment. Returns nil if unknown.
+    public static func forRunningProcess(name: String, path: String) -> AgentKind? {
+        if let kind = byBinaryName[name] { return kind }
+        for component in (path as NSString).pathComponents {
+            if let kind = byBinaryName[component] { return kind }
+        }
+        return nil
+    }
+
     /// Integration tier: 1 = full hooks, 2 = partial/wrapper/plugin needed.
     public var tier: Int {
         switch self {

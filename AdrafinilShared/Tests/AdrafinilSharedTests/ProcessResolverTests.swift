@@ -28,6 +28,21 @@ struct ProcessResolverTests {
         #expect(ProcessResolver.owningAgentPID(binaryNames: ["definitely-not-a-real-binary-xyzzy"]) == -1)
     }
 
+    @Test func pathMatchesAgentByBasename() {
+        #expect(ProcessResolver.pathMatchesAgent("/usr/local/bin/codex", names: ["codex"]))
+    }
+
+    @Test func pathMatchesAgentByPathComponentForVersionedInstall() {
+        // Claude installs at …/claude/versions/<x.y.z>; basename is a version, but the "claude"
+        // path component must still match (the bug that left Claude unwatchable, pid=-1).
+        let p = "/Users/u/.local/share/claude/versions/2.1.156"
+        #expect(ProcessResolver.pathMatchesAgent(p, names: ["claude"]))
+    }
+
+    @Test func pathMatchesAgentRejectsUnrelatedPath() {
+        #expect(!ProcessResolver.pathMatchesAgent("/usr/bin/python3", names: ["claude", "codex"]))
+    }
+
     @Test func runningProcessesIsNonEmptyAndIncludesSelf() {
         let procs = ProcessResolver.runningProcesses()
         #expect(!procs.isEmpty)

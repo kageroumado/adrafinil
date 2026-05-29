@@ -71,4 +71,17 @@ struct AgentKindTests {
             #expect(AgentKind(rawValue: k.rawValue) == k)
         }
     }
+
+    @Test func forRunningProcessMatchesBasename() {
+        #expect(AgentKind.forRunningProcess(name: "codex", path: "/usr/local/bin/codex") == .codex)
+    }
+
+    @Test func forRunningProcessMatchesVersionedPathComponent() {
+        let kind = AgentKind.forRunningProcess(name: "2.1.156", path: "/Users/u/.local/share/claude/versions/2.1.156")
+        #expect(kind == .claudeCode)
+    }
+
+    @Test func forRunningProcessReturnsNilForUnknown() {
+        #expect(AgentKind.forRunningProcess(name: "python3", path: "/usr/bin/python3") == nil)
+    }
 }

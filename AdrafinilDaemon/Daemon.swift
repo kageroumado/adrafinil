@@ -18,6 +18,7 @@ final class Daemon {
     let idleMonitor = IdleMonitor()
     let thermalMonitor = ThermalMonitor()
     let chimePlayer = ChimePlayer()
+    let screenLocker = ScreenLocker()
     let systemPowerMonitor = SystemPowerMonitor()
 
     var appXPCServer: AppXPCServer!
@@ -157,6 +158,12 @@ final class Daemon {
                             self.chimePlayer.playLidCloseChime(volume: self.settings.soundVolume,
                                                                chimeName: self.settings.chimeName)
                         }
+                        // Secure the kept-awake machine: lock the screen on lid close. Explicit
+                        // lock works even when an idle-lock-prevention assertion is held, and the
+                        // system stays awake (disablesleep) so the agent keeps running.
+                        if self.settings.lockOnLidClose {
+                            self.screenLocker.lock()
+                        }
                         self.beginAwayTracking(snapshot: await self.registry.snapshot())
                     }
                 } else {
@@ -230,7 +237,8 @@ final class Daemon {
         guard settings.autoAcquireForKnownAgents else { return }
         let watchedPids = Set(snapshot.map(\.pid))
         for proc in ProcessResolver.runningProcesses() {
-            guard let kind = AgentKind.byBinaryName[proc.name], !watchedPids.contains(proc.pid) else { continue }
+            guard let kind = AgentKind.forRunningProcess(name: proc.name, path: proc.path),
+                  !watchedPids.contains(proc.pid) else { continue }
             let assertion = Assertion(
                 key: "sniffed:\(kind.rawValue):\(proc.pid)",
                 tool: kind.rawValue,
