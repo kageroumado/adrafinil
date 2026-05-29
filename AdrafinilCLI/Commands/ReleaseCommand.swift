@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import AdrafinilShared
 
 enum ReleaseCommand {
@@ -9,6 +10,8 @@ enum ReleaseCommand {
             exit(2)
         }
         let tool = parser.option("--tool") ?? "unknown"
+        Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
+            .notice("release \(tool, privacy: .public):\(key, privacy: .public)")
 
         let req = CLIRequest(
             op: .release,

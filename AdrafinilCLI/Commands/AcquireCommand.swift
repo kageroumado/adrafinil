@@ -1,5 +1,8 @@
 import Foundation
+import OSLog
 import AdrafinilShared
+
+private let cliLog = Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
 
 enum AcquireCommand {
     static func run(args: [String]) throws {
@@ -20,6 +23,7 @@ enum AcquireCommand {
         // process-watching entirely (safer than watching the wrong PID).
         let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
         let watchedPID: pid_t? = agentPID == -1 ? nil : agentPID
+        cliLog.notice("acquire \(tool, privacy: .public):\(key, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
 
         let req = CLIRequest(
             op: .acquire,

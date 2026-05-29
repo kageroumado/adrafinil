@@ -2,6 +2,8 @@ import Foundation
 import AppKit
 import AVFoundation
 import CoreAudio
+import OSLog
+import AdrafinilShared
 
 /// Plays the lid-close confirmation chime (SPEC §6.4 / G5).
 ///
@@ -11,6 +13,7 @@ import CoreAudio
 /// (the lid-open summary covers that case), and respects the configured volume.
 @MainActor
 final class ChimePlayer {
+    private let log = Logger(subsystem: AdrafinilConstants.daemonBundleID, category: "Chime")
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var engineConfigured = false
@@ -20,7 +23,8 @@ final class ChimePlayer {
     ///   - volume: 0…1 chime level.
     ///   - chimeName: `"default"` for the synthesized two-tone cue, or a macOS system sound name.
     func playLidCloseChime(volume: Float, chimeName: String) {
-        guard !systemMuted() else { return }
+        guard !systemMuted() else { log.notice("lid-close chime skipped — system output muted"); return }
+        log.notice("playing lid-close chime '\(chimeName, privacy: .public)' at volume \(volume, privacy: .public)")
         let v = max(0, min(1, volume))
         if chimeName != "default", let named = NSSound(named: chimeName) {
             named.volume = v
