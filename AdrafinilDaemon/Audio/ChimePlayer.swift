@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 import AVFoundation
 import CoreAudio
 import OSLog
@@ -7,59 +6,86 @@ import AdrafinilShared
 
 /// Plays the lid-close confirmation chime (SPEC §6.4 / G5).
 ///
-/// The default chime is synthesized at runtime — a short (~0.4s) two-tone *descending*
-/// cue — so there is no audio asset to bundle or license. The user may instead pick a
-/// named macOS system sound. The cue is skipped entirely when system output is muted
-/// (the lid-open summary covers that case), and respects the configured volume.
+/// The default cue is a short (~0.4s) two-tone *descending* chime (G5 → D5) synthesized at
+/// runtime — no bundled asset — and played with `afplay`. The user may instead pick a named
+/// macOS system sound. The cue is skipped when system output is muted (the lid-open summary
+/// covers that case) and respects the configured volume.
+///
+/// > Playback uses `/usr/bin/afplay`, not `AVAudioEngine`: a LaunchAgent (this daemon) can drive
+/// > an engine without error yet produce no audible output — the engine's output node doesn't
+/// > route to hardware from a background-agent context. `afplay` is a self-contained player that
+/// > routes correctly. Verified on macOS 26.3 (engine: silent; afplay: audible).
 @MainActor
 final class ChimePlayer {
     private let log = Logger(subsystem: AdrafinilConstants.daemonBundleID, category: "Chime")
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private var engineConfigured = false
-    private var systemSound: NSSound?
+
+    /// Held so the fire-and-forget `afplay` isn't torn down early; replaced on each play.
+    private var player: Process?
 
     /// - Parameters:
     ///   - volume: 0…1 chime level.
     ///   - chimeName: `"default"` for the synthesized two-tone cue, or a macOS system sound name.
     func playLidCloseChime(volume: Float, chimeName: String) {
         guard !systemMuted() else { log.notice("lid-close chime skipped — system output muted"); return }
-        log.notice("playing lid-close chime '\(chimeName, privacy: .public)' at volume \(volume, privacy: .public)")
         let v = max(0, min(1, volume))
-        if chimeName != "default", let named = NSSound(named: chimeName) {
-            named.volume = v
-            named.play()
-            systemSound = named
-        } else {
-            playSynthesizedChime(volume: v)
+
+        if chimeName != "default", let soundPath = systemSoundPath(named: chimeName) {
+            log.notice("playing lid-close system sound '\(chimeName, privacy: .public)' at volume \(v, privacy: .public)")
+            afplay(path: soundPath, volume: v)
+            return
         }
+
+        guard let chimePath = renderTwoTone(volume: v) else {
+            log.error("lid-close chime — failed to render two-tone")
+            return
+        }
+        log.notice("playing lid-close two-tone chime at volume \(v, privacy: .public)")
+        // Volume is baked into the rendered samples, so play at unity gain.
+        afplay(path: chimePath, volume: 1)
+    }
+
+    // MARK: - Playback
+
+    private func afplay(path: String, volume: Float) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/afplay")
+        task.arguments = ["-v", String(volume), path]
+        task.standardOutput = nil
+        task.standardError = nil
+        do {
+            try task.run()   // fire-and-forget; the ~0.4s clip plays out on its own
+            player = task
+        } catch {
+            log.error("afplay failed to launch: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// `/System/Library/Sounds/<name>.aiff`, or nil if no such system sound.
+    private func systemSoundPath(named name: String) -> String? {
+        let path = "/System/Library/Sounds/\(name).aiff"
+        return FileManager.default.fileExists(atPath: path) ? path : nil
     }
 
     // MARK: - Synthesis
 
-    private func playSynthesizedChime(volume: Float) {
-        configureEngine()
-        guard let buffer = makeTwoToneBuffer(sampleRate: 44_100) else { return }
+    /// Renders the two-tone chime to a temp file and returns its path (overwritten each call).
+    private func renderTwoTone(volume: Float) -> String? {
+        let sampleRate = 44_100.0
+        guard let buffer = makeTwoToneBuffer(sampleRate: sampleRate, volume: volume) else { return nil }
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("adrafinil-chime.caf")
         do {
-            if !engine.isRunning { try engine.start() }
+            let file = try AVAudioFile(forWriting: url, settings: buffer.format.settings)
+            try file.write(from: buffer)
+            return url.path
         } catch {
-            return
+            log.error("renderTwoTone — write failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
-        engine.mainMixerNode.outputVolume = volume
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-        if !player.isPlaying { player.play() }
-    }
-
-    private func configureEngine() {
-        guard !engineConfigured else { return }
-        engine.attach(player)
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        engineConfigured = true
     }
 
     /// Two descending tones (G5 → D5) with short attack/release envelopes to avoid clicks.
-    private func makeTwoToneBuffer(sampleRate: Double) -> AVAudioPCMBuffer? {
+    /// `volume` (0…1) is baked into the samples.
+    private func makeTwoToneBuffer(sampleRate: Double, volume: Float) -> AVAudioPCMBuffer? {
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let seg1 = 0.18, seg2 = 0.22
         let frames = AVAudioFrameCount((seg1 + seg2) * sampleRate)
@@ -70,6 +96,7 @@ final class ChimePlayer {
         let n = Int(frames)
         let n1 = Int(seg1 * sampleRate)
         let f1 = 783.99, f2 = 587.33  // G5, D5
+        let gain = Double(volume) * 0.6
 
         for i in 0..<n {
             let inFirst = i < n1
@@ -79,7 +106,7 @@ final class ChimePlayer {
             let local = i - localStart
             let localT = Double(local) / sampleRate
             let env = envelope(sample: local, count: localLen, sampleRate: sampleRate)
-            samples[i] = Float(sin(2.0 * .pi * freq * localT) * env * 0.6)
+            samples[i] = Float(sin(2.0 * .pi * freq * localT) * env * gain)
         }
         return buffer
     }
