@@ -8,10 +8,18 @@ import OSLog
 final class IdleMonitor {
     private let log = Logger(subsystem: AdrafinilConstants.daemonBundleID, category: "IdleMonitor")
 
-    /// When false, idle and CPU-based release is suppressed (TTL expiry and dead-PID
-    /// release still apply — those are safety, not the user-tunable idle policy).
+    /// When false, idle and CPU-based release is suppressed (TTL expiry, dead-PID release, and
+    /// the max-age backstop still apply — those are safety, not the user-tunable idle policy).
     var enabled: Bool = true
     var idleThresholdMinutes: Int = 5
+
+    /// Hard safety backstop: any assertion older than this is released regardless of PID or the
+    /// idle policy. Catches genuine leaks — an assertion whose owning process we never resolved
+    /// (`pid <= 0`, so neither the exit-watcher nor the dead-PID check can fire) and whose agent
+    /// never sent its end hook. Generous so it never cuts a real session short; a leak just
+    /// outlives a long task, not forever.
+    var maxAssertionAgeHours: Double = 24
+
     var assertionSource: (() async -> [Assertion])?
     var onIdleRelease: (([String]) -> Void)?
 
@@ -31,7 +39,15 @@ final class IdleMonitor {
         let now = Date()
         let threshold = TimeInterval(idleThresholdMinutes * 60)
 
+        let maxAge = maxAssertionAgeHours * 3600
         for a in assertions {
+            // Safety backstop: a too-old assertion is a leak (unresolved PID + missed end hook).
+            // Applies regardless of `enabled` or PID, so nothing can pin sleep indefinitely.
+            if maxAge > 0, a.age > maxAge {
+                log.warning("Backstop-releasing assertion '\(a.key, privacy: .public)' — age \(Int(a.age / 3600), privacy: .public)h exceeds cap (likely a leaked session; pid=\(a.pid, privacy: .public))")
+                toRelease.append(a.key)
+                continue
+            }
             // Dead process → release.
             if a.pid > 0 && !pidExists(a.pid) {
                 toRelease.append(a.key)
