@@ -5,6 +5,10 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var soundVolume: Float = 0.5
     public var chimeName: String = "default"
 
+    /// Lock the screen when the lid closes while an agent is active, so the awake machine is
+    /// still secured. Issues an explicit lock (overrides idle-lock-prevention from other apps).
+    public var lockOnLidClose: Bool = true
+
     public var thermalCutoutEnabled: Bool = true
     public var thermalThresholdCelsius: Double = 80.0
 
@@ -20,7 +24,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case soundOnLidClose, soundVolume, chimeName
+        case soundOnLidClose, soundVolume, chimeName, lockOnLidClose
         case thermalCutoutEnabled, thermalThresholdCelsius
         case idleReleaseEnabled, idleReleaseMinutes
         case processSniffingEnabled, autoAcquireForKnownAgents
@@ -37,6 +41,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         soundOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .soundOnLidClose) ?? d.soundOnLidClose
         soundVolume = try c.decodeIfPresent(Float.self, forKey: .soundVolume) ?? d.soundVolume
         chimeName = try c.decodeIfPresent(String.self, forKey: .chimeName) ?? d.chimeName
+        lockOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose) ?? d.lockOnLidClose
         thermalCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .thermalCutoutEnabled) ?? d.thermalCutoutEnabled
         thermalThresholdCelsius = try c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius) ?? d.thermalThresholdCelsius
         idleReleaseEnabled = try c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled) ?? d.idleReleaseEnabled

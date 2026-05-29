@@ -82,6 +82,12 @@ struct GeneralSettingsTab: View {
 
             Divider()
 
+            Toggle("Lock the screen at lid close while agents are active", isOn: $settings.lockOnLidClose)
+            Text("Keeps the Mac awake for the agent but secures it — like closing the lid normally.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Divider()
+
             HStack {
                 Text("Idle release minutes")
                 Stepper("\(settings.idleReleaseMinutes) min",
