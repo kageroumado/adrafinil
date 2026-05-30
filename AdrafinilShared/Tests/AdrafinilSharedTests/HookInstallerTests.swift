@@ -57,7 +57,7 @@ struct HookInstallerTests {
         #expect(hooks["SessionEnd"] != nil)
     }
 
-    @Test func installCodexUsesStopInsteadOfSessionEnd() throws {
+    @Test func installCodexWritesSessionStartOnlyWithThreadIdVar() throws {
         let home = try makeFakeHome(detectedDirs: [".codex"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -66,9 +66,17 @@ struct HookInstallerTests {
 
         let dict = try readJSON(home.path + "/.codex/hooks.json")
         let hooks = try #require(dict["hooks"] as? [String: Any])
+        // Codex acquires on SessionStart and releases via the process-exit watcher (§5.5):
+        // `Stop` fires per-turn (not session-end), so no release hook is written.
         #expect(hooks["SessionStart"] != nil)
-        #expect(hooks["Stop"] != nil, "Codex has no SessionEnd — must use Stop")
+        #expect(hooks["Stop"] == nil, "Stop is per-turn, not session-end — must not be used for release")
         #expect(hooks["SessionEnd"] == nil)
+
+        // Session id comes from $CODEX_THREAD_ID (no $CODEX_SESSION_ID exists in Codex).
+        let start = try #require(hooks["SessionStart"] as? [[String: Any]])
+        let cmd = try #require((start.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String)
+        #expect(cmd.contains("$CODEX_THREAD_ID"))
+        #expect(!cmd.contains("CODEX_SESSION_ID"))
     }
 
     @Test func installIsIdempotent() throws {

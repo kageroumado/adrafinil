@@ -126,10 +126,15 @@ struct HookSpec {
             case .geminiCLI:  "SessionStart"
             }
         }
-        var endEvent: String {
+        /// Release-hook event, or nil to release via the process-exit watcher instead.
+        var endEvent: String? {
             switch self {
             case .claudeCode: "SessionEnd"
-            case .codex:      "Stop"           // Codex has no SessionEnd; daemon backs us up via process exit
+            // Codex's `Stop` fires per *turn*, not at session end, so a Stop→release would drop
+            // the assertion after the first turn while the session keeps working. Codex exposes
+            // no session-end hook, so we acquire on SessionStart and release via the daemon's
+            // process-exit watcher when the `codex` process exits (SPEC §5.5).
+            case .codex:      nil
             case .geminiCLI:  "SessionEnd"
             }
         }
@@ -142,12 +147,13 @@ struct HookSpec {
 
         let acquireCmd = "\(quotedCLI) acquire \(sessionVar) --tool \(toolID)"
         let releaseCmd = "\(quotedCLI) release \(sessionVar) --tool \(toolID)"
+        let endEvent = shape.endEvent
 
         let entry: ([String: Any]) -> [String: Any] = { existing in
             var out = existing
             var hooksDict = (out["hooks"] as? [String: Any]) ?? [:]
             mergeHookList(into: &hooksDict, event: shape.startEvent, command: acquireCmd)
-            mergeHookList(into: &hooksDict, event: shape.endEvent, command: releaseCmd)
+            if let endEvent { mergeHookList(into: &hooksDict, event: endEvent, command: releaseCmd) }
             out["hooks"] = hooksDict
             return out
         }
@@ -158,7 +164,9 @@ struct HookSpec {
             try ensureParentDir()
             try writeJSON(new)
         }
-        return HookInstaller.InstallResult(summary: "wired SessionStart/\(shape.endEvent) hooks", diff: diff)
+        let summary = endEvent.map { "wired SessionStart/\($0) hooks" }
+            ?? "wired SessionStart hook (release via process-exit watcher; trust it in Codex with /hooks)"
+        return HookInstaller.InstallResult(summary: summary, diff: diff)
     }
 
     private func removeFromSharedJSONShape(_ agent: AgentKind, dryRun: Bool) throws -> HookInstaller.InstallResult {
@@ -479,12 +487,9 @@ struct HookSpec {
         let acquireCmd = "\(quotedCLI) acquire \(sessionVar) --tool \(toolID)"
         let releaseCmd = "\(quotedCLI) release \(sessionVar) --tool \(toolID)"
 
-        let startEvent: String
-        let endEvent: String
-        switch agent {
-        case .codex: startEvent = "SessionStart"; endEvent = "Stop"
-        default:     startEvent = "SessionStart"; endEvent = "SessionEnd"
-        }
+        // Codex installs only a SessionStart hook (release is via the process-exit watcher, §5.5).
+        let startEvent = "SessionStart"
+        let endEvent: String? = agent == .codex ? nil : "SessionEnd"
 
         func commandInArray(_ arr: [[String: Any]]) -> String? {
             for entry in arr {
@@ -499,6 +504,10 @@ struct HookSpec {
 
         guard let startArr = hooks[startEvent] as? [[String: Any]],
               let installedAcquire = commandInArray(startArr) else { return .notInstalled }
+
+        guard let endEvent else {
+            return installedAcquire == acquireCmd ? .installed : .modifiedExternally
+        }
 
         guard let endArr = hooks[endEvent] as? [[String: Any]],
               let installedRelease = commandInArray(endArr) else { return .notInstalled }
@@ -641,7 +650,9 @@ struct HookSpec {
         // Claude Code 2.1.156 — it also passes `session_id` on the hook's stdin JSON). It is
         // *not* `CLAUDE_SESSION_ID`; that name expands to empty and the CLI rejects the call.
         case .claudeCode: "$CLAUDE_CODE_SESSION_ID"
-        case .codex:      "$CODEX_SESSION_ID"
+        // Codex sets CODEX_THREAD_ID in the hook environment (and `session_id` on stdin); there
+        // is no CODEX_SESSION_ID. Verified against Codex 0.135.0.
+        case .codex:      "$CODEX_THREAD_ID"
         case .geminiCLI:  "$GEMINI_SESSION_ID"
         default:          "$$"
         }

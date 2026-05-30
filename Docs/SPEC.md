@@ -123,6 +123,8 @@ The helper exposes a single mutating endpoint — `setSleepBlocked(Bool)` — pl
 
 The daemon does not directly detect agents. The CLI (`adrafinil acquire <session-key> --tool <tool> --reason <reason>`) is called from each agent's hook system. The daemon refcounts by session key.
 
+**Session id resolution.** The hook command passes the session id as a positional arg via a shell env-var expansion (`$CLAUDE_CODE_SESSION_ID`, etc.), but the CLI **prefers the `session_id` field from the JSON the hook receives on stdin** when present. Every Claude-Code-style hook system (Claude Code, Codex, Gemini CLI, Cursor) delivers this JSON, so stdin is the reliable, agent-agnostic source; the env-var arg is a fallback. This avoids the per-agent env-var naming pitfalls that are easy to get wrong (e.g. Claude is `CLAUDE_CODE_SESSION_ID` not `CLAUDE_SESSION_ID`; Codex exposes `CODEX_THREAD_ID` and no `CODEX_SESSION_ID`, and documents only the stdin field).
+
 ### 5.2 Tier-1 agents (full hook support, identical install pattern)
 
 These five tools support shell-command hooks with JSON config and `SessionStart` + a session-end-equivalent event. The installer GUI writes to all five:
@@ -130,7 +132,7 @@ These five tools support shell-command hooks with JSON config and `SessionStart`
 | Tool | Config path | Start event | End event |
 |------|-------------|-------------|-----------|
 | Claude Code | `~/.claude/settings.json` | `SessionStart` | `SessionEnd` |
-| Codex | `~/.codex/hooks.json` | `SessionStart` | `Stop` (per-turn — see §5.5) |
+| Codex | `~/.codex/hooks.json` | `SessionStart` (interactive only; see §5.5) | — (process-exit) |
 | Cursor | `~/.cursor/hooks.json` | `sessionStart` | `sessionEnd` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
 | Goose | `~/.agents/plugins/adrafinil/hooks/hooks.json` | `SessionStart` | `SessionEnd` |
@@ -174,7 +176,13 @@ A kqueue watcher fires `NOTE_EXIT` on watched PIDs; a periodic sweep (every 30s)
 
 ### 5.5 Codex special case
 
-Codex has no `SessionEnd`; `Stop` fires on every turn. Adrafinil acquires on `SessionStart` and releases on **process exit** via the §5.4 watcher, keyed by the Codex session id. (The alternative — releasing on a debounced `Stop` — is not used.)
+Codex's hook model differs from Claude's in three ways that were verified empirically against Codex 0.135.0 on a real device:
+
+1. **No session-end hook.** `Stop` fires per *turn*, not at session end, and there is no session-end event. So Adrafinil installs **only** a `SessionStart` → acquire hook and releases on **process exit** via the §5.4 watcher (keyed by the session id). Installing a `Stop` → release would drop the assertion after the first turn.
+2. **Hooks only fire in the interactive TUI — not `codex exec`.** The non-interactive `codex exec` path does not engage the hook runtime at all (no SessionStart, even with `--dangerously-bypass-hook-trust`; the machinery is wired through the TUI/app-server startup path). So **hook-based capture covers interactive Codex only**; for `codex exec`, capture relies on §5.4 process-sniffing (the daemon sees the `codex` process and auto-acquires, with the same process-exit release).
+3. **Hook trust.** Codex will not run a command hook until its exact definition is trusted (hash-based), via `/hooks` in the TUI. Adrafinil cannot trust on the user's behalf, so the installer surfaces this: after wiring Codex, the user must open Codex and trust the Adrafinil hook (or it silently won't run).
+
+Codex delivers the session id as `session_id` on the hook's stdin (and `CODEX_THREAD_ID` in the environment); the CLI reads the stdin field (§5.1). Because process-sniffing is the only path that captures *both* interactive and `exec` Codex sessions, it is the recommended capture mode for Codex.
 
 ### 5.6 Subagent and resume semantics
 
