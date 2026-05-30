@@ -6,14 +6,16 @@ import AdrafinilShared
 
 /// Keeps the Mac awake while an agent is working.
 ///
-/// Two concerns, blocked together while at least one assertion is held:
+/// A thin helper-side wrapper around `SleepBlockPolicy` (in AdrafinilShared, where the
+/// compose/idempotence/crash-recovery logic is unit-tested). This file owns only the two real
+/// mechanisms behind the policy's seams:
 ///
-/// 1. **Idle system sleep** is held off with a standard, reference-counted `IOPMAssertion`
+/// 1. **Idle system sleep** — a standard, reference-counted `IOPMAssertion`
 ///    (`kIOPMAssertPreventUserIdleSystemSleep`). The kernel releases it automatically if this
 ///    process dies, and it shows in `pmset -g assertions` so the user can see Adrafinil is active.
 ///    It does *not*, by its own header, survive a lid close.
-/// 2. **Clamshell (lid-closed) sleep** is blocked with the global **`SleepDisabled`** power
-///    setting, applied via `pmset -a disablesleep 1`.
+/// 2. **Clamshell (lid-closed) sleep** — the global **`SleepDisabled`** power setting, applied via
+///    `pmset -a disablesleep 1`.
 ///
 /// > **Why shell out to `pmset` rather than an in-process IOKit call?** Three cleaner mechanisms
 /// > were each tried on a real device (macOS 26.3) and **none keep a displayless lid-closed Mac
@@ -33,61 +35,42 @@ import AdrafinilShared
 /// > Full investigation: `~/Developer/Research/macos-clamshell-sleep-private-api.md`.
 ///
 /// `disablesleep` is **not** cleared on crash and can reset across a sleep/wake cycle, so the
-/// helper clears it on release and again on startup (crash recovery), and the daemon re-applies
-/// the blocked state on wake (see `SystemPowerMonitor`).
+/// policy clears it on construction (crash recovery) and again on release, and the daemon
+/// re-applies the blocked state on wake (see `SystemPowerMonitor`).
 ///
 /// Not internally synchronized: `HelperXPCService` serializes every call under a lock.
 final class SleepBlocker {
-    private(set) var isBlocked = false
-
-    private var assertionID: IOPMAssertionID = 0
-
+    private let policy: SleepBlockPolicy
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
+    var isBlocked: Bool { policy.isBlocked }
+
     init() {
-        // Recover from a prior instance that crashed while blocking: `disablesleep` persists
-        // across process death (and reboot) until explicitly cleared.
         log.notice("init — clearing any stale disablesleep state from a prior instance")
-        do {
-            try setSleepDisabled(false)
-            log.notice("init — disablesleep 0 (crash-recovery clear) ok")
-        } catch {
-            log.error("init — disablesleep clear failed: \(error.localizedDescription, privacy: .public)")
-        }
+        // SleepBlockPolicy clears any stale clamshell block on construction (crash recovery).
+        policy = SleepBlockPolicy(idle: RealIdleAssertion(), clamshell: PMSetClamshellControl())
     }
 
     func set(blocked: Bool) throws {
-        // Intentionally not short-circuited on `blocked == isBlocked`: a repeated `set(true)`
-        // re-asserts disablesleep, which the daemon relies on to recover after a wake
-        // transition. Every step below is idempotent.
         log.notice("set(blocked: \(blocked, privacy: .public)) — was \(self.isBlocked, privacy: .public)")
-        if blocked { try applyBlock() } else { applyUnblock() }
-        isBlocked = blocked
+        try policy.set(blocked: blocked)
         log.notice("set complete — isBlocked=\(self.isBlocked, privacy: .public)")
     }
+}
 
-    // MARK: - Compose
+/// The standard, reference-counted idle-sleep assertion. `acquire()` is idempotent — a second call
+/// while already held is a no-op (`SleepBlockPolicy` relies on this for wake re-assertion).
+private final class RealIdleAssertion: IdleSleepAsserting {
+    private var assertionID: IOPMAssertionID = 0
+    private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
-    private func applyBlock() throws {
-        ensureIdleAssertion()
-        try setSleepDisabled(true)
-        log.notice("applyBlock — disablesleep set (blocks idle + clamshell sleep)")
-    }
+    var isHeld: Bool { assertionID != 0 }
 
-    private func applyUnblock() {
-        releaseIdleAssertion()
-        do {
-            try setSleepDisabled(false)
-            log.notice("applyUnblock — released idle assertion; disablesleep cleared")
-        } catch {
-            log.error("applyUnblock — disablesleep clear failed: \(error.localizedDescription, privacy: .public)")
+    func acquire() {
+        guard assertionID == 0 else {
+            log.debug("ensureIdleAssertion — already held (id=\(self.assertionID))")
+            return
         }
-    }
-
-    // MARK: - Idle system sleep (public assertion)
-
-    private func ensureIdleAssertion() {
-        guard assertionID == 0 else { log.debug("ensureIdleAssertion — already held (id=\(self.assertionID))"); return }
         let kr = IOPMAssertionCreateWithName(
             kIOPMAssertPreventUserIdleSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
@@ -101,19 +84,24 @@ final class SleepBlocker {
         }
     }
 
-    private func releaseIdleAssertion() {
+    func release() {
         guard assertionID != 0 else { return }
         IOPMAssertionRelease(assertionID)
         log.notice("releaseIdleAssertion — released id=\(self.assertionID)")
         assertionID = 0
     }
+}
 
-    // MARK: - Clamshell sleep (global SleepDisabled via pmset)
+/// Clamshell (lid-closed) sleep via the global `SleepDisabled` setting, applied with
+/// `pmset -a disablesleep`. Throws if `pmset` exits non-zero (surfaced to the daemon over XPC on
+/// block; best-effort on unblock).
+private final class PMSetClamshellControl: ClamshellSleepControlling {
+    private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
-    private func setSleepDisabled(_ disable: Bool) throws {
+    func setDisabled(_ disabled: Bool) throws {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        task.arguments = ["-a", "disablesleep", disable ? "1" : "0"]
+        task.arguments = ["-a", "disablesleep", disabled ? "1" : "0"]
 
         let errPipe = Pipe()
         task.standardError = errPipe
@@ -121,7 +109,7 @@ final class SleepBlocker {
 
         try task.run()
         task.waitUntilExit()
-        log.notice("pmset -a disablesleep \(disable ? "1" : "0", privacy: .public) exited \(task.terminationStatus, privacy: .public)")
+        log.notice("pmset -a disablesleep \(disabled ? "1" : "0", privacy: .public) exited \(task.terminationStatus, privacy: .public)")
 
         guard task.terminationStatus == 0 else {
             let err = errPipe.fileHandleForReading.readDataToEndOfFile()

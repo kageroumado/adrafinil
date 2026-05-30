@@ -153,17 +153,22 @@ final class Daemon {
                 self.eventLog.append(closed ? .lidClosed : .lidOpened)
                 self.thermalMonitor.lidClosed = closed
                 if closed {
-                    if await self.registry.isBlocking {
-                        if self.settings.soundOnLidClose {
-                            self.chimePlayer.playLidCloseChime(volume: self.settings.soundVolume,
-                                                               chimeName: self.settings.chimeName)
-                        }
-                        // Secure the kept-awake machine: lock the screen on lid close. Explicit
-                        // lock works even when an idle-lock-prevention assertion is held, and the
-                        // system stays awake (disablesleep) so the agent keeps running.
-                        if self.settings.lockOnLidClose {
-                            self.screenLocker.lock()
-                        }
+                    let decision = LidActionDecider().onLidClose(
+                        isBlocking: await self.registry.isBlocking,
+                        lockOnLidClose: self.settings.lockOnLidClose,
+                        soundOnLidClose: self.settings.soundOnLidClose
+                    )
+                    if decision.shouldChime {
+                        self.chimePlayer.playLidCloseChime(volume: self.settings.soundVolume,
+                                                           chimeName: self.settings.chimeName)
+                    }
+                    // Secure the kept-awake machine: lock the screen on lid close. Explicit lock
+                    // works even when an idle-lock-prevention assertion is held, and the system
+                    // stays awake (disablesleep) so the agent keeps running.
+                    if decision.shouldLock {
+                        self.screenLocker.lock()
+                    }
+                    if decision.shouldBeginAwayTracking {
                         self.beginAwayTracking(snapshot: await self.registry.snapshot())
                     }
                 } else {
@@ -268,25 +273,21 @@ final class Daemon {
         }
         let openedAt = Date()
         let activeTools = Set(await registry.snapshot().map(\.tool))
-        var finished: [FinishedAgentSummary] = []
-        var stillActive: [FinishedAgentSummary] = []
-        for held in heldAtClose {
-            let item = FinishedAgentSummary(
-                tool: held.tool,
-                displayName: held.displayName,
-                duration: openedAt.timeIntervalSince(held.acquiredAt)
-            )
-            if activeTools.contains(held.tool) { stillActive.append(item) } else { finished.append(item) }
+        let held = heldAtClose.map {
+            AwaySummaryBuilder.HeldAgent(tool: $0.tool, displayName: $0.displayName, acquiredAt: $0.acquiredAt)
         }
-        pendingAwaySummary = AwaySummary(
+        let summary = AwaySummaryBuilder().build(
+            heldAtClose: held,
+            activeTools: activeTools,
             closedAt: closedAt,
             openedAt: openedAt,
-            finished: finished,
-            stillActive: stillActive,
             peakTemperatureCelsius: peakTempWhileClosed,
             thermalCutout: thermalCutoutWhileClosed
         )
-        log.info("Away summary: \(finished.count) finished, \(stillActive.count) still active")
+        pendingAwaySummary = summary
+        if let summary {
+            log.info("Away summary: \(summary.finished.count) finished, \(summary.stillActive.count) still active")
+        }
         lidClosedAt = nil
         heldAtClose = []
     }

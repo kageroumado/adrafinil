@@ -40,11 +40,16 @@ final class ThermalMonitor {
         lastReadingCelsius = temp
         onReading?(temp)
 
-        // Only cut out while we are actively keeping the Mac awake with the lid closed.
-        guard enabled, lidClosed, isBlocking else { return }
-        if temp >= thresholdCelsius {
-            log.warning("Thermal cutout: \(temp)°C >= \(self.thresholdCelsius)°C")
-            onCutout?()
-        }
+        // Only cut out while we are actively keeping the Mac awake with the lid closed (the gate
+        // lives in AdrafinilShared, where it is unit-tested).
+        guard ThermalCutoutEvaluator().shouldCutout(
+            temperatureCelsius: temp,
+            thresholdCelsius: thresholdCelsius,
+            enabled: enabled,
+            lidClosed: lidClosed,
+            isBlocking: isBlocking
+        ) else { return }
+        log.warning("Thermal cutout: \(temp)°C >= \(self.thresholdCelsius)°C")
+        onCutout?()
     }
 }
