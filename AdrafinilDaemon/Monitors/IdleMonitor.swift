@@ -24,8 +24,11 @@ final class IdleMonitor {
     var onIdleRelease: (([String]) -> Void)?
 
     private var timer: Timer?
-    private var lastCpuTime: [pid_t: TimeInterval] = [:]
-    private var lastCpuChange: [pid_t: Date] = [:]
+
+    /// The release decision (backstop / dead-PID / CPU-idle / TTL) lives in AdrafinilShared, where
+    /// it is unit-tested with simulated process probes. The evaluator holds the cross-sweep CPU
+    /// bookkeeping; this monitor supplies the real `kill`/`proc_pidinfo` probes and the timer.
+    private let evaluator = IdleReleaseEvaluator()
 
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -35,47 +38,26 @@ final class IdleMonitor {
 
     private func sweep() async {
         guard let assertions = await assertionSource?() else { return }
-        var toRelease: [String] = []
-        let now = Date()
-        let threshold = TimeInterval(idleThresholdMinutes * 60)
+        let config = IdleReleaseEvaluator.Config(
+            enabled: enabled,
+            idleThresholdMinutes: idleThresholdMinutes,
+            maxAssertionAgeHours: maxAssertionAgeHours
+        )
+        let releases = evaluator.evaluate(
+            assertions: assertions,
+            now: Date(),
+            config: config,
+            pidAlive: { self.pidExists($0) },
+            cpuTime: { self.cpuTime(pid: $0) }
+        )
+        guard !releases.isEmpty else { return }
 
-        let maxAge = maxAssertionAgeHours * 3600
-        for a in assertions {
-            // Safety backstop: a too-old assertion is a leak (unresolved PID + missed end hook).
-            // Applies regardless of `enabled` or PID, so nothing can pin sleep indefinitely.
-            if maxAge > 0, a.age > maxAge {
-                log.warning("Backstop-releasing assertion '\(a.key, privacy: .public)' — age \(Int(a.age / 3600), privacy: .public)h exceeds cap (likely a leaked session; pid=\(a.pid, privacy: .public))")
-                toRelease.append(a.key)
-                continue
-            }
-            // Dead process → release.
-            if a.pid > 0 && !pidExists(a.pid) {
-                toRelease.append(a.key)
-                continue
-            }
-            // CPU idle check (user-tunable policy — only when enabled).
-            if enabled, a.pid > 0, let cpu = cpuTime(pid: a.pid) {
-                let prev = lastCpuTime[a.pid] ?? cpu
-                if abs(cpu - prev) > 0.01 {
-                    lastCpuChange[a.pid] = now
-                    lastCpuTime[a.pid] = cpu
-                } else {
-                    let lastChange = lastCpuChange[a.pid] ?? a.acquiredAt
-                    if now.timeIntervalSince(lastChange) > threshold {
-                        toRelease.append(a.key)
-                    }
-                }
-            }
-            // TTL check.
-            if let exp = a.expiresAt, exp < now {
-                toRelease.append(a.key)
-            }
+        for r in releases where r.reason == .maxAgeBackstop {
+            log.warning("Backstop-releasing assertion '\(r.key, privacy: .public)' — exceeds max-age cap (likely a leaked session with an unresolved PID and a missed end hook)")
         }
-
-        if !toRelease.isEmpty {
-            log.info("Idle-releasing \(toRelease.count) assertions")
-            onIdleRelease?(toRelease)
-        }
+        let keys = Array(Set(releases.map(\.key)))
+        log.info("Idle-releasing \(keys.count, privacy: .public) assertions")
+        onIdleRelease?(keys)
     }
 
     private func pidExists(_ pid: pid_t) -> Bool {
