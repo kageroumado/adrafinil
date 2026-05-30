@@ -7,7 +7,10 @@ private let cliLog = Logger(subsystem: AdrafinilConstants.appBundleID, category:
 enum AcquireCommand {
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
-        guard let key = parser.positional(0) else {
+        // Prefer the session id from the hook's stdin JSON over the positional arg (which is a
+        // shell env-var expansion in the hook command, fragile across agents). Falls back to the
+        // positional when stdin has none (manual invocation, or an agent that doesn't pipe JSON).
+        guard let key = CLIStdin.sessionID() ?? parser.positional(0) else {
             FileHandle.standardError.write(Data("acquire: requires <session-key>\n".utf8))
             exit(2)
         }
