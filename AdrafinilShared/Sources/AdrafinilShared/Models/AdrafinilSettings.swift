@@ -12,6 +12,12 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var thermalCutoutEnabled: Bool = true
     public var thermalThresholdCelsius: Double = 80.0
 
+    /// Force-release all assertions when, on battery with the lid closed, the charge falls to or
+    /// below this percentage — so a kept-awake Mac can sleep normally instead of draining to a
+    /// hard shutdown in a bag (the battery sibling of the thermal cutout).
+    public var lowBatteryCutoutEnabled: Bool = true
+    public var lowBatteryThresholdPercent: Int = 20
+
     public var idleReleaseEnabled: Bool = true
     public var idleReleaseMinutes: Int = 5
 
@@ -26,6 +32,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case soundOnLidClose, soundVolume, chimeName, lockOnLidClose
         case thermalCutoutEnabled, thermalThresholdCelsius
+        case lowBatteryCutoutEnabled, lowBatteryThresholdPercent
         case idleReleaseEnabled, idleReleaseMinutes
         case processSniffingEnabled, autoAcquireForKnownAgents
         case launchAtLogin, showInMenuBar
@@ -44,6 +51,8 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         lockOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose) ?? d.lockOnLidClose
         thermalCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .thermalCutoutEnabled) ?? d.thermalCutoutEnabled
         thermalThresholdCelsius = try c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius) ?? d.thermalThresholdCelsius
+        lowBatteryCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .lowBatteryCutoutEnabled) ?? d.lowBatteryCutoutEnabled
+        lowBatteryThresholdPercent = try c.decodeIfPresent(Int.self, forKey: .lowBatteryThresholdPercent) ?? d.lowBatteryThresholdPercent
         idleReleaseEnabled = try c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled) ?? d.idleReleaseEnabled
         idleReleaseMinutes = try c.decodeIfPresent(Int.self, forKey: .idleReleaseMinutes) ?? d.idleReleaseMinutes
         processSniffingEnabled = try c.decodeIfPresent(Bool.self, forKey: .processSniffingEnabled) ?? d.processSniffingEnabled

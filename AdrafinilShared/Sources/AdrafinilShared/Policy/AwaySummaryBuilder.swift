@@ -28,7 +28,8 @@ public struct AwaySummaryBuilder {
         closedAt: Date,
         openedAt: Date,
         peakTemperatureCelsius: Double?,
-        thermalCutout: Bool
+        thermalCutout: Bool,
+        lowBatteryCutout: Bool = false
     ) -> AwaySummary? {
         guard !heldAtClose.isEmpty else { return nil }
 
@@ -53,7 +54,8 @@ public struct AwaySummaryBuilder {
             finished: finished,
             stillActive: stillActive,
             peakTemperatureCelsius: peakTemperatureCelsius,
-            thermalCutout: thermalCutout
+            thermalCutout: thermalCutout,
+            lowBatteryCutout: lowBatteryCutout
         )
     }
 }

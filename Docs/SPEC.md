@@ -29,6 +29,7 @@ Open source, MIT.
 - **G5**: Audio feedback at lid-close when an assertion is held (no notifications — screen is off).
 - **G6**: Thermal cutout — force-release all assertions if CPU temperature crosses threshold while clamshell.
 - **G7**: Idle release — drop assertions whose owning process is dead or has been CPU-idle for N minutes.
+- **G8**: Low-battery cutout — force-release all assertions if, on battery with the lid closed, charge falls to/under threshold.
 - **G8**: Clean uninstall that removes hook entries from every agent's config.
 
 ### Non-goals
@@ -254,6 +255,15 @@ When the lid transitions closed → open AND any assertion was held during the c
 
 The private clamshell-disable bit (§4) can be reset by the kernel across a sleep/wake cycle. The daemon registers for system power notifications (`IORegisterForSystemPower`) and, on `kIOMessageSystemHasPoweredOn`, re-pushes the current blocking state to the helper so it re-applies the bit. The helper's `set` is idempotent and re-asserts the clamshell bit on every blocking call, so this is a no-op when nothing was lost and a repair when it was.
 
+### 6.6 Low-battery cutout
+
+The battery sibling of the thermal cutout (§6.3): `disablesleep` blocks the global sleep flag, so a kept-awake Mac left lid-closed in a bag on battery would otherwise drain to a hard shutdown. While **on battery** AND the lid is closed AND at least one assertion is held, the daemon polls the power source every 30s (`IOPSCopyPowerSourcesInfo`, internal battery only):
+
+- Threshold: 20% default (configurable, 5–50%).
+- On crossing (charge ≤ threshold): release **all** assertions, log a `lowBatteryCutout` event, set the helper to allow sleep, and record a "low-battery cutout" entry for the lid-open summary — so normal low-power sleep takes over with charge to spare.
+
+On AC power there is no drain risk, so the cutout never fires regardless of charge. The decision lives in `LowBatteryCutoutEvaluator` (AdrafinilShared, unit-tested).
+
 ---
 
 ## 7. UX
@@ -264,7 +274,7 @@ Icon states:
 
 - **Idle** (no assertions): grayscale outlined moon icon.
 - **Active** (≥1 assertion): filled colored sun icon, optionally badged with the assertion count.
-- **Thermal cutout** (last 30s after trigger): red exclamation, reverts to idle after 30s.
+- **Cutout** (last 30s after trigger): red icon — exclamation for thermal (§6.3), battery for low-battery (§6.6) — reverts to idle after 30s.
 
 Click → popover:
 

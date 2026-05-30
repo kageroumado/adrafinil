@@ -17,6 +17,7 @@ final class Daemon {
     let processWatcher = ProcessWatcher()
     let idleMonitor = IdleMonitor()
     let thermalMonitor = ThermalMonitor()
+    let batteryMonitor = BatteryMonitor()
     let chimePlayer = ChimePlayer()
     let screenLocker = ScreenLocker()
     let systemPowerMonitor = SystemPowerMonitor()
@@ -32,6 +33,7 @@ final class Daemon {
     private var heldAtClose: [(tool: String, displayName: String, acquiredAt: Date)] = []
     private var peakTempWhileClosed: Double?
     private var thermalCutoutWhileClosed = false
+    private var lowBatteryCutoutWhileClosed = false
     private var pendingAwaySummary: AwaySummary?
 
     func start() async {
@@ -58,6 +60,8 @@ final class Daemon {
         let blocking = await registry.isBlocking
         thermalMonitor.isBlocking = blocking
         thermalMonitor.lidClosed = lidMonitor.isLidClosed
+        batteryMonitor.isBlocking = blocking
+        batteryMonitor.lidClosed = lidMonitor.isLidClosed
         for a in await registry.snapshot() where a.pid > 0 { processWatcher.watch(pid: a.pid) }
         await syncHelperToRegistry()
 
@@ -95,6 +99,10 @@ final class Daemon {
     func handleForceReleaseAll() async {
         await registry.removeAll()
         await persistAndSync(event: .released)
+        // Push the unblock to the helper synchronously (rather than only via the edge-triggered
+        // blocking stream) and await the round-trip, so callers that force-release before tearing
+        // the helper down — notably uninstall — are guaranteed `disablesleep` is cleared first.
+        await syncHelperToRegistry()
     }
 
     func currentStatus() async -> DaemonStatus {
@@ -122,6 +130,8 @@ final class Daemon {
         idleMonitor.enabled = settings.idleReleaseEnabled
         thermalMonitor.thresholdCelsius = settings.thermalThresholdCelsius
         thermalMonitor.enabled = settings.thermalCutoutEnabled
+        batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
+        batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
     }
 
     // MARK: - Internal
@@ -134,6 +144,7 @@ final class Daemon {
             guard let self else { return }
             for await blocking in self.registry.blockingStateChanges {
                 self.thermalMonitor.isBlocking = blocking
+                self.batteryMonitor.isBlocking = blocking
                 await self.helperClient.setBlocked(blocking)
             }
         }
@@ -152,6 +163,7 @@ final class Daemon {
             Task { @MainActor in
                 self.eventLog.append(closed ? .lidClosed : .lidOpened)
                 self.thermalMonitor.lidClosed = closed
+                self.batteryMonitor.lidClosed = closed
                 if closed {
                     let decision = LidActionDecider().onLidClose(
                         isBlocking: await self.registry.isBlocking,
@@ -222,6 +234,19 @@ final class Daemon {
             }
         }
         thermalMonitor.start()
+
+        batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
+        batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
+        batteryMonitor.onCutout = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.log.warning("Low-battery cutout triggered — releasing all assertions")
+                if self.lidClosedAt != nil { self.lowBatteryCutoutWhileClosed = true }
+                await self.registry.removeAll()
+                await self.persistAndSync(event: .lowBatteryCutout)
+            }
+        }
+        batteryMonitor.start()
     }
 
     /// Periodic safety-net sweep (SPEC §5.4): re-arms exit-watching for every held assertion
@@ -263,6 +288,7 @@ final class Daemon {
         }
         peakTempWhileClosed = thermalMonitor.lastReadingCelsius
         thermalCutoutWhileClosed = false
+        lowBatteryCutoutWhileClosed = false
     }
 
     private func finishAwayTracking() async {
@@ -282,7 +308,8 @@ final class Daemon {
             closedAt: closedAt,
             openedAt: openedAt,
             peakTemperatureCelsius: peakTempWhileClosed,
-            thermalCutout: thermalCutoutWhileClosed
+            thermalCutout: thermalCutoutWhileClosed,
+            lowBatteryCutout: lowBatteryCutoutWhileClosed
         )
         pendingAwaySummary = summary
         if let summary {

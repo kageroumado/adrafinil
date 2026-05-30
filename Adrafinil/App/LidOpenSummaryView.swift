@@ -55,6 +55,15 @@ struct LidOpenSummaryView: View {
                 }
             }
 
+            if summary.lowBatteryCutout {
+                HStack(spacing: 6) {
+                    Image(systemName: "battery.25percent")
+                        .foregroundStyle(.red)
+                    Text("Low-battery cutout occurred")
+                        .foregroundStyle(.red)
+                }
+            }
+
             Divider()
 
             HStack {

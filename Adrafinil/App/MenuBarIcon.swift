@@ -5,10 +5,10 @@ import AdrafinilShared
 ///
 /// - **Idle** — grayscale outlined moon, no badge.
 /// - **Active** — orange/yellow filled sun, with a count badge when count > 1.
-/// - **Thermal cutout** — red exclamation triangle, shown for 30 s after the event,
-///   then auto-reverts to idle. The revert is driven by a `Task` that sleeps until
-///   the 30-second boundary, ensuring the icon updates without waiting for the
-///   next 2-second status poll.
+/// - **Cutout** — a red warning icon shown for 30 s after a thermal (exclamation
+///   triangle) or low-battery (battery) cutout event, then auto-reverts to idle. The
+///   revert is driven by a `Task` that sleeps until the 30-second boundary, ensuring
+///   the icon updates without waiting for the next 2-second status poll.
 struct MenuBarIcon: View {
     let status: AppStatusModel
 
@@ -42,9 +42,14 @@ struct MenuBarIcon: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .symbolRenderingMode(.monochrome)
                     .foregroundStyle(Color.red)
+
+            case .lowBatteryCutout:
+                Image(systemName: "battery.25percent")
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(Color.red)
             }
         }
-        .task(id: thermalTaskID) {
+        .task(id: cutoutTaskID) {
             await scheduleRevert()
         }
     }
@@ -55,6 +60,7 @@ struct MenuBarIcon: View {
         case idle
         case active(count: Int)
         case thermalCutout
+        case lowBatteryCutout
     }
 
     /// Reads `revertTick` so that bumping it in `scheduleRevert` triggers a body re-evaluation.
@@ -62,10 +68,9 @@ struct MenuBarIcon: View {
         _ = revertTick
         guard let s = status.status else { return .idle }
 
-        if s.lastEvent == .thermalCutout,
-           let at = s.lastEventAt,
-           Date().timeIntervalSince(at) < 30 {
-            return .thermalCutout
+        if let at = s.lastEventAt, Date().timeIntervalSince(at) < 30 {
+            if s.lastEvent == .thermalCutout { return .thermalCutout }
+            if s.lastEvent == .lowBatteryCutout { return .lowBatteryCutout }
         }
 
         if s.isBlocking {
@@ -77,20 +82,25 @@ struct MenuBarIcon: View {
 
     // MARK: - Revert task
 
+    /// True for the cutout events that get the transient red icon.
+    private static func isCutout(_ event: DaemonEvent?) -> Bool {
+        event == .thermalCutout || event == .lowBatteryCutout
+    }
+
     /// A stable identity for the `.task(id:)` modifier; changes only when a fresh
-    /// thermal-cutout event arrives (new `lastEventAt` timestamp).
-    private var thermalTaskID: Date {
-        guard status.status?.lastEvent == .thermalCutout,
+    /// cutout event arrives (new `lastEventAt` timestamp).
+    private var cutoutTaskID: Date {
+        guard Self.isCutout(status.status?.lastEvent),
               let at = status.status?.lastEventAt else { return .distantPast }
         return at
     }
 
-    /// Sleeps until the 30-second thermal-cutout window expires, then bumps
-    /// `revertTick` to force a re-render. Cancelled automatically if a new
-    /// `thermalTaskID` value arrives (via the `.task(id:)` identity mechanism).
+    /// Sleeps until the 30-second cutout window expires, then bumps `revertTick` to force a
+    /// re-render. Cancelled automatically if a new `cutoutTaskID` value arrives (via the
+    /// `.task(id:)` identity mechanism).
     @MainActor
     private func scheduleRevert() async {
-        guard status.status?.lastEvent == .thermalCutout,
+        guard Self.isCutout(status.status?.lastEvent),
               let at = status.status?.lastEventAt else { return }
         let remaining = max(0, 30.05 - Date().timeIntervalSince(at))
         guard remaining > 0 else { return }

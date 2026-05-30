@@ -49,4 +49,15 @@ struct AwaySummaryBuilderTests {
         #expect(summary.peakTemperatureCelsius == 88.5)
         #expect(summary.thermalCutout)
     }
+
+    @Test("low-battery cutout flag passes through")
+    func passesThroughLowBatteryCutout() throws {
+        let summary = try #require(builder.build(
+            heldAtClose: [held("claude-code", acquiredAgoBeforeClose: 0)],
+            activeTools: [], closedAt: closed, openedAt: opened,
+            peakTemperatureCelsius: nil, thermalCutout: false, lowBatteryCutout: true
+        ))
+        #expect(summary.lowBatteryCutout)
+        #expect(!summary.thermalCutout)
+    }
 }

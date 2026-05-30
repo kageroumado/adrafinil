@@ -90,6 +90,8 @@ public struct AwaySummary: Codable, Sendable {
     public let stillActive: [FinishedAgentSummary]
     public let peakTemperatureCelsius: Double?
     public let thermalCutout: Bool
+    /// Whether the low-battery cutout fired while the lid was closed.
+    public let lowBatteryCutout: Bool
 
     public var awayDuration: TimeInterval { openedAt.timeIntervalSince(closedAt) }
 
@@ -99,7 +101,8 @@ public struct AwaySummary: Codable, Sendable {
         finished: [FinishedAgentSummary],
         stillActive: [FinishedAgentSummary],
         peakTemperatureCelsius: Double?,
-        thermalCutout: Bool
+        thermalCutout: Bool,
+        lowBatteryCutout: Bool = false
     ) {
         self.closedAt = closedAt
         self.openedAt = openedAt
@@ -107,6 +110,7 @@ public struct AwaySummary: Codable, Sendable {
         self.stillActive = stillActive
         self.peakTemperatureCelsius = peakTemperatureCelsius
         self.thermalCutout = thermalCutout
+        self.lowBatteryCutout = lowBatteryCutout
     }
 }
 
@@ -114,6 +118,7 @@ public enum DaemonEvent: String, Codable, Sendable {
     case acquired
     case released
     case thermalCutout
+    case lowBatteryCutout
     case idleRelease
     case lidClosed
     case lidOpened

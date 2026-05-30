@@ -257,6 +257,22 @@ struct SafetySettingsTab: View {
                 .disabled(!settings.thermalCutoutEnabled)
             }
 
+            Section("Low-battery cutout") {
+                Toggle("Force sleep if battery falls below threshold (on battery, while lid closed)",
+                       isOn: $settings.lowBatteryCutoutEnabled)
+                HStack {
+                    Text("Threshold")
+                    Slider(value: Binding(
+                        get: { Double(settings.lowBatteryThresholdPercent) },
+                        set: { settings.lowBatteryThresholdPercent = Int($0) }
+                    ), in: 5...50, step: 1)
+                    Text("\(settings.lowBatteryThresholdPercent)%")
+                        .monospacedDigit()
+                        .frame(width: 50, alignment: .trailing)
+                }
+                .disabled(!settings.lowBatteryCutoutEnabled)
+            }
+
             Section("Idle release") {
                 Toggle("Release assertions for processes with no recent activity",
                        isOn: $settings.idleReleaseEnabled)
@@ -331,20 +347,29 @@ struct AboutTab: View {
     }
 
     private func performUninstall() {
-        let installer = HookInstaller(
-            cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil"
-        )
-        for kind in AgentKind.allCases {
-            try? installer.uninstall(for: kind)
+        Task {
+            // Clear the sleep block *before* tearing down the helper. `disablesleep` persists in the
+            // power-management prefs (com.apple.PowerManagement.plist) and nothing in powerd clears
+            // it on the setter's death — so once the helper is unregistered, a still-set block would
+            // leave the Mac unable to sleep with no component left to fix it. forceReleaseAll drives
+            // the helper to clear it and awaits that round-trip.
+            try? await DaemonClient().forceReleaseAll()
+
+            let installer = HookInstaller(
+                cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil"
+            )
+            for kind in AgentKind.allCases {
+                try? installer.uninstall(for: kind)
+            }
+
+            try? await SMAppService.daemon(plistName: "LaunchDaemon.plist").unregister()
+            try? await SMAppService.agent(plistName: "LaunchAgent.plist").unregister()
+
+            if let path = CLISymlinker.installedCLIPath {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+
+            NSApp.terminate(nil)
         }
-
-        try? SMAppService.daemon(plistName: "LaunchDaemon.plist").unregister()
-        try? SMAppService.agent(plistName: "LaunchAgent.plist").unregister()
-
-        if let path = CLISymlinker.installedCLIPath {
-            try? FileManager.default.removeItem(atPath: path)
-        }
-
-        NSApp.terminate(nil)
     }
 }
