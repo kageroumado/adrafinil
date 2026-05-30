@@ -128,17 +128,16 @@ The daemon does not directly detect agents. The CLI (`adrafinil acquire <session
 
 ### 5.2 Tier-1 agents (full hook support, identical install pattern)
 
-These five tools support shell-command hooks with JSON config and `SessionStart` + a session-end-equivalent event. The installer GUI writes to all five:
+These four tools support shell-command hooks with JSON config and `SessionStart` + (mostly) a session-end-equivalent event. The installer GUI writes to all four:
 
 | Tool | Config path | Start event | End event |
 |------|-------------|-------------|-----------|
 | Claude Code | `~/.claude/settings.json` | `SessionStart` | `SessionEnd` |
-| Codex | `~/.codex/hooks.json` | `SessionStart` (interactive only; see §5.5) | — (process-exit) |
+| Codex | `~/.codex/hooks.json` | `SessionStart` | — (process-exit; `Stop` is per-turn, see §5.5) |
 | Cursor | `~/.cursor/hooks.json` | `sessionStart` | `sessionEnd` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
-| Goose | `~/.agents/plugins/adrafinil/hooks/hooks.json` | `SessionStart` | `SessionEnd` |
 
-Hook entry pattern (Claude/Codex/Gemini/Goose share this shape):
+**Session id comes from the hook's stdin `session_id`**, read by `CLIStdin`. The hook command carries no positional key for Codex/Cursor/Gemini (those expose no session-id env var); only **Claude Code** also sets a real env var (`CLAUDE_CODE_SESSION_ID`). Hook entry pattern (Claude/Codex/Gemini share this nested shape):
 
 ```json
 {
@@ -149,7 +148,7 @@ Hook entry pattern (Claude/Codex/Gemini/Goose share this shape):
 }
 ```
 
-Cursor's schema differs (`{"command": "..."}` rather than nested `hooks`). The installer writes the right shape per tool.
+Cursor's schema differs (flat `{"command": "..."}` rather than nested `hooks`). The installer writes the right shape per tool.
 
 ### 5.3 Tier-2 agents (partial / non-trivial integration)
 
@@ -157,17 +156,18 @@ Cursor's schema differs (`{"command": "..."}` rather than nested `hooks`). The i
 |------|----------|
 | Crush | Only `PreToolUse` exists. Use it to call `adrafinil acquire`; rely on the process-exit watcher for release. Config: `~/.config/crush/crush.json`. |
 | Aider | No hooks. Installs a shell alias in `~/.zshrc`/`~/.bashrc` (opt-in) that wraps `aider` with acquire/release. |
-| Hermes | Generates a Python plugin at `~/.hermes/plugins/adrafinil/adrafinil.py` that subprocess-calls the CLI. |
-| OpenCode | Generates a TypeScript plugin at `~/.config/opencode/plugins/adrafinil.ts`. |
-| Cline | Shell-alias wrapper in `~/.zshrc` (SDK plugin would require a user-side TypeScript build). |
+| Hermes | Generates a Python plugin at `~/.hermes/plugins/adrafinil/` (`__init__.py` + mandatory `plugin.yaml`); the session id is a callback `session_id` kwarg. Plugins are opt-in, so it also enables `adrafinil` in `~/.hermes/config.yaml`. |
+| OpenCode | TS plugin at `~/.config/opencode/plugins/adrafinil.ts`. Acquire on `session.created` (id = `event.properties.info.id`); release via the process-exit watcher (`session.idle` is per-turn). |
+| Cline | Shell-alias wrapper in `~/.zshrc`. (Limited: misses in-editor VS Code sessions — Cline's native `~/Documents/Cline/Rules/Hooks/` would be the proper path.) |
+| Pi | TS extension at `~/.pi/agent/extensions/adrafinil.ts`; `pi.on("session_start"/"session_shutdown")`. |
 
 ### 5.4 Fallback: process sniffing
 
 The daemon maps known agent binary names to their `AgentKind` (`AgentKind.byBinaryName`):
 
 ```
-claude, codex, cursor, Cursor, gemini, goose, goose-cli,
-crush, aider, hermes, opencode, cline
+claude, codex, cursor, Cursor, gemini,
+crush, aider, hermes, opencode, cline, pi
 ```
 
 A kqueue watcher fires `NOTE_EXIT` on watched PIDs; a periodic sweep (every 30s) catches anything launched between events and re-arms watches. This serves two purposes:

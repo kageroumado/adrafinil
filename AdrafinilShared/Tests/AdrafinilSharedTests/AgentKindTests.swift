@@ -17,8 +17,8 @@ struct AgentKindTests {
     }
 
     @Test func tierClassificationCoversAllAgents() {
-        let tier1: Set<AgentKind> = [.claudeCode, .codex, .cursor, .geminiCLI, .goose]
-        let tier2: Set<AgentKind> = [.crush, .aider, .hermes, .openCode, .cline]
+        let tier1: Set<AgentKind> = [.claudeCode, .codex, .cursor, .geminiCLI]
+        let tier2: Set<AgentKind> = [.crush, .aider, .hermes, .openCode, .cline, .pi]
         #expect(tier1.union(tier2) == Set(AgentKind.allCases))
         for k in tier1 { #expect(k.tier == 1, "\(k) should be tier 1") }
         for k in tier2 { #expect(k.tier == 2, "\(k) should be tier 2") }
@@ -51,7 +51,7 @@ struct AgentKindTests {
         #expect(allNames.contains("claude"))
         #expect(allNames.contains("codex"))
         #expect(allNames.contains("aider"))
-        #expect(allNames.contains("goose"))
+        #expect(allNames.contains("pi"))
         #expect(allNames.contains("opencode"))
     }
 

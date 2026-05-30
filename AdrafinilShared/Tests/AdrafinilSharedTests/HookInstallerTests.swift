@@ -57,7 +57,7 @@ struct HookInstallerTests {
         #expect(hooks["SessionEnd"] != nil)
     }
 
-    @Test func installCodexWritesSessionStartOnlyWithThreadIdVar() throws {
+    @Test func installCodexWritesSessionStartOnlyAndSourcesIdFromStdin() throws {
         let home = try makeFakeHome(detectedDirs: [".codex"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -72,11 +72,58 @@ struct HookInstallerTests {
         #expect(hooks["Stop"] == nil, "Stop is per-turn, not session-end — must not be used for release")
         #expect(hooks["SessionEnd"] == nil)
 
-        // Session id comes from $CODEX_THREAD_ID (no $CODEX_SESSION_ID exists in Codex).
+        // Codex exposes no session-id env var — the id comes from stdin `session_id`, so the
+        // command carries no `$…` positional and definitely no fictional $CODEX_THREAD_ID.
         let start = try #require(hooks["SessionStart"] as? [[String: Any]])
         let cmd = try #require((start.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String)
-        #expect(cmd.contains("$CODEX_THREAD_ID"))
-        #expect(!cmd.contains("CODEX_SESSION_ID"))
+        #expect(!cmd.contains("CODEX_THREAD_ID"))
+        #expect(!cmd.contains("$"))
+        #expect(cmd.contains("acquire --tool codex"))
+    }
+
+    @Test func installPiWritesExtensionWithCorrectEvents() throws {
+        let home = try makeFakeHome(detectedDirs: [".pi"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .pi, dryRun: false)
+
+        let path = home.path + "/.pi/agent/extensions/adrafinil.ts"
+        let ts = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(ts.contains("session_start"))
+        #expect(ts.contains("session_shutdown"))
+        #expect(ts.contains("--tool"))
+        #expect(installer.installState(for: .pi) == .installed)
+    }
+
+    @Test func installOpenCodeUsesInfoIdAndNoIdleRelease() throws {
+        let home = try makeFakeHome(detectedDirs: [])
+        defer { try? FileManager.default.removeItem(at: home) }
+        // OpenCode is binary-detected; install via the spec directly to bypass the PATH gate.
+        let spec = HookSpec.for(agent: .openCode, cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try spec.install(dryRun: false)
+
+        let path = home.path + "/.config/opencode/plugins/adrafinil.ts"
+        let ts = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(ts.contains("event.properties.info.id"), "must use the correct session-id accessor")
+        #expect(!ts.contains("session.idle"), "must not release on the per-turn session.idle event")
+        #expect(ts.contains("session.created"))
+    }
+
+    @Test func installHermesWritesInitAndManifest() throws {
+        let home = try makeFakeHome(detectedDirs: [".hermes"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .hermes, dryRun: false)
+
+        let root = home.path + "/.hermes/plugins/adrafinil"
+        let initPy = try String(contentsOfFile: root + "/__init__.py", encoding: .utf8)
+        #expect(FileManager.default.fileExists(atPath: root + "/plugin.yaml"), "manifest is mandatory")
+        #expect(initPy.contains("def register(ctx)"))
+        #expect(initPy.contains("session_id"), "session id is a callback kwarg, not a shell var")
+        #expect(!initPy.contains("HERMES_SESSION_ID"), "the shell-var form does not work in a Python callback")
+        #expect(installer.installState(for: .hermes) == .installed)
     }
 
     @Test func installIsIdempotent() throws {

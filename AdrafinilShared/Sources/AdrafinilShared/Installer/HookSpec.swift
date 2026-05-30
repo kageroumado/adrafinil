@@ -2,12 +2,13 @@ import Foundation
 
 /// Per-agent integration shape — where to write, what to write, how to detect.
 ///
-/// The five tier-1 tools (Claude Code, Codex, Cursor, Gemini CLI, Goose) all share the
-/// same conceptual model: a single JSON file with a `hooks` dict keyed by event name,
-/// each value an array of hook entries. The shapes differ in nesting and in event names.
+/// The tier-1 tools (Claude Code, Codex, Cursor, Gemini CLI) share the same conceptual model: a
+/// single JSON file with a `hooks` dict keyed by event name, each value an array of hook entries.
+/// The shapes differ in nesting and event names. Their session id comes from the hook's stdin
+/// `session_id` (read by `CLIStdin`); only Claude Code also exposes an env var.
 ///
-/// Tier-2 tools (Crush limited hooks, Aider/Cline wrappers, Hermes Python plugin,
-/// OpenCode TS plugin) each get a bespoke install path.
+/// Tier-2 tools (Crush limited hooks, Aider/Cline shell wrappers, Hermes Python plugin,
+/// OpenCode and Pi TS plugins) each get a bespoke install path.
 struct HookSpec {
     let agent: AgentKind
     let cliPath: String
@@ -23,12 +24,12 @@ struct HookSpec {
         case .cursor:     return fm.fileExists(atPath: "\(homeRoot)/.cursor") ||
                                   fm.fileExists(atPath: "/Applications/Cursor.app")
         case .geminiCLI:  return fm.fileExists(atPath: "\(homeRoot)/.gemini")
-        case .goose:      return binaryOnPath("goose")
         case .crush:      return binaryOnPath("crush")
         case .aider:      return binaryOnPath("aider")
         case .hermes:     return fm.fileExists(atPath: "\(homeRoot)/.hermes")
         case .openCode:   return binaryOnPath("opencode")
         case .cline:      return binaryOnPath("cline")
+        case .pi:         return fm.fileExists(atPath: "\(homeRoot)/.pi")
         }
     }
 
@@ -38,7 +39,6 @@ struct HookSpec {
         case .codex:      return try installSharedJSONShape(.codex, dryRun: dryRun)
         case .cursor:     return try installCursorShape(dryRun: dryRun)
         case .geminiCLI:  return try installSharedJSONShape(.geminiCLI, dryRun: dryRun)
-        case .goose:      return try installGoosePlugin(dryRun: dryRun)
 
         case .crush:
             return try installCrushShape(dryRun: dryRun)
@@ -48,6 +48,8 @@ struct HookSpec {
             return try installHermesPlugin(dryRun: dryRun)
         case .openCode:
             return try installOpenCodePlugin(dryRun: dryRun)
+        case .pi:
+            return try installPiPlugin(dryRun: dryRun)
         }
     }
 
@@ -60,8 +62,10 @@ struct HookSpec {
             return try removeFromSharedJSONShape(agent, dryRun: dryRun)
         case .cursor:
             return try removeFromCursor(dryRun: dryRun)
-        case .goose, .hermes, .openCode:
+        case .hermes:
             return try removePluginFolder(dryRun: dryRun)
+        case .openCode, .pi:
+            return try removePluginFile(dryRun: dryRun)
         case .crush:
             return try removeFromCrushShape(dryRun: dryRun)
         case .aider, .cline:
@@ -76,11 +80,9 @@ struct HookSpec {
             return installStateForSharedJSONShape()
         case .cursor:
             return installStateForCursor()
-        case .goose:
-            return installStateForGoosePlugin()
         case .hermes:
             return installStateForFilePlugin(configPath)
-        case .openCode:
+        case .openCode, .pi:
             return installStateForFilePlugin(configPath)
         case .crush:
             return installStateForCrushShape()
@@ -97,10 +99,10 @@ struct HookSpec {
         case .codex:      return "\(homeRoot)/.codex/hooks.json"
         case .cursor:     return "\(homeRoot)/.cursor/hooks.json"
         case .geminiCLI:  return "\(homeRoot)/.gemini/settings.json"
-        case .goose:      return "\(pluginRoot)/hooks/hooks.json"
         case .crush:      return "\(homeRoot)/.config/crush/crush.json"
-        case .hermes:     return "\(pluginRoot)/adrafinil.py"
+        case .hermes:     return "\(pluginRoot)/__init__.py"
         case .openCode:   return "\(homeRoot)/.config/opencode/plugins/adrafinil.ts"
+        case .pi:         return "\(pluginRoot)/adrafinil.ts"
         case .aider, .cline:
             return "\(homeRoot)/.zshrc"
         }
@@ -108,9 +110,9 @@ struct HookSpec {
 
     private var pluginRoot: String {
         switch agent {
-        case .goose: return "\(homeRoot)/.agents/plugins/adrafinil"
         case .hermes: return "\(homeRoot)/.hermes/plugins/adrafinil"
         case .openCode: return "\(homeRoot)/.config/opencode/plugins"
+        case .pi: return "\(homeRoot)/.pi/agent/extensions"
         default: return ""
         }
     }
@@ -145,8 +147,8 @@ struct HookSpec {
         let toolID = agent.rawValue
         let sessionVar = sessionEnvVar(for: agent)
 
-        let acquireCmd = "\(quotedCLI) acquire \(sessionVar) --tool \(toolID)"
-        let releaseCmd = "\(quotedCLI) release \(sessionVar) --tool \(toolID)"
+        let acquireCmd = hookCommand("acquire", tool: toolID, sessionVar: sessionVar)
+        let releaseCmd = hookCommand("release", tool: toolID, sessionVar: sessionVar)
         let endEvent = shape.endEvent
 
         let entry: ([String: Any]) -> [String: Any] = { existing in
@@ -218,8 +220,9 @@ struct HookSpec {
     private func installCursorShape(dryRun: Bool) throws -> HookInstaller.InstallResult {
         var dict = readJSON() ?? ["version": 1]
         var hooks = (dict["hooks"] as? [String: Any]) ?? [:]
-        let acquire = "\(quotedCLI) acquire $CURSOR_SESSION_ID --tool cursor"
-        let release = "\(quotedCLI) release $CURSOR_SESSION_ID --tool cursor"
+        // No CURSOR_SESSION_ID env var exists — Cursor passes session_id on stdin (CLIStdin reads it).
+        let acquire = hookCommand("acquire", tool: "cursor", sessionVar: nil)
+        let release = hookCommand("release", tool: "cursor", sessionVar: nil)
         mergeFlatHook(into: &hooks, event: "sessionStart", command: acquire)
         mergeFlatHook(into: &hooks, event: "sessionEnd", command: release)
         dict["hooks"] = hooks
@@ -259,44 +262,6 @@ struct HookSpec {
         hooks[event] = arr
     }
 
-    // MARK: - Goose (plugin folder)
-
-    private func installGoosePlugin(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let root = pluginRoot
-        let plistDir = "\(root)/hooks"
-        let acquireScript = "\(root)/scripts/acquire.sh"
-        let releaseScript = "\(root)/scripts/release.sh"
-        let pluginManifest: [String: Any] = [
-            "name": "adrafinil", "version": "0.1.0",
-            "description": "Adrafinil sleep-prevention hooks"
-        ]
-        let hooksJSON: [String: Any] = [
-            "hooks": [
-                "SessionStart": [["hooks": [["type": "command", "command": "\(acquireScript) $GOOSE_SESSION_ID"]]]],
-                "SessionEnd":   [["hooks": [["type": "command", "command": "\(releaseScript) $GOOSE_SESSION_ID"]]]]
-            ]
-        ]
-        let diff = "+ \(root)/plugin.json\n+ \(plistDir)/hooks.json\n+ \(acquireScript)\n+ \(releaseScript)"
-        if !dryRun {
-            try FileManager.default.createDirectory(atPath: "\(root)/hooks", withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(atPath: "\(root)/scripts", withIntermediateDirectories: true)
-            try writeJSON(pluginManifest, toPath: "\(root)/plugin.json")
-            try writeJSON(hooksJSON, toPath: "\(plistDir)/hooks.json")
-            try wrapperScript(command: "acquire").write(toFile: acquireScript, atomically: true, encoding: .utf8)
-            try wrapperScript(command: "release").write(toFile: releaseScript, atomically: true, encoding: .utf8)
-            chmod(acquireScript, 0o755)
-            chmod(releaseScript, 0o755)
-        }
-        return HookInstaller.InstallResult(summary: "installed Goose plugin", diff: diff)
-    }
-
-    private func wrapperScript(command: String) -> String {
-        """
-        #!/usr/bin/env bash
-        \(quotedCLI) \(command) "${1:-unknown}" --tool goose
-        """
-    }
-
     // MARK: - Crush (PreToolUse only)
 
     private func installCrushShape(dryRun: Bool) throws -> HookInstaller.InstallResult {
@@ -329,6 +294,19 @@ struct HookSpec {
             try FileManager.default.removeItem(atPath: root)
         }
         return HookInstaller.InstallResult(summary: "removed plugin folder", diff: "- \(root)")
+    }
+
+    /// Removes only our single plugin file (not the shared extensions/plugins directory, which may
+    /// hold the user's other plugins). Used for OpenCode and Pi.
+    private func removePluginFile(dryRun: Bool) throws -> HookInstaller.InstallResult {
+        let path = configPath
+        guard FileManager.default.fileExists(atPath: path) else {
+            return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
+        }
+        if !dryRun {
+            try FileManager.default.removeItem(atPath: path)
+        }
+        return HookInstaller.InstallResult(summary: "removed plugin file", diff: "- \(path)")
     }
 
     private func removeFromCrushShape(dryRun: Bool) throws -> HookInstaller.InstallResult {
@@ -442,38 +420,123 @@ struct HookSpec {
 
     // MARK: - Hermes Python plugin
 
-    private func installHermesPlugin(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let script = """
-        import subprocess
-        def register(ctx):
-            ctx.register_hook("on_session_start", lambda **k: subprocess.run([\(swiftStringList: cliPath, "acquire", "${HERMES_SESSION_ID}", "--tool", "hermes")]))
-            ctx.register_hook("on_session_end",   lambda **k: subprocess.run([\(swiftStringList: cliPath, "release", "${HERMES_SESSION_ID}", "--tool", "hermes")]))
+    /// Canonical Hermes `__init__.py`. Hermes delivers the session id as a callback **kwarg**
+    /// (`session_id`), not a shell env var — `${HERMES_SESSION_ID}` would be a literal string
+    /// inside a Python lambda. The plugin entry point must be named `__init__.py`.
+    private func hermesInitPy() -> String {
         """
+        import subprocess
+
+        CLI = \(swiftStringLiteral: cliPath)
+
+        def _acquire(session_id=None, **kwargs):
+            if session_id:
+                subprocess.run([CLI, "acquire", session_id, "--tool", "hermes"])
+
+        def _release(session_id=None, **kwargs):
+            if session_id:
+                subprocess.run([CLI, "release", session_id, "--tool", "hermes"])
+
+        def register(ctx):
+            ctx.register_hook("on_session_start", _acquire)
+            ctx.register_hook("on_session_end", _release)
+        """
+    }
+
+    /// Mandatory Hermes plugin manifest (declares the hooks it provides).
+    private func hermesPluginYaml() -> String {
+        """
+        name: adrafinil
+        version: 1.0.0
+        description: Adrafinil sleep-prevention session hooks
+        provides_hooks:
+          - on_session_start
+          - on_session_end
+        """
+    }
+
+    private func installHermesPlugin(dryRun: Bool) throws -> HookInstaller.InstallResult {
+        let manifestPath = "\(pluginRoot)/plugin.yaml"
+        var diff = "+ \(configPath)\n+ \(manifestPath)"
         if !dryRun {
             try FileManager.default.createDirectory(atPath: pluginRoot, withIntermediateDirectories: true)
-            try script.write(toFile: configPath, atomically: true, encoding: .utf8)
+            try hermesInitPy().write(toFile: configPath, atomically: true, encoding: .utf8)
+            try hermesPluginYaml().write(toFile: manifestPath, atomically: true, encoding: .utf8)
         }
-        return HookInstaller.InstallResult(summary: "wrote Hermes plugin", diff: "+ \(configPath)")
+        // Hermes plugins are opt-in: they only load when enabled in ~/.hermes/config.yaml. Append a
+        // minimal enable block when there's no existing `plugins:` section (a naive merge into an
+        // existing one risks duplicate YAML keys); otherwise surface the manual step.
+        let configYaml = "\(homeRoot)/.hermes/config.yaml"
+        let existing = (try? String(contentsOfFile: configYaml, encoding: .utf8)) ?? ""
+        var summary = "wrote Hermes plugin (plugin.yaml + __init__.py)"
+        if existing.contains("adrafinil") {
+            // already referenced — assume enabled
+        } else if !existing.contains("plugins:") {
+            let block = "\nplugins:\n  enabled:\n    - adrafinil\n"
+            if !dryRun { try (existing + block).write(toFile: configYaml, atomically: true, encoding: .utf8) }
+            diff += "\n~ \(configYaml): enable adrafinil"
+        } else {
+            summary += " — run `hermes plugins enable adrafinil` to activate"
+        }
+        return HookInstaller.InstallResult(summary: summary, diff: diff)
     }
 
     // MARK: - OpenCode TS plugin
 
     private func installOpenCodePlugin(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let ts = """
+        if !dryRun {
+            try FileManager.default.createDirectory(atPath: pluginRoot, withIntermediateDirectories: true)
+            try openCodePluginTS().write(toFile: configPath, atomically: true, encoding: .utf8)
+        }
+        return HookInstaller.InstallResult(summary: "wrote OpenCode plugin", diff: "+ \(configPath)")
+    }
+
+    /// Canonical OpenCode plugin. Acquire on `session.created` only — `session.idle` fires per-turn
+    /// (every time the agent finishes responding, not at session end), so releasing on it would
+    /// drop the assertion mid-session (the same trap as Codex's per-turn `Stop`). Release instead
+    /// rides the daemon's process-exit watcher when the `opencode` process exits (SPEC §5.5). The
+    /// session id is `event.properties.info.id` for `session.created` (the `Session` object).
+    private func openCodePluginTS() -> String {
+        """
         export const Adrafinil = async ({ $ }) => {
           return {
             event: async ({ event }) => {
-              if (event.type === "session.created") await $`\(cliPath) acquire ${event.properties.id} --tool opencode`
-              if (event.type === "session.idle")   await $`\(cliPath) release ${event.properties.id} --tool opencode`
+              if (event.type === "session.created") await $`\(cliPath) acquire ${event.properties.info.id} --tool opencode`
             }
           }
         }
         """
+    }
+
+    // MARK: - Pi TS extension
+
+    private func installPiPlugin(dryRun: Bool) throws -> HookInstaller.InstallResult {
         if !dryRun {
             try FileManager.default.createDirectory(atPath: pluginRoot, withIntermediateDirectories: true)
-            try ts.write(toFile: configPath, atomically: true, encoding: .utf8)
+            try piExtensionTS().write(toFile: configPath, atomically: true, encoding: .utf8)
         }
-        return HookInstaller.InstallResult(summary: "wrote OpenCode plugin", diff: "+ \(configPath)")
+        return HookInstaller.InstallResult(summary: "wrote Pi extension", diff: "+ \(configPath)")
+    }
+
+    /// Canonical Pi extension (`~/.pi/agent/extensions/adrafinil.ts`). Pi auto-discovers `.ts`
+    /// extensions and calls `pi.on(<event>, handler)` from the default export. `session_start`
+    /// acquires; `session_shutdown` (fired on process exit) releases. Pi has no session-id env var
+    /// or stdin payload — the id is the session file path (`undefined` for ephemeral sessions, so
+    /// fall back to the pid). Shelling out via `node:child_process`, mirroring the OpenCode plugin.
+    private func piExtensionTS() -> String {
+        """
+        import { execFileSync } from "node:child_process"
+
+        function run(args) {
+          try { execFileSync(\(swiftStringLiteral: cliPath), args) } catch (_) {}
+        }
+
+        export default function (pi) {
+          const id = (ctx) => ctx?.sessionManager?.getSessionFile?.() ?? String(process.pid)
+          pi.on("session_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))
+          pi.on("session_shutdown", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
+        }
+        """
     }
 
     // MARK: - Install-state inspection (SPEC §7.2)
@@ -484,8 +547,8 @@ struct HookSpec {
 
         let toolID = agent.rawValue
         let sessionVar = sessionEnvVar(for: agent)
-        let acquireCmd = "\(quotedCLI) acquire \(sessionVar) --tool \(toolID)"
-        let releaseCmd = "\(quotedCLI) release \(sessionVar) --tool \(toolID)"
+        let acquireCmd = hookCommand("acquire", tool: toolID, sessionVar: sessionVar)
+        let releaseCmd = hookCommand("release", tool: toolID, sessionVar: sessionVar)
 
         // Codex installs only a SessionStart hook (release is via the process-exit watcher, §5.5).
         let startEvent = "SessionStart"
@@ -519,8 +582,8 @@ struct HookSpec {
     private func installStateForCursor() -> HookInstallState {
         guard let dict = readJSON(),
               let hooks = dict["hooks"] as? [String: Any] else { return .notInstalled }
-        let expectedAcquire = "\(quotedCLI) acquire $CURSOR_SESSION_ID --tool cursor"
-        let expectedRelease = "\(quotedCLI) release $CURSOR_SESSION_ID --tool cursor"
+        let expectedAcquire = hookCommand("acquire", tool: "cursor", sessionVar: nil)
+        let expectedRelease = hookCommand("release", tool: "cursor", sessionVar: nil)
 
         func adrafinilCommand(in arr: [[String: Any]]) -> String? {
             arr.first(where: { ($0["command"] as? String)?.contains("adrafinil") == true })?["command"] as? String
@@ -534,49 +597,18 @@ struct HookSpec {
         return (installedAcquire == expectedAcquire && installedRelease == expectedRelease) ? .installed : .modifiedExternally
     }
 
-    private func installStateForGoosePlugin() -> HookInstallState {
-        let root = pluginRoot
-        let manifest = root + "/plugin.json"
-        let hooksFile = root + "/hooks/hooks.json"
-        let acquireScript = root + "/scripts/acquire.sh"
-        let releaseScript = root + "/scripts/release.sh"
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: manifest),
-              fm.fileExists(atPath: hooksFile),
-              fm.fileExists(atPath: acquireScript),
-              fm.fileExists(atPath: releaseScript) else { return .notInstalled }
-        return .installed
-    }
-
     private func installStateForFilePlugin(_ path: String) -> HookInstallState {
         guard FileManager.default.fileExists(atPath: path),
               let actual = try? String(contentsOfFile: path, encoding: .utf8),
               actual.contains("adrafinil") else { return .notInstalled }
-        // Compare the on-disk content to the canonical content we'd generate.
+        // Compare the on-disk content to the canonical content we'd generate (reusing the same
+        // generators the installer writes, so the two never drift).
         let canonical: String?
         switch agent {
-        case .hermes:
-            let c = """
-            import subprocess
-            def register(ctx):
-                ctx.register_hook("on_session_start", lambda **k: subprocess.run(["\(cliPath)", "acquire", "${HERMES_SESSION_ID}", "--tool", "hermes"]))
-                ctx.register_hook("on_session_end",   lambda **k: subprocess.run(["\(cliPath)", "release", "${HERMES_SESSION_ID}", "--tool", "hermes"]))
-            """
-            canonical = c
-        case .openCode:
-            let c = """
-            export const Adrafinil = async ({ $ }) => {
-              return {
-                event: async ({ event }) => {
-                  if (event.type === "session.created") await $`\(cliPath) acquire ${event.properties.id} --tool opencode`
-                  if (event.type === "session.idle")   await $`\(cliPath) release ${event.properties.id} --tool opencode`
-                }
-              }
-            }
-            """
-            canonical = c
-        default:
-            return .installed
+        case .hermes:   canonical = hermesInitPy()
+        case .openCode: canonical = openCodePluginTS()
+        case .pi:       canonical = piExtensionTS()
+        default:        return .installed
         }
         guard let expected = canonical else { return .modifiedExternally }
         return actual.trimmingCharacters(in: .whitespacesAndNewlines) ==
@@ -644,18 +676,27 @@ struct HookSpec {
         return "BEFORE:\n\(beforeStr)\n---\nAFTER:\n\(afterStr)"
     }
 
-    private func sessionEnvVar(for agent: AgentKind) -> String {
+    /// The shell env var carrying the session id in the hook command, or nil when the agent exposes
+    /// none (the CLI then reads `session_id` from the hook's stdin JSON — `CLIStdin`).
+    ///
+    /// Only Claude Code exposes a real env var (`CLAUDE_CODE_SESSION_ID`, verified against 2.1.158;
+    /// *not* `CLAUDE_SESSION_ID`, which expands empty). Codex, Cursor, and Gemini CLI deliver the id
+    /// **only** on stdin — there is no `CODEX_THREAD_ID`/`CURSOR_SESSION_ID`/`GEMINI_SESSION_ID` hook
+    /// env var, so embedding one is dead weight (it expands empty and the stdin reader wins anyway).
+    private func sessionEnvVar(for agent: AgentKind) -> String? {
         switch agent {
-        // Claude Code exposes the session id as `CLAUDE_CODE_SESSION_ID` (verified against
-        // Claude Code 2.1.156 — it also passes `session_id` on the hook's stdin JSON). It is
-        // *not* `CLAUDE_SESSION_ID`; that name expands to empty and the CLI rejects the call.
         case .claudeCode: "$CLAUDE_CODE_SESSION_ID"
-        // Codex sets CODEX_THREAD_ID in the hook environment (and `session_id` on stdin); there
-        // is no CODEX_SESSION_ID. Verified against Codex 0.135.0.
-        case .codex:      "$CODEX_THREAD_ID"
-        case .geminiCLI:  "$GEMINI_SESSION_ID"
-        default:          "$$"
+        default:          nil
         }
+    }
+
+    /// Builds an `acquire`/`release` hook command. When `sessionVar` is nil the positional key is
+    /// omitted entirely and the CLI sources the session id from stdin (`session_id`).
+    private func hookCommand(_ op: String, tool: String, sessionVar: String?) -> String {
+        if let sessionVar {
+            return "\(quotedCLI) \(op) \(sessionVar) --tool \(tool)"
+        }
+        return "\(quotedCLI) \(op) --tool \(tool)"
     }
 
     private var quotedCLI: String {
@@ -669,8 +710,7 @@ struct HookSpec {
 }
 
 private extension DefaultStringInterpolation {
-    mutating func appendInterpolation(swiftStringList items: String...) {
-        let parts = items.map { "\"\($0)\"" }
-        appendInterpolation(parts.joined(separator: ", "))
+    mutating func appendInterpolation(swiftStringLiteral item: String) {
+        appendInterpolation("\"\(item)\"")
     }
 }

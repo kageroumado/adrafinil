@@ -6,12 +6,12 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     case codex       = "codex"
     case cursor      = "cursor"
     case geminiCLI   = "gemini-cli"
-    case goose       = "goose"
     case crush       = "crush"
     case aider       = "aider"
     case hermes      = "hermes"
     case openCode    = "opencode"
     case cline       = "cline"
+    case pi          = "pi"
 
     public var displayName: String {
         switch self {
@@ -19,12 +19,12 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         case .codex:      "Codex"
         case .cursor:     "Cursor"
         case .geminiCLI:  "Gemini CLI"
-        case .goose:      "Goose"
         case .crush:      "Crush"
         case .aider:      "Aider"
         case .hermes:     "Hermes"
         case .openCode:   "OpenCode"
         case .cline:      "Cline"
+        case .pi:         "Pi"
         }
     }
 
@@ -35,12 +35,14 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         case .codex:      ["codex"]
         case .cursor:     ["cursor", "Cursor"]
         case .geminiCLI:  ["gemini"]
-        case .goose:      ["goose", "goose-cli"]
         case .crush:      ["crush"]
         case .aider:      ["aider"]
         case .hermes:     ["hermes"]
         case .openCode:   ["opencode"]
         case .cline:      ["cline"]
+        // `pi` runs as a Node process (argv0 often "node"), so the sniffer rarely matches it —
+        // the TS extension hook is the real integration; this is a weak best-effort fallback.
+        case .pi:         ["pi"]
         }
     }
 
@@ -70,8 +72,8 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     /// Integration tier: 1 = full hooks, 2 = partial/wrapper/plugin needed.
     public var tier: Int {
         switch self {
-        case .claudeCode, .codex, .cursor, .geminiCLI, .goose: 1
-        case .crush, .aider, .hermes, .openCode, .cline: 2
+        case .claudeCode, .codex, .cursor, .geminiCLI: 1
+        case .crush, .aider, .hermes, .openCode, .cline, .pi: 2
         }
     }
 }

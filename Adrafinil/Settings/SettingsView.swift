@@ -227,12 +227,12 @@ private struct AgentInstallRow: View {
         case .codex:       return ["\(home)/.codex/hooks.json"]
         case .cursor:      return ["\(home)/.cursor/hooks.json"]
         case .geminiCLI:   return ["\(home)/.gemini/settings.json"]
-        case .goose:       return ["\(home)/.agents/plugins/adrafinil/hooks/hooks.json"]
         case .crush:       return ["\(home)/.config/crush/crush.json"]
         case .aider:       return ["\(home)/.zshrc"]
-        case .hermes:      return ["\(home)/.hermes/plugins/adrafinil/adrafinil.py"]
+        case .hermes:      return ["\(home)/.hermes/plugins/adrafinil/__init__.py"]
         case .openCode:    return ["\(home)/.config/opencode/plugins/adrafinil.ts"]
         case .cline:       return ["\(home)/.zshrc"]
+        case .pi:          return ["\(home)/.pi/agent/extensions/adrafinil.ts"]
         }
     }
 }
