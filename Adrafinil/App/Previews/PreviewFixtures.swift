@@ -17,6 +17,20 @@ enum Fixtures {
         )
     }
 
+    /// An explicit agent hold: `.manual` origin, TTL-bounded, idle-exempt.
+    static func hold(_ tool: String, reason: String?, minutesAgo: Double, ttlMinutes: Double, pid: pid_t = -1) -> Assertion {
+        Assertion(
+            key: ManualHold.newKey(),
+            tool: tool,
+            reason: reason,
+            pid: pid,
+            processName: tool,
+            acquiredAt: Date().addingTimeInterval(-minutesAgo * 60),
+            ttl: ttlMinutes * 60,
+            origin: .manual
+        )
+    }
+
     // MARK: - DaemonStatus scenarios
 
     static var idle: DaemonStatus {
@@ -40,6 +54,17 @@ enum Fixtures {
                 assertion("codex", reason: nil, minutesAgo: 1, pid: 103),
             ],
             lidClosed: true, helperConnected: true, cpuTemperatureCelsius: 71, lastEvent: .acquired)
+    }
+
+    /// A live agent plus a deliberate agent hold (exercises the pin glyph, reason, countdown, ✕).
+    static var withHold: DaemonStatus {
+        DaemonStatus(
+            isBlocking: true,
+            assertions: [
+                assertion("claude-code", reason: nil, minutesAgo: 8, pid: 201),
+                hold("claude-code", reason: "running DB migration", minutesAgo: 7, ttlMinutes: 30),
+            ],
+            lidClosed: false, helperConnected: true, cpuTemperatureCelsius: 63, lastEvent: .acquired)
     }
 
     static var thermalCutout: DaemonStatus {

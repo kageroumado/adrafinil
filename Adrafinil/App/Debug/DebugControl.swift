@@ -4,7 +4,7 @@ import AdrafinilShared
 
 /// Menu-bar popover states the debug control panel can switch between.
 enum PopoverScenario: String, CaseIterable, Identifiable {
-    case idle, oneAgent, manyAgents, lidClosedHot, thermalCutout, lowBatteryCutout, daemonError
+    case idle, oneAgent, manyAgents, withHold, lidClosedHot, thermalCutout, lowBatteryCutout, daemonError
 
     var id: String { rawValue }
 
@@ -13,6 +13,7 @@ enum PopoverScenario: String, CaseIterable, Identifiable {
         case .idle: "Idle"
         case .oneAgent: "One agent"
         case .manyAgents: "Many agents"
+        case .withHold: "Agent hold"
         case .lidClosedHot: "Lid closed (warm)"
         case .thermalCutout: "Thermal cutout"
         case .lowBatteryCutout: "Low-battery cutout"
@@ -25,6 +26,7 @@ enum PopoverScenario: String, CaseIterable, Identifiable {
         case .idle: Fixtures.idle
         case .oneAgent: Fixtures.oneAgent
         case .manyAgents: Fixtures.manyAgents
+        case .withHold: Fixtures.withHold
         case .lidClosedHot: Fixtures.lidClosedHot
         case .thermalCutout: Fixtures.thermalCutout
         case .lowBatteryCutout: Fixtures.lowBatteryCutout
@@ -109,6 +111,10 @@ final class MockStatusProvider: StatusProviding {
     func forceReleaseAll() async throws {
         if control.useLiveDaemon { try await control.liveClient.forceReleaseAll(); return }
         control.popover = .idle
+    }
+
+    func releaseAssertion(key: String) async throws {
+        if control.useLiveDaemon { try await control.liveClient.releaseAssertion(key: key) }
     }
 
     func setPaused(_ paused: Bool) async throws {

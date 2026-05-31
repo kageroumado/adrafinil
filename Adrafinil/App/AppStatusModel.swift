@@ -64,6 +64,13 @@ final class AppStatusModel {
         await refresh()
     }
 
+    /// Releases a single assertion (e.g. cancelling an agent hold from its popover row), then
+    /// refreshes so the row disappears immediately.
+    func releaseAssertion(key: String) async {
+        try? await provider.releaseAssertion(key: key)
+        await refresh()
+    }
+
     /// Pause (`true`) or resume (`false`) the whole app, then refresh so the UI reflects it now.
     func setPaused(_ paused: Bool) async {
         try? await provider.setPaused(paused)

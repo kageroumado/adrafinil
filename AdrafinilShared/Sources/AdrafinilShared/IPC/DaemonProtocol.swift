@@ -11,6 +11,10 @@ import Foundation
     /// Force-releases every assertion.
     func forceReleaseAll(reply: @escaping @Sendable (Bool) -> Void)
 
+    /// Releases a single assertion by its registry key — used by the popover's per-row release
+    /// (e.g. cancelling an agent hold). Replies `true` if a matching assertion existed.
+    func releaseAssertion(key: String, reply: @escaping @Sendable (Bool) -> Void)
+
     /// Pauses or resumes the whole app. Pausing releases everything and ignores agent acquires
     /// until resumed. Drives the menu-bar "Let it sleep" / "Resume" toggle.
     func setPaused(_ paused: Bool, reply: @escaping @Sendable (Bool) -> Void)

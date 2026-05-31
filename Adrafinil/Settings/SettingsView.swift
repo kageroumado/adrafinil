@@ -256,6 +256,20 @@ struct SafetySettingsTab: View {
             } footer: {
                 Text("A backup to the per-agent setup: Adrafinil also watches for known agent apps running, in case one starts without notifying it.")
             }
+
+            Section {
+                Toggle("Let agents keep your Mac awake on their own",
+                       isOn: $settings.agentHoldsEnabled)
+                Stepper(value: $settings.manualHoldMaxHours, in: 1...12, step: 1) {
+                    LabeledContent("Longest a hold can last",
+                                   value: "\(Int(settings.manualHoldMaxHours)) \(Int(settings.manualHoldMaxHours) == 1 ? "hour" : "hours")")
+                }
+                .disabled(!settings.agentHoldsEnabled)
+            } header: {
+                Text("Agent holds")
+            } footer: {
+                Text("An agent can ask Adrafinil to keep your Mac awake for a background task it started — like a long build or deploy — even after it finishes replying. Every hold has a time limit and shows up in the menu, where you can end it yourself.")
+            }
         }
         .formStyle(.grouped)
     }

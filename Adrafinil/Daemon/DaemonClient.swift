@@ -85,6 +85,12 @@ final class DaemonClient {
         }
     }
 
+    func releaseAssertion(key: String) async throws {
+        _ = try await call { (proxy, done: @escaping @Sendable (Result<Bool, Error>) -> Void) in
+            proxy.releaseAssertion(key: key) { done(.success($0)) }
+        }
+    }
+
     func reloadSettings() async throws {
         _ = try await call { (proxy, done: @escaping @Sendable (Result<Bool, Error>) -> Void) in
             proxy.reloadSettings { done(.success($0)) }

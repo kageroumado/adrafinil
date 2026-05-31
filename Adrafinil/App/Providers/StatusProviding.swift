@@ -8,6 +8,7 @@ import AdrafinilShared
 protocol StatusProviding {
     func fetchStatus() async throws -> DaemonStatus
     func forceReleaseAll() async throws
+    func releaseAssertion(key: String) async throws
     func setPaused(_ paused: Bool) async throws
     func reloadSettings() async throws
     func consumeAwaySummary() async -> AwaySummary?
@@ -39,6 +40,11 @@ final class PreviewStatusProvider: StatusProviding {
     func forceReleaseAll() async throws {
         status.assertions = []
         status.isBlocking = false
+    }
+
+    func releaseAssertion(key: String) async throws {
+        status.assertions.removeAll { $0.key == key }
+        status.isBlocking = !status.assertions.isEmpty
     }
 
     func setPaused(_ paused: Bool) async throws {

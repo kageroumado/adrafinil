@@ -57,7 +57,7 @@ struct MenuPopover: View {
             heroCard(
                 icon: "sun.max.fill", tint: Theme.awake,
                 title: "Staying awake",
-                subtitle: "\(s.assertions.count) \(s.assertions.count == 1 ? "agent" : "agents") working")
+                subtitle: awakeSubtitle(s))
         case .cutout:
             heroCard(
                 icon: cutoutIcon(s), tint: Theme.cutout,
@@ -74,6 +74,17 @@ struct MenuPopover: View {
                 title: "Paused",
                 subtitle: "Adrafinil is off — agents won't keep your Mac awake")
         }
+    }
+
+    /// Describes what's keeping the Mac awake, distinguishing live agents from deliberate holds
+    /// (e.g. "2 agents working · 1 hold").
+    private func awakeSubtitle(_ s: DaemonStatus) -> String {
+        let holds = s.assertions.filter { $0.origin == .manual }.count
+        let agents = s.assertions.count - holds
+        var parts: [String] = []
+        if agents > 0 { parts.append("\(agents) \(agents == 1 ? "agent" : "agents") working") }
+        if holds > 0 { parts.append("\(holds) \(holds == 1 ? "hold" : "holds")") }
+        return parts.isEmpty ? "Keeping your Mac awake" : parts.joined(separator: " · ")
     }
 
     private func heroCard(icon: String, tint: Color, title: String, subtitle: String) -> some View {
@@ -117,7 +128,9 @@ struct MenuPopover: View {
         VStack(spacing: 0) {
             ForEach(Array(assertions.enumerated()), id: \.element.id) { index, a in
                 if index > 0 { Divider().padding(.leading, Theme.Space.md) }
-                AssertionRow(assertion: a)
+                AssertionRow(assertion: a) {
+                    Task { await status.releaseAssertion(key: a.key) }
+                }
             }
         }
         .padding(.vertical, Theme.Space.xs)
@@ -213,30 +226,68 @@ struct MenuPopover: View {
 
 struct AssertionRow: View {
     let assertion: Assertion
+    /// Non-nil for releasable rows (agent holds). Invoked by the trailing ✕.
+    var onRelease: (() -> Void)? = nil
+
+    /// An agent hold (`adrafinil hold` / MCP) — deliberate, reasoned, time-boxed — versus a live
+    /// agent session tracked by an editor hook.
+    private var isHold: Bool { assertion.origin == .manual }
 
     private var displayTool: String {
         AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 
+    /// A hold shows its countdown; a live agent shows how long it's been working.
+    private var trailingText: String {
+        if isHold, let remaining = assertion.timeRemaining, remaining > 0 {
+            return remaining.remainingString
+        }
+        return assertion.age.compactDurationString
+    }
+
     var body: some View {
-        // Dot lives on the name line so single-line rows (the normal case — hooks don't
-        // report a reason) stay vertically centered; a reason, if present, indents beneath.
+        // The leading mark lives on the name line so single-line rows stay vertically centered;
+        // a reason, if present, indents beneath it.
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: Theme.Space.sm) {
-                StatusDot(color: Theme.awake, diameter: 6)
+                leadingMark
                 Text(displayTool).font(.toolName)
                 Spacer()
-                Text(assertion.age.compactDurationString)
+                Text(trailingText)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                if isHold, let onRelease {
+                    Button(action: onRelease) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tertiary)
+                    .help("Release this hold — let the Mac sleep normally")
+                }
             }
-            if let reason = assertion.reason {
+            if let reason = assertion.reason, !reason.isEmpty {
                 Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    .padding(.leading, 6 + Theme.Space.sm)
+                    .padding(.leading, 14 + Theme.Space.sm)
             }
         }
         .padding(.vertical, Theme.Space.sm)
         .padding(.horizontal, Theme.Space.md)
+    }
+
+    /// A pin marks a deliberate hold; a pulsing dot marks a live agent session.
+    @ViewBuilder
+    private var leadingMark: some View {
+        if isHold {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.awake)
+                .frame(width: 14, alignment: .leading)
+        } else {
+            StatusDot(color: Theme.awake, diameter: 6)
+                .frame(width: 14, alignment: .leading)
+        }
     }
 }
 
@@ -251,6 +302,9 @@ struct AssertionRow: View {
 }
 #Preview("Popover · many agents") {
     MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents))
+}
+#Preview("Popover · agent hold") {
+    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.withHold))
 }
 #Preview("Popover · thermal cutout") {
     MenuPopover(status: AppStatusModel(previewStatus: Fixtures.thermalCutout))
