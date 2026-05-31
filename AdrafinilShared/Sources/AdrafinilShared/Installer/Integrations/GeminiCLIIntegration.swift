@@ -31,4 +31,14 @@ struct GeminiCLIIntegration: AgentIntegration {
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue)
         )
     }
+
+    /// Gemini CLI reads MCP servers from `mcpServers` in the *same* `~/.gemini/settings.json` it
+    /// already holds hooks in. NEEDS ON-DEVICE VERIFICATION (key + entry shape) before release.
+    func mcpShape(_ ctx: HookContext) -> MCPServerShape? {
+        MCPServerShape(
+            configPath: "\(ctx.homeRoot)/.gemini/settings.json",
+            serverName: HookContext.mcpServerName,
+            entry: ctx.mcpEntry(tool: agent.rawValue)
+        )
+    }
 }

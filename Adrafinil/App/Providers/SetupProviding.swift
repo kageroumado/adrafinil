@@ -51,6 +51,9 @@ struct LiveSetupProvider: SetupProviding {
         )
         for kind in AgentKind.allCases {
             try? installer.uninstall(for: kind)
+            // Also pull our MCP server from agents that have it, so we don't leave an `adrafinil`
+            // entry pointing at a CLI we're about to delete. No-op for agents without MCP support.
+            try? installer.uninstallMCP(for: kind)
         }
 
         try? await SMAppService.daemon(plistName: "LaunchDaemon.plist").unregister()

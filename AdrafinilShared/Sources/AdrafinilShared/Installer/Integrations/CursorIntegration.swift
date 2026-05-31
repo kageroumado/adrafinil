@@ -36,4 +36,14 @@ struct CursorIntegration: AgentIntegration {
             uninstallSummary: "removed Cursor hook entries"
         )
     }
+
+    /// Cursor reads MCP servers from `~/.cursor/mcp.json` under `mcpServers`, same entry shape as
+    /// Claude Code. NEEDS ON-DEVICE VERIFICATION (path + key) on the MacBook before release.
+    func mcpShape(_ ctx: HookContext) -> MCPServerShape? {
+        MCPServerShape(
+            configPath: "\(ctx.homeRoot)/.cursor/mcp.json",
+            serverName: HookContext.mcpServerName,
+            entry: ctx.mcpEntry(tool: agent.rawValue)
+        )
+    }
 }

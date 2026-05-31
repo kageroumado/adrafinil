@@ -18,6 +18,18 @@ struct HookContext {
         }
         return "\(quotedCLI) \(op) --tool \(tool)"
     }
+
+    /// The name Adrafinil registers its MCP server under in each agent's config. Constant across
+    /// agents, and its own idempotency handle (a named key, unlike the array-based hook entries).
+    static let mcpServerName = "adrafinil"
+
+    /// The canonical MCP server entry registered into an agent's config: spawns `adrafinil mcp
+    /// --tool <agent>` over stdio, so holds the agent places carry its name. Unlike `hookCommand`,
+    /// the path is *unquoted* — MCP `command`/`args` are exec'd directly, not via a shell, so a
+    /// bundle path with spaces is fine as a single argv element.
+    func mcpEntry(tool: String) -> [String: Any] {
+        ["type": "stdio", "command": cliPath, "args": ["mcp", "--tool", tool]]
+    }
 }
 
 /// Per-agent integration: how to detect the tool, and how to install / uninstall / inspect the hook
@@ -39,6 +51,17 @@ protocol AgentIntegration {
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult
     func uninstall(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult
     func installState(_ ctx: HookContext) -> HookInstallState
+
+    /// How to register Adrafinil's `adrafinil mcp` server in this agent's config, or nil if the
+    /// agent has no (verified) MCP support. This is a *separate* capability from the hook wiring
+    /// above — hooks track when the agent is working; the MCP server lets the agent deliberately
+    /// hold sleep past its turn. Only agents whose MCP config format we've verified return a shape.
+    func mcpShape(_ ctx: HookContext) -> MCPServerShape?
+}
+
+extension AgentIntegration {
+    /// Default: no MCP support. Agents override this once their config format is device-verified.
+    func mcpShape(_ ctx: HookContext) -> MCPServerShape? { nil }
 }
 
 /// The registry mapping every `AgentKind` to its integration. This single exhaustive switch is the

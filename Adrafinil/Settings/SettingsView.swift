@@ -112,7 +112,7 @@ struct AgentsSettingsTab: View {
             } header: {
                 Text("Your agents")
             } footer: {
-                Text("Turn an agent on to let Adrafinil know when it starts and stops working. Turn it off to disconnect it.")
+                Text("Turn an agent on to let Adrafinil know when it starts and stops working. Turn it off to disconnect it. For supported agents you can also let them keep your Mac awake on their own — Adrafinil adds a hold tool the agent can call.")
             }
 
             Section {
@@ -129,7 +129,10 @@ struct AgentsSettingsTab: View {
 
     private func refreshRows() {
         agentRows = agentHooks.detectedAgents().map { kind in
-            AgentRowModel(kind: kind, installState: agentHooks.installState(for: kind))
+            AgentRowModel(kind: kind,
+                          installState: agentHooks.installState(for: kind),
+                          mcpSupported: agentHooks.mcpSupported(for: kind),
+                          mcpState: agentHooks.mcpState(for: kind))
         }
     }
 }
@@ -138,6 +141,10 @@ struct AgentsSettingsTab: View {
 struct AgentRowModel: Identifiable {
     let kind: AgentKind
     var installState: HookInstallState
+    /// Whether this agent can host Adrafinil's MCP hold tool (verified agents only).
+    var mcpSupported: Bool
+    /// Registration state of the MCP hold tool, independent of the hook `installState`.
+    var mcpState: HookInstallState
     var id: AgentKind { kind }
 }
 
@@ -147,28 +154,65 @@ private struct AgentInstallRow: View {
     let onChange: () -> Void
 
     private var isInstalled: Bool { model.installState == .installed }
+    private var mcpInstalled: Bool { model.mcpState == .installed }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(spacing: Theme.Space.md) {
+                Text(model.kind.displayName).font(.toolName)
+
+                Spacer(minLength: Theme.Space.md)
+
+                stateChip
+
+                Button { agentHooks.revealConfig(for: model.kind) } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Reveal config in Finder")
+
+                Toggle("", isOn: Binding(
+                    get: { isInstalled },
+                    set: { newValue in
+                        if newValue {
+                            try? agentHooks.install(for: model.kind)
+                        } else {
+                            try? agentHooks.uninstall(for: model.kind)
+                        }
+                        onChange()
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+
+            if model.mcpSupported { mcpToggle }
+        }
+    }
+
+    /// Secondary, indented control: registers Adrafinil's MCP hold tool with this agent so it can
+    /// keep the Mac awake on its own. Independent of the hook toggle above — an agent can have the
+    /// hold tool without session tracking, or vice versa.
+    private var mcpToggle: some View {
         HStack(spacing: Theme.Space.md) {
-            Text(model.kind.displayName).font(.toolName)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Let it keep your Mac awake on its own")
+                    .font(.subheadline)
+                Text("Adds a hold tool the agent can call to stay awake past its turn.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer(minLength: Theme.Space.md)
 
-            stateChip
-
-            Button { agentHooks.revealConfig(for: model.kind) } label: {
-                Image(systemName: "folder")
-            }
-            .buttonStyle(.borderless)
-            .help("Reveal config in Finder")
-
             Toggle("", isOn: Binding(
-                get: { isInstalled },
+                get: { mcpInstalled },
                 set: { newValue in
                     if newValue {
-                        try? agentHooks.install(for: model.kind)
+                        try? agentHooks.installMCP(for: model.kind)
                     } else {
-                        try? agentHooks.uninstall(for: model.kind)
+                        try? agentHooks.uninstallMCP(for: model.kind)
                     }
                     onChange()
                 }
@@ -177,6 +221,7 @@ private struct AgentInstallRow: View {
             .toggleStyle(.switch)
             .controlSize(.small)
         }
+        .padding(.leading, Theme.Space.md)
     }
 
     @ViewBuilder

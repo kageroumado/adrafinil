@@ -62,4 +62,37 @@ public struct HookInstaller {
     public func installState(for agent: AgentKind) -> HookInstallState {
         AgentIntegrations.integration(for: agent).installState(context)
     }
+
+    // MARK: - MCP server registration
+
+    /// Whether Adrafinil knows how to register its `adrafinil mcp` server with `agent`. Distinct
+    /// from hook support — only agents whose MCP config format is device-verified return true.
+    public func supportsMCP(for agent: AgentKind) -> Bool {
+        AgentIntegrations.integration(for: agent).mcpShape(context) != nil
+    }
+
+    /// Registers Adrafinil's MCP server in `agent`'s config so the agent can call `keep_awake`.
+    /// Throws `SkipReason.unsupportedHere` if the agent has no verified MCP support.
+    @discardableResult
+    public func installMCP(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
+        guard let shape = AgentIntegrations.integration(for: agent).mcpShape(context) else {
+            throw SkipReason.unsupportedHere("MCP not supported for \(agent.rawValue)")
+        }
+        return try shape.install(dryRun: dryRun)
+    }
+
+    /// Removes Adrafinil's MCP server from `agent`'s config. A no-op for agents without MCP support.
+    @discardableResult
+    public func uninstallMCP(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
+        guard let shape = AgentIntegrations.integration(for: agent).mcpShape(context) else {
+            return InstallResult(summary: "nothing to remove", diff: "(unchanged)")
+        }
+        return try shape.uninstall(dryRun: dryRun)
+    }
+
+    /// MCP registration state for `agent` (mirrors `installState`). `.notInstalled` when the agent
+    /// has no MCP support at all.
+    public func mcpState(for agent: AgentKind) -> HookInstallState {
+        AgentIntegrations.integration(for: agent).mcpShape(context)?.installState() ?? .notInstalled
+    }
 }

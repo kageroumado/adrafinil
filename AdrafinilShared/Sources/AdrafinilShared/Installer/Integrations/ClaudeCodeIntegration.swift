@@ -34,4 +34,14 @@ struct ClaudeCodeIntegration: AgentIntegration {
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID")
         )
     }
+
+    /// MCP lives in the global `~/.claude.json` (`mcpServers`, user scope) — verified against a real
+    /// install: existing entries are `{"type":"stdio","command":…,"args":[…]}`.
+    func mcpShape(_ ctx: HookContext) -> MCPServerShape? {
+        MCPServerShape(
+            configPath: "\(ctx.homeRoot)/.claude.json",
+            serverName: HookContext.mcpServerName,
+            entry: ctx.mcpEntry(tool: agent.rawValue)
+        )
+    }
 }
