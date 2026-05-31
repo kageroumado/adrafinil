@@ -12,14 +12,17 @@ struct SettingsView: View {
     /// Logic seams — Live in production, mock in previews/gallery.
     var agentHooks: any AgentHooksProviding = LiveAgentHooksProvider()
     var setup: any SetupProviding = LiveSetupProvider()
+    /// Host hardware, so the lid/battery-specific controls hide on a desktop Mac. Defaults to the
+    /// real device; previews/gallery inject a desktop to exercise the degraded layout.
+    var device: DeviceCapabilities = .current
 
     var body: some View {
         TabView {
-            GeneralSettingsTab(settings: $appSettings)
+            GeneralSettingsTab(settings: $appSettings, device: device)
                 .tabItem { Label("General", systemImage: "gear") }
             AgentsSettingsTab(agentHooks: agentHooks)
                 .tabItem { Label("Agents", systemImage: "terminal") }
-            SafetySettingsTab(settings: $appSettings)
+            SafetySettingsTab(settings: $appSettings, device: device)
                 .tabItem { Label("Safety", systemImage: "thermometer.medium") }
             AboutTab(setup: setup)
                 .tabItem { Label("About", systemImage: "info.circle") }
@@ -50,6 +53,7 @@ struct GeneralSettingsTab: View {
     /// updates `MenuBarExtra(isInserted:)` immediately; persistence is handled centrally
     /// by `SettingsView`.
     @Binding var settings: AdrafinilSettings
+    var device: DeviceCapabilities = .current
 
     private let chimeOptions: [(id: String, label: String)] = [
         ("default", "Adrafinil chime"),
@@ -66,25 +70,38 @@ struct GeneralSettingsTab: View {
                 Toggle("Show in menu bar", isOn: $settings.showInMenuBar)
             }
 
-            Section {
-                Toggle("Play a sound when you close the lid", isOn: $settings.soundOnLidClose)
-                LabeledContent("Volume") {
-                    Slider(value: $settings.soundVolume, in: 0...1)
-                        .frame(maxWidth: 220)
-                }
-                .disabled(!settings.soundOnLidClose)
-                Picker("Sound", selection: $settings.chimeName) {
-                    ForEach(chimeOptions, id: \.id) { option in
-                        Text(option.label).tag(option.id)
+            // Lid-close behavior only makes sense on a portable. On a desktop Mac these controls
+            // are hidden and a note explains why.
+            if device.hasLid {
+                Section {
+                    Toggle("Play a sound when you close the lid", isOn: $settings.soundOnLidClose)
+                    LabeledContent("Volume") {
+                        Slider(value: $settings.soundVolume, in: 0...1)
+                            .frame(maxWidth: 220)
                     }
-                }
-                .disabled(!settings.soundOnLidClose)
+                    .disabled(!settings.soundOnLidClose)
+                    Picker("Sound", selection: $settings.chimeName) {
+                        ForEach(chimeOptions, id: \.id) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                    .disabled(!settings.soundOnLidClose)
 
-                Toggle("Lock the screen when you close the lid", isOn: $settings.lockOnLidClose)
-            } header: {
-                Text("When you close the lid")
-            } footer: {
-                Text("These apply when an agent is still working as you close the lid — a sound to confirm your Mac is staying awake, and a locked screen to keep it private.")
+                    Toggle("Lock the screen when you close the lid", isOn: $settings.lockOnLidClose)
+                } header: {
+                    Text("When you close the lid")
+                } footer: {
+                    Text("These apply when an agent is still working as you close the lid — a sound to confirm your Mac is staying awake, and a locked screen to keep it private.")
+                }
+            }
+
+            if device.isDesktop {
+                Section {
+                    Label("This looks like a desktop Mac", systemImage: "desktopcomputer")
+                        .font(.callout)
+                } footer: {
+                    Text("Adrafinil keeps it awake while your agents work — a desktop still sleeps on idle and would stall a long task. Lid and battery features are hidden because there's no lid or battery to manage.")
+                }
             }
         }
         .formStyle(.grouped)
@@ -241,6 +258,7 @@ private struct AgentInstallRow: View {
 
 struct SafetySettingsTab: View {
     @Binding var settings: AdrafinilSettings
+    var device: DeviceCapabilities = .current
 
     var body: some View {
         Form {
@@ -259,22 +277,25 @@ struct SafetySettingsTab: View {
                 .disabled(!settings.thermalCutoutEnabled)
             }
 
-            Section("Low-battery cutout") {
-                Toggle("Force sleep when battery runs low (on battery, lid closed)",
-                       isOn: $settings.lowBatteryCutoutEnabled)
-                LabeledContent("Threshold") {
-                    HStack(spacing: Theme.Space.sm) {
-                        Slider(value: Binding(
-                            get: { Double(settings.lowBatteryThresholdPercent) },
-                            set: { settings.lowBatteryThresholdPercent = Int($0) }
-                        ), in: 5...50, step: 1)
-                        .frame(maxWidth: 180)
-                        Text("\(settings.lowBatteryThresholdPercent)%")
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .trailing)
+            // No battery to drain on a desktop Mac, so the low-battery cutout is hidden there.
+            if device.hasBattery {
+                Section("Low-battery cutout") {
+                    Toggle("Force sleep when battery runs low (on battery, lid closed)",
+                           isOn: $settings.lowBatteryCutoutEnabled)
+                    LabeledContent("Threshold") {
+                        HStack(spacing: Theme.Space.sm) {
+                            Slider(value: Binding(
+                                get: { Double(settings.lowBatteryThresholdPercent) },
+                                set: { settings.lowBatteryThresholdPercent = Int($0) }
+                            ), in: 5...50, step: 1)
+                            .frame(maxWidth: 180)
+                            Text("\(settings.lowBatteryThresholdPercent)%")
+                                .monospacedDigit()
+                                .frame(width: 44, alignment: .trailing)
+                        }
                     }
+                    .disabled(!settings.lowBatteryCutoutEnabled)
                 }
-                .disabled(!settings.lowBatteryCutoutEnabled)
             }
 
             Section {
@@ -391,6 +412,18 @@ struct AboutTab: View {
     SettingsView(appSettings: $settings,
                  agentHooks: PreviewAgentHooksProvider(),
                  setup: PreviewSetupProvider())
+        .frame(width: 520, height: 560)
+}
+#Preview("Settings · General (desktop)") {
+    @Previewable @State var settings = AdrafinilSettings()
+    GeneralSettingsTab(settings: $settings,
+                       device: DeviceCapabilities(hasLid: false, hasBattery: false))
+        .frame(width: 520, height: 560)
+}
+#Preview("Settings · Safety (desktop)") {
+    @Previewable @State var settings = AdrafinilSettings()
+    SafetySettingsTab(settings: $settings,
+                      device: DeviceCapabilities(hasLid: false, hasBattery: false))
         .frame(width: 520, height: 560)
 }
 #Preview("Settings · Agents") {

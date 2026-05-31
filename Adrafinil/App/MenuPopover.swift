@@ -4,6 +4,9 @@ import AdrafinilShared
 /// The window-style popover attached to the menu-bar status item.
 struct MenuPopover: View {
     let status: AppStatusModel
+    /// Host hardware, so idle copy avoids mentioning a lid on a desktop Mac. Defaults to the real
+    /// device; previews/gallery inject a desktop to exercise the variant.
+    var device: DeviceCapabilities = .current
 
     var body: some View {
         GlassEffectContainer(spacing: Theme.Space.md) {
@@ -67,7 +70,9 @@ struct MenuPopover: View {
             heroCard(
                 icon: "moon.zzz.fill", tint: .secondary,
                 title: "Sleeping normally",
-                subtitle: "No agents active — close the lid and it sleeps")
+                subtitle: device.hasLid
+                    ? "No agents active — close the lid and it sleeps"
+                    : "No agents active — it sleeps when idle")
         case .paused:
             heroCard(
                 icon: "pause.circle.fill", tint: .secondary,
@@ -296,6 +301,10 @@ struct AssertionRow: View {
 #if DEBUG
 #Preview("Popover · idle") {
     MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle))
+}
+#Preview("Popover · idle (desktop)") {
+    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle),
+                device: DeviceCapabilities(hasLid: false, hasBattery: false))
 }
 #Preview("Popover · one agent") {
     MenuPopover(status: AppStatusModel(previewStatus: Fixtures.oneAgent))
