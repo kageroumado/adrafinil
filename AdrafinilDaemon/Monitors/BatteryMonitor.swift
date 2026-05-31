@@ -5,7 +5,7 @@ import OSLog
 
 /// Polls battery charge and power source; triggers a cutout when, on battery with the lid closed
 /// and an agent active, the charge falls to/under the threshold — so a kept-awake Mac sleeps
-/// normally instead of draining to a hard shutdown in a bag (SPEC §6.6). The battery sibling of
+/// normally instead of draining to a hard shutdown in a bag. The battery sibling of
 /// `ThermalMonitor`; the gate lives in `LowBatteryCutoutEvaluator` (AdrafinilShared, unit-tested).
 @MainActor
 final class BatteryMonitor {

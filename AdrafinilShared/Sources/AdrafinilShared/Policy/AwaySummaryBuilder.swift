@@ -1,7 +1,7 @@
 import Foundation
 
 /// Assembles the "while you were away" summary when the lid opens after a period that was closed
-/// with at least one active assertion (SPEC §6.4 / §7.3). Pure.
+/// with at least one active assertion. Pure.
 ///
 /// Each agent that was holding an assertion at lid-close is partitioned by whether its tool is
 /// still active at lid-open: still-holding tools land in `stillActive`, the rest in `finished`.

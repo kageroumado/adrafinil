@@ -26,7 +26,7 @@ enum ReleaseCommand {
 
         do {
             let resp = try DaemonSocketClient.send(req)
-            // SPEC §5.6/§8: releasing an unknown key is a warning, not an error.
+            // Releasing an unknown key is a warning, not an error.
             if let warning = resp.warning {
                 FileHandle.standardError.write(Data("adrafinil: \(warning)\n".utf8))
             }

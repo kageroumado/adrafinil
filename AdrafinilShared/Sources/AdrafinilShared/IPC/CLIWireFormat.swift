@@ -20,7 +20,7 @@ public struct CLIRequest: Codable, Sendable {
     public let processName: String?
     public let ttlSeconds: TimeInterval?
 
-    /// Wire keys match the documented protocol (SPEC §8): `ttlSeconds` serializes as `ttl`.
+    /// Wire keys match the documented protocol: `ttlSeconds` serializes as `ttl`.
     enum CodingKeys: String, CodingKey {
         case op, key, tool, reason, pid, processName
         case ttlSeconds = "ttl"
@@ -43,10 +43,10 @@ public struct CLIResponse: Codable, Sendable {
     public let blocking: Bool?
     public let assertionCount: Int?
     public let statusJSON: Data?
-    /// Non-fatal advisory, e.g. releasing an unknown key (SPEC §5.6 / §8: "warnings, not errors").
+    /// Non-fatal advisory, e.g. releasing an unknown key ("warnings, not errors").
     public let warning: String?
 
-    /// Wire keys match the documented protocol (SPEC §8): `blocking` serializes as `blockingState`.
+    /// Wire keys match the documented protocol: `blocking` serializes as `blockingState`.
     enum CodingKeys: String, CodingKey {
         case ok, error, assertionCount, statusJSON, warning
         case blocking = "blockingState"

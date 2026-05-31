@@ -41,7 +41,7 @@ public enum ProcessResolver {
     }
 
     /// All currently running processes as `(pid, basename, fullPath)`. Used by the daemon's periodic
-    /// sniff sweep (SPEC §5.4). Best-effort: processes we cannot read are skipped.
+    /// sniff sweep. Best-effort: processes we cannot read are skipped.
     public static func runningProcesses() -> [(pid: pid_t, name: String, path: String)] {
         let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
         guard needed > 0 else { return [] }

@@ -1,7 +1,7 @@
 import SwiftUI
 import AdrafinilShared
 
-/// Menu-bar icon with three states (SPEC §7.1):
+/// Menu-bar icon with three states:
 ///
 /// - **Idle** — grayscale outlined moon, no badge.
 /// - **Active** — orange/yellow filled sun, with a count badge when count > 1.
@@ -26,13 +26,13 @@ struct MenuBarIcon: View {
             case .active(let count):
                 Image(systemName: "sun.max.fill")
                     .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(Theme.awake)
                     .overlay(alignment: .topTrailing) {
                         if count > 1 {
                             Text("\(count)")
                                 .font(.system(size: 7, weight: .bold))
                                 .padding(2)
-                                .background(Color.orange, in: Circle())
+                                .background(Theme.awake, in: Circle())
                                 .foregroundStyle(.white)
                                 .offset(x: 4, y: -4)
                         }

@@ -12,7 +12,7 @@ final class ThermalMonitor {
     var thresholdCelsius: Double = 80.0
     var lidClosed: Bool = false
     /// Whether any assertion is currently held. The cutout only fires while we are actively
-    /// keeping the Mac awake (SPEC §6.3) — with zero assertions there is nothing to cut out.
+    /// keeping the Mac awake — with zero assertions there is nothing to cut out.
     var isBlocking: Bool = false
     var onCutout: (() -> Void)?
     /// Fired on every successful reading (used by the daemon to track peak temp while closed).

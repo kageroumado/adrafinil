@@ -136,7 +136,7 @@ final class CLISocketServer {
                 let existed = await daemonRef.handleRelease(key: key)
                 return (existed, await daemonRef.registry.snapshot())
             }
-            // Unknown-key release is a no-op, not an error (SPEC §5.6) — surface a warning.
+            // Unknown-key release is a no-op, not an error — surface a warning.
             let warning = result.existed ? nil : "no assertion for key '\(key)' — released nothing"
             return CLIResponse(ok: true, error: nil, blocking: !result.snapshot.isEmpty,
                                assertionCount: result.snapshot.count, statusJSON: nil, warning: warning)

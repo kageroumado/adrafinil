@@ -94,7 +94,7 @@ struct CLIFramingTests {
     }
 
     @Test func decodesTtlFromExternalJSON() throws {
-        // An external tool writing the documented §8 wire shape uses "ttl", not "ttlSeconds".
+        // An external tool writing the documented wire shape uses "ttl", not "ttlSeconds".
         let json = Data(#"{"op":"acquire","key":"k","tool":"t","ttl":45}"#.utf8)
         let req = try JSONDecoder().decode(CLIRequest.self, from: json)
         #expect(req.ttlSeconds == 45)

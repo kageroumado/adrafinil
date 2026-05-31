@@ -28,7 +28,7 @@ final class Daemon {
     private var sweepTimer: Timer?
     private var blockingObserver: Task<Void, Never>?
 
-    // "While you were away" tracking (SPEC §6.4 / §7.3).
+    // "While you were away" tracking.
     private var lidClosedAt: Date?
     private var heldAtClose: [(tool: String, displayName: String, acquiredAt: Date)] = []
     private var peakTempWhileClosed: Double?
@@ -73,12 +73,12 @@ final class Daemon {
     func handleAcquire(_ assertion: Assertion) async {
         let isNew = await registry.acquire(assertion)
         // Watch the owning process so the assertion is force-released if the agent dies without
-        // firing its end hook (SPEC §5.4 / §5.5). watch() is idempotent. pid <= 0 means the CLI
+        // firing its end hook. watch() is idempotent. pid <= 0 means the CLI
         // could not identify a real agent process and asked us not to watch.
         if assertion.pid > 0 { processWatcher.watch(pid: assertion.pid) }
         let count = await registry.snapshot().count
         log.notice("acquire key='\(assertion.key, privacy: .public)' tool='\(assertion.tool, privacy: .public)' pid=\(assertion.pid, privacy: .public) new=\(isNew, privacy: .public) -> \(count, privacy: .public) active")
-        // Duplicate acquires are no-ops for the count (SPEC §5.6) — don't log/persist them.
+        // Duplicate acquires are no-ops for the count — don't log/persist them.
         if isNew { await persistAndSync(event: .acquired) }
     }
 
@@ -90,7 +90,7 @@ final class Daemon {
             log.notice("release key='\(key, privacy: .public)' existed=true -> \(count, privacy: .public) active")
             await persistAndSync(event: .released)
         } else {
-            // Unknown key is a warning, not an error (SPEC §5.6).
+            // Unknown key is a warning, not an error.
             log.warning("Release for unknown key '\(key)' — no-op")
         }
         return existed
@@ -249,7 +249,7 @@ final class Daemon {
         batteryMonitor.start()
     }
 
-    /// Periodic safety-net sweep (SPEC §5.4): re-arms exit-watching for every held assertion
+    /// Periodic safety-net sweep: re-arms exit-watching for every held assertion
     /// (covers assertions restored after a daemon restart that never went through `handleAcquire`)
     /// and, when the user has opted in, auto-acquires for running known-agent processes that have
     /// no assertion yet.

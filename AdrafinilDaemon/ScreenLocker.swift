@@ -3,7 +3,7 @@ import OSLog
 import AdrafinilShared
 
 /// Locks the screen immediately, used when the lid closes while an agent is active so the
-/// kept-awake machine is still physically secured (SPEC §6.4).
+/// kept-awake machine is still physically secured.
 ///
 /// Uses the private `SACLockScreenImmediate()` from `login.framework` — the same primitive the
 /// system uses for "Lock Screen". It is **explicit**, so it locks even when another app holds an

@@ -2,42 +2,57 @@ import SwiftUI
 import AdrafinilShared
 
 struct InstallerView: View {
-    @State private var detected: [AgentKind] = []
+    var setup: any SetupProviding = LiveSetupProvider()
+    var agentHooks: any AgentHooksProviding = LiveAgentHooksProvider()
+
+    @State private var detected: Set<AgentKind> = []
     @State private var selected: Set<AgentKind> = []
     @State private var installLog: [String] = []
     @State private var step: Step = .helper
     @State private var helperErrors: [String] = []
     @State private var registering = false
 
-    enum Step {
-        case helper, agents, done
-    }
+    enum Step { case helper, agents, done }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            switch step {
-            case .helper:  helperStep
-            case .agents:  agentsStep
-            case .done:    doneStep
+        GlassEffectContainer(spacing: Theme.Space.lg) {
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                switch step {
+                case .helper:  helperStep
+                case .agents:  agentsStep
+                case .done:    doneStep
+                }
             }
+            .padding(Theme.Space.xl + Theme.Space.sm)
         }
-        .padding(28)
-        .onAppear { detected = HookInstaller.detectedAgents(); selected = Set(detected) }
+        .onAppear {
+            detected = Set(agentHooks.detectedAgents())
+            selected = detected
+        }
     }
 
+    // MARK: - Step 1 · helper
+
     private var helperStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "moon.stars").font(.system(size: 48)).foregroundStyle(.tint)
-            Text("Welcome to Adrafinil").font(.title)
-            Text("Adrafinil needs to install a small privileged helper so it can block clamshell sleep while your AI agents are working. The helper is open source — see github.com/…/adrafinil/AdrafinilHelper.")
+        VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            Image(systemName: "sun.max.fill")
+                .font(.system(size: 48)).foregroundStyle(Theme.awake)
+                .symbolRenderingMode(.hierarchical)
+            Text("Welcome to Adrafinil").font(.system(.largeTitle, design: .rounded).weight(.semibold))
+            Text("Adrafinil installs a small privileged helper so it can block clamshell sleep while your AI agents work. The helper is open source — see github.com/kageroumado/adrafinil.")
                 .foregroundStyle(.secondary)
 
             if !helperErrors.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     Label("Setup couldn't register a background service", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    ForEach(helperErrors, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary) }
+                        .foregroundStyle(Theme.warn)
+                    ForEach(helperErrors, id: \.self) {
+                        Text($0).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    }
                 }
+                .padding(Theme.Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard(cornerRadius: Theme.Radius.inner)
             }
 
             Spacer()
@@ -46,83 +61,101 @@ struct InstallerView: View {
                 Button(registering ? "Registering…" : (helperErrors.isEmpty ? "Continue" : "Retry")) {
                     Task {
                         registering = true
-                        let results = await HelperInstaller.installIfNeeded()
+                        let outcomes = await setup.installHelper()
                         registering = false
-                        helperErrors = results.compactMap { r in
-                            if case .failed(let msg) = r.result { return "\(r.name): \(msg)" } else { return nil }
+                        helperErrors = outcomes.compactMap { outcome in
+                            outcome.failureMessage.map { "\(outcome.name): \($0)" }
                         }
                         if helperErrors.isEmpty { step = .agents }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glass)
+                .controlSize(.large)
                 .disabled(registering)
             }
         }
     }
 
+    // MARK: - Step 2 · agents
+
     private var agentsStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Wire Adrafinil into your agents").font(.title2)
-            Text("Each checked agent gets a SessionStart/End hook that tells Adrafinil when to keep your Mac awake. You can change this any time.")
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            Text("Connect your agents").font(.system(.title2, design: .rounded).weight(.semibold))
+            Text("Each agent you turn on lets Adrafinil know when it starts and stops working, so your Mac stays awake only while it's busy. You can change this any time in Settings.")
                 .foregroundStyle(.secondary)
-                .font(.caption)
+                .font(.callout)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(AgentKind.allCases, id: \.self) { kind in
-                        AgentRow(kind: kind, isDetected: detected.contains(kind), isSelected: selected.contains(kind)) { sel in
+                VStack(spacing: 0) {
+                    ForEach(Array(AgentKind.allCases.enumerated()), id: \.element) { index, kind in
+                        if index > 0 { Divider().padding(.leading, Theme.Space.md) }
+                        AgentRow(
+                            kind: kind,
+                            isDetected: detected.contains(kind),
+                            isSelected: selected.contains(kind)
+                        ) { sel in
                             if sel { selected.insert(kind) } else { selected.remove(kind) }
                         }
                     }
                 }
+                .padding(.vertical, Theme.Space.xs)
+                .glassCard(cornerRadius: Theme.Radius.inner)
             }
             .frame(maxHeight: 280)
 
             if !installLog.isEmpty {
-                Divider()
                 ScrollView {
-                    VStack(alignment: .leading) {
-                        ForEach(installLog, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(installLog, id: \.self) {
+                            Text($0).font(.system(.caption, design: .monospaced))
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Theme.Space.sm)
                 }
-                .frame(maxHeight: 100)
+                .frame(maxHeight: 96)
+                .glassCard(cornerRadius: Theme.Radius.inner)
             }
 
             HStack {
                 Spacer()
-                Button("Skip") { step = .done }
-                Button("Install") {
-                    Task { await runInstall() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(selected.isEmpty)
+                Button("Skip") { step = .done }.buttonStyle(.glass)
+                Button("Install") { Task { await runInstall() } }
+                    .buttonStyle(.glassProminent)
+                    .disabled(selected.isEmpty)
             }
+            .controlSize(.large)
         }
     }
 
+    // MARK: - Step 3 · done
+
     private var doneStep: some View {
-        VStack(alignment: .center, spacing: 16) {
-            Image(systemName: "checkmark.seal.fill").font(.system(size: 64)).foregroundStyle(.green)
-            Text("Adrafinil is set up").font(.title)
-            Text("It now lives in your menu bar. Close the lid while an agent is working — your Mac will stay awake. No agent running? Sleep behaves normally.")
+        VStack(alignment: .center, spacing: Theme.Space.lg) {
+            Spacer()
+            Image(systemName: "checkmark.seal.fill").font(.system(size: 64)).foregroundStyle(Theme.ok)
+            Text("Adrafinil is set up").font(.system(.title, design: .rounded).weight(.semibold))
+            Text("It now lives in your menu bar. Close the lid while an agent is working — your Mac stays awake. No agent running? Sleep behaves normally.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Done") { NSApp.keyWindow?.close() }.buttonStyle(.borderedProminent)
+            Button("Done") { NSApp.keyWindow?.close() }
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func runInstall() async {
-        let installer = HookInstaller(cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil")
         for agent in selected {
             do {
-                let result = try installer.install(for: agent, dryRun: false)
-                installLog.append("[\(agent.displayName)] \(result.summary)")
+                try agentHooks.install(for: agent)
+                installLog.append("[\(agent.displayName)] connected")
             } catch {
                 installLog.append("[\(agent.displayName)] \(error.localizedDescription)")
             }
         }
-        await CLISymlinker.symlinkIfNeeded()
+        await setup.symlinkCLI()
         step = .done
     }
 }
@@ -134,21 +167,32 @@ struct AgentRow: View {
     let onToggle: (Bool) -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: Theme.Space.md) {
             Toggle(isOn: Binding(get: { isSelected }, set: { onToggle($0) })) {
-                HStack {
-                    Text(kind.displayName)
-                    if isDetected {
-                        Text("detected").font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.green.opacity(0.2), in: Capsule())
-                    } else {
-                        Text("not detected").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("tier \(kind.tier)").font(.caption).foregroundStyle(.secondary)
-                }
+                Text(kind.displayName).font(.toolName)
             }
+            .toggleStyle(.switch)
+            .controlSize(.small)
             .disabled(!isDetected)
+
+            Spacer()
+
+            if isDetected {
+                StateChip(text: "detected", systemImage: "dot.radiowaves.left.and.right", tint: Theme.ok)
+            } else {
+                StateChip(text: "not detected", tint: .secondary)
+            }
+            StateChip(text: "tier \(kind.tier)", tint: .secondary)
         }
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, Theme.Space.sm)
+        .opacity(isDetected ? 1 : 0.55)
     }
 }
+
+#if DEBUG
+#Preview("Installer · helper") {
+    InstallerView(setup: PreviewSetupProvider(), agentHooks: PreviewAgentHooksProvider())
+        .frame(width: 560, height: 600)
+}
+#endif

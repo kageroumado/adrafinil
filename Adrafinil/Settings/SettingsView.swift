@@ -9,18 +9,21 @@ struct SettingsView: View {
     /// immediately when the user toggles "Show in menu bar".
     @Binding var appSettings: AdrafinilSettings
 
+    /// Logic seams — Live in production, mock in previews/gallery.
+    var agentHooks: any AgentHooksProviding = LiveAgentHooksProvider()
+    var setup: any SetupProviding = LiveSetupProvider()
+
     var body: some View {
         TabView {
             GeneralSettingsTab(settings: $appSettings)
                 .tabItem { Label("General", systemImage: "gear") }
-            AgentsSettingsTab()
+            AgentsSettingsTab(agentHooks: agentHooks)
                 .tabItem { Label("Agents", systemImage: "terminal") }
             SafetySettingsTab(settings: $appSettings)
                 .tabItem { Label("Safety", systemImage: "thermometer.medium") }
-            AboutTab()
+            AboutTab(setup: setup)
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .padding(20)
         // Single source of truth: every tab edits this one binding. Persist and propagate
         // centrally so one tab's save can't clobber a field another tab just changed, and
         // re-register the login item only when that specific toggle flips.
@@ -58,87 +61,67 @@ struct GeneralSettingsTab: View {
 
     var body: some View {
         Form {
-            Toggle("Launch at login", isOn: $settings.launchAtLogin)
+            Section {
+                Toggle("Launch at login", isOn: $settings.launchAtLogin)
+                Toggle("Show in menu bar", isOn: $settings.showInMenuBar)
+            }
 
-            Toggle("Show in menu bar", isOn: $settings.showInMenuBar)
-
-            Divider()
-
-            Toggle("Sound at lid close while agents are active", isOn: $settings.soundOnLidClose)
-
-            Group {
-                HStack {
-                    Text("Volume")
+            Section {
+                Toggle("Play a sound when you close the lid", isOn: $settings.soundOnLidClose)
+                LabeledContent("Volume") {
                     Slider(value: $settings.soundVolume, in: 0...1)
+                        .frame(maxWidth: 220)
                 }
-
+                .disabled(!settings.soundOnLidClose)
                 Picker("Sound", selection: $settings.chimeName) {
                     ForEach(chimeOptions, id: \.id) { option in
                         Text(option.label).tag(option.id)
                     }
                 }
-            }
-            .disabled(!settings.soundOnLidClose)
+                .disabled(!settings.soundOnLidClose)
 
-            Divider()
-
-            Toggle("Lock the screen at lid close while agents are active", isOn: $settings.lockOnLidClose)
-            Text("Keeps the Mac awake for the agent but secures it — like closing the lid normally.")
-                .font(.caption).foregroundStyle(.secondary)
-
-            Divider()
-
-            HStack {
-                Text("Idle release minutes")
-                Stepper("\(settings.idleReleaseMinutes) min",
-                        value: $settings.idleReleaseMinutes, in: 1...60)
+                Toggle("Lock the screen when you close the lid", isOn: $settings.lockOnLidClose)
+            } header: {
+                Text("When you close the lid")
+            } footer: {
+                Text("These apply when an agent is still working as you close the lid — a sound to confirm your Mac is staying awake, and a locked screen to keep it private.")
             }
         }
+        .formStyle(.grouped)
     }
 }
 
 // MARK: - Agents tab
 
 struct AgentsSettingsTab: View {
-    private var installer: HookInstaller {
-        HookInstaller(
-            cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil"
-        )
-    }
+    let agentHooks: any AgentHooksProviding
 
     @State private var agentRows: [AgentRowModel] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Hook installation")
-                .font(.headline)
-            Text("Toggle an agent to install or remove Adrafinil's hooks in that agent's config.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
+        Form {
+            Section {
+                if agentRows.isEmpty {
+                    Text("No supported agents detected.")
+                        .foregroundStyle(.secondary)
+                } else {
                     ForEach($agentRows) { $row in
-                        AgentInstallRow(model: $row, installer: installer) {
-                            refreshRows()
-                        }
-                    }
-                    if agentRows.isEmpty {
-                        Text("No supported agents detected.")
-                            .foregroundStyle(.secondary)
+                        AgentInstallRow(model: $row, agentHooks: agentHooks) { refreshRows() }
                     }
                 }
+            } header: {
+                Text("Your agents")
+            } footer: {
+                Text("Turn an agent on to let Adrafinil know when it starts and stops working. Turn it off to disconnect it.")
             }
-            .frame(maxHeight: 300)
         }
+        .formStyle(.grouped)
         .onAppear { refreshRows() }
     }
 
     private func refreshRows() {
-        let inst = installer
-        let detected = HookInstaller.detectedAgents()
-        agentRows = detected.map { kind in
-            AgentRowModel(kind: kind, installState: inst.installState(for: kind))
+        agentRows = agentHooks.detectedAgents().map { kind in
+            AgentRowModel(kind: kind, installState: agentHooks.installState(for: kind))
         }
     }
 }
@@ -152,87 +135,51 @@ struct AgentRowModel: Identifiable {
 
 private struct AgentInstallRow: View {
     @Binding var model: AgentRowModel
-    let installer: HookInstaller
+    let agentHooks: any AgentHooksProviding
     let onChange: () -> Void
 
     private var isInstalled: Bool { model.installState == .installed }
 
     var body: some View {
-        HStack {
-            Toggle(isOn: Binding(
+        HStack(spacing: Theme.Space.md) {
+            Text(model.kind.displayName).font(.toolName)
+
+            Spacer(minLength: Theme.Space.md)
+
+            stateChip
+
+            Button { agentHooks.revealConfig(for: model.kind) } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.borderless)
+            .help("Reveal config in Finder")
+
+            Toggle("", isOn: Binding(
                 get: { isInstalled },
                 set: { newValue in
                     if newValue {
-                        _ = try? installer.install(for: model.kind, dryRun: false)
+                        try? agentHooks.install(for: model.kind)
                     } else {
-                        try? installer.uninstall(for: model.kind)
+                        try? agentHooks.uninstall(for: model.kind)
                     }
                     onChange()
                 }
-            )) {
-                Text(model.kind.displayName)
-                    .frame(minWidth: 120, alignment: .leading)
-            }
-
-            Spacer()
-
-            installStateIndicator
-
-            Button("Reveal in Finder") { revealInFinder() }
-                .font(.caption)
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
         }
-        .padding(.vertical, 3)
     }
 
     @ViewBuilder
-    private var installStateIndicator: some View {
+    private var stateChip: some View {
         switch model.installState {
         case .installed:
-            Label("Installed", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .font(.caption)
+            StateChip(text: "Installed", systemImage: "checkmark.circle.fill", tint: Theme.ok)
         case .notInstalled:
-            Label("Not installed", systemImage: "xmark.circle")
-                .foregroundStyle(.secondary)
-                .font(.caption)
+            StateChip(text: "Not installed", systemImage: "circle", tint: .secondary)
         case .modifiedExternally:
-            Label("Modified", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.caption)
-        }
-    }
-
-    private func revealInFinder() {
-        let home = NSHomeDirectory()
-        let candidates = agentConfigPaths(for: model.kind, home: home)
-        let fm = FileManager.default
-        for path in candidates {
-            if fm.fileExists(atPath: path) {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-                return
-            }
-            let dir = (path as NSString).deletingLastPathComponent
-            if fm.fileExists(atPath: dir) {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: dir)])
-                return
-            }
-        }
-    }
-
-    private func agentConfigPaths(for kind: AgentKind, home: String) -> [String] {
-        switch kind {
-        case .claudeCode:  return ["\(home)/.claude/settings.json"]
-        case .codex:       return ["\(home)/.codex/hooks.json"]
-        case .cursor:      return ["\(home)/.cursor/hooks.json"]
-        case .geminiCLI:   return ["\(home)/.gemini/settings.json"]
-        case .crush:       return ["\(home)/.config/crush/crush.json"]
-        case .aider:       return ["\(home)/.zshrc"]
-        case .hermes:      return ["\(home)/.hermes/config.yaml"]
-        case .openCode:    return ["\(home)/.config/opencode/plugins/adrafinil.ts"]
-        case .cline:       return ["\(home)/.zshrc"]
-        case .pi:          return ["\(home)/.pi/agent/extensions/adrafinil.ts"]
+            StateChip(text: "Modified", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
         }
     }
 }
@@ -245,59 +192,71 @@ struct SafetySettingsTab: View {
     var body: some View {
         Form {
             Section("Thermal cutout") {
-                Toggle("Force sleep if CPU temperature exceeds threshold (while lid closed)",
+                Toggle("Force sleep when CPU temperature is too high",
                        isOn: $settings.thermalCutoutEnabled)
-                HStack {
-                    Text("Threshold")
-                    Slider(value: $settings.thermalThresholdCelsius, in: 70...95, step: 1)
-                    Text("\(Int(settings.thermalThresholdCelsius))°C")
-                        .monospacedDigit()
-                        .frame(width: 50, alignment: .trailing)
+                LabeledContent("Threshold") {
+                    HStack(spacing: Theme.Space.sm) {
+                        Slider(value: $settings.thermalThresholdCelsius, in: 70...95, step: 1)
+                            .frame(maxWidth: 180)
+                        Text("\(Int(settings.thermalThresholdCelsius))°C")
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+                    }
                 }
                 .disabled(!settings.thermalCutoutEnabled)
             }
 
             Section("Low-battery cutout") {
-                Toggle("Force sleep if battery falls below threshold (on battery, while lid closed)",
+                Toggle("Force sleep when battery runs low (on battery, lid closed)",
                        isOn: $settings.lowBatteryCutoutEnabled)
-                HStack {
-                    Text("Threshold")
-                    Slider(value: Binding(
-                        get: { Double(settings.lowBatteryThresholdPercent) },
-                        set: { settings.lowBatteryThresholdPercent = Int($0) }
-                    ), in: 5...50, step: 1)
-                    Text("\(settings.lowBatteryThresholdPercent)%")
-                        .monospacedDigit()
-                        .frame(width: 50, alignment: .trailing)
+                LabeledContent("Threshold") {
+                    HStack(spacing: Theme.Space.sm) {
+                        Slider(value: Binding(
+                            get: { Double(settings.lowBatteryThresholdPercent) },
+                            set: { settings.lowBatteryThresholdPercent = Int($0) }
+                        ), in: 5...50, step: 1)
+                        .frame(maxWidth: 180)
+                        Text("\(settings.lowBatteryThresholdPercent)%")
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+                    }
                 }
                 .disabled(!settings.lowBatteryCutoutEnabled)
             }
 
-            Section("Idle release") {
-                Toggle("Release assertions for processes with no recent activity",
+            Section {
+                Toggle("Stop waiting on agents that go quiet",
                        isOn: $settings.idleReleaseEnabled)
-                HStack {
-                    Text("Idle threshold")
-                    Stepper("\(settings.idleReleaseMinutes) minutes",
-                            value: $settings.idleReleaseMinutes, in: 1...60)
+                Stepper(value: $settings.idleReleaseMinutes, in: 1...60) {
+                    LabeledContent("Consider quiet after", value: "\(settings.idleReleaseMinutes) min")
                 }
                 .disabled(!settings.idleReleaseEnabled)
+            } header: {
+                Text("Idle agents")
+            } footer: {
+                Text("If an agent does nothing for a while, Adrafinil stops keeping your Mac awake for it — so a stuck or crashed agent can't hold it up forever.")
             }
 
-            Section("Detection") {
-                Toggle("Process-sniffing fallback (catches crashed agents)",
+            Section {
+                Toggle("Notice agents even if setup is incomplete",
                        isOn: $settings.processSniffingEnabled)
-                Toggle("Auto-acquire when a known agent binary starts (no hooks)",
+                Toggle("Start as soon as a known agent launches",
                        isOn: $settings.autoAcquireForKnownAgents)
                     .disabled(!settings.processSniffingEnabled)
+            } header: {
+                Text("Finding agents")
+            } footer: {
+                Text("A backup to the per-agent setup: Adrafinil also watches for known agent apps running, in case one starts without notifying it.")
             }
         }
+        .formStyle(.grouped)
     }
 }
 
 // MARK: - About tab
 
 struct AboutTab: View {
+    let setup: any SetupProviding
     @State private var showUninstallConfirm = false
 
     private var appVersion: String {
@@ -305,71 +264,79 @@ struct AboutTab: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "moon.stars")
-                .font(.system(size: 48))
-                .foregroundStyle(.tint)
+        VStack(spacing: Theme.Space.lg) {
+            Spacer()
 
-            Text("Adrafinil \(appVersion)")
-                .font(.title)
+            Image(systemName: "sun.max.fill")
+                .font(.system(size: 52))
+                .foregroundStyle(Theme.awake)
+                .symbolRenderingMode(.hierarchical)
+
+            VStack(spacing: Theme.Space.xs) {
+                Text("Adrafinil").font(.system(.title, design: .rounded).weight(.semibold))
+                Text("Version \(appVersion)").font(.callout).foregroundStyle(.secondary)
+            }
 
             Text("Keep your Mac awake only while AI agents are working.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
 
             Link("github.com/kageroumado/adrafinil",
                  destination: URL(string: "https://github.com/kageroumado/adrafinil")!)
-
-            Text("MIT License · © 2026 kageroumado")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("Built with Swift 6 and SwiftUI. Inspired by caffeinate, improved for the agent era.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+                .font(.callout)
 
             Spacer()
 
-            Button("Uninstall and quit…") {
-                showUninstallConfirm = true
+            VStack(spacing: Theme.Space.sm) {
+                Button("Uninstall and quit…", role: .destructive) { showUninstallConfirm = true }
+                    .tint(Theme.cutout)
+
+                Text("MIT License · © 2026 kageroumado")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
-            .foregroundStyle(.red)
+
+            Spacer().frame(height: Theme.Space.sm)
         }
-        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
             Button("Uninstall and Quit", role: .destructive) { performUninstall() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will remove all agent hooks, unregister the helper and daemon services, and remove the CLI symlink. This action cannot be undone.")
+            Text("This disconnects Adrafinil from all your agents, turns off its background services, and removes the adrafinil command. This can't be undone.")
         }
     }
 
     private func performUninstall() {
         Task {
-            // Clear the sleep block *before* tearing down the helper. `disablesleep` persists in the
-            // power-management prefs (com.apple.PowerManagement.plist) and nothing in powerd clears
-            // it on the setter's death — so once the helper is unregistered, a still-set block would
-            // leave the Mac unable to sleep with no component left to fix it. forceReleaseAll drives
-            // the helper to clear it and awaits that round-trip.
-            try? await DaemonClient().forceReleaseAll()
-
-            let installer = HookInstaller(
-                cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil"
-            )
-            for kind in AgentKind.allCases {
-                try? installer.uninstall(for: kind)
-            }
-
-            try? await SMAppService.daemon(plistName: "LaunchDaemon.plist").unregister()
-            try? await SMAppService.agent(plistName: "LaunchAgent.plist").unregister()
-
-            if let path = CLISymlinker.installedCLIPath {
-                try? FileManager.default.removeItem(atPath: path)
-            }
-
+            await setup.uninstallEverything()
             NSApp.terminate(nil)
         }
     }
 }
+
+// MARK: - Previews
+
+#if DEBUG
+#Preview("Settings · General") {
+    @Previewable @State var settings = AdrafinilSettings()
+    SettingsView(appSettings: $settings,
+                 agentHooks: PreviewAgentHooksProvider(),
+                 setup: PreviewSetupProvider())
+        .frame(width: 520, height: 560)
+}
+#Preview("Settings · Agents") {
+    AgentsSettingsTab(agentHooks: PreviewAgentHooksProvider())
+        .frame(width: 520, height: 560)
+}
+#Preview("Settings · Safety") {
+    @Previewable @State var settings = AdrafinilSettings()
+    SafetySettingsTab(settings: $settings)
+        .frame(width: 520, height: 560)
+}
+#Preview("Settings · About") {
+    AboutTab(setup: PreviewSetupProvider())
+        .frame(width: 520, height: 560)
+}
+#endif

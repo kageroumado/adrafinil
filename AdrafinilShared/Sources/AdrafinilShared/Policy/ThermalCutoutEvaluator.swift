@@ -1,6 +1,6 @@
 import Foundation
 
-/// Decides whether the thermal cutout should fire (SPEC §6.3). Pure.
+/// Decides whether the thermal cutout should fire. Pure.
 ///
 /// The cutout force-releases all assertions so a bag-bound, lid-closed Mac can't cook itself. It
 /// fires **only** while Adrafinil is actively keeping the Mac awake with the lid closed — lid-open

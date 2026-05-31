@@ -31,10 +31,12 @@ public struct HookInstaller {
         self.homeRoot = homeRoot
     }
 
+    private var context: HookContext { HookContext(cliPath: cliPath, homeRoot: homeRoot) }
+
     public func install(for agent: AgentKind, dryRun: Bool) throws -> InstallResult {
-        let spec = HookSpec.for(agent: agent, cliPath: cliPath, homeRoot: homeRoot)
-        guard spec.isDetected() else { throw SkipReason.notInstalled }
-        return try spec.install(dryRun: dryRun)
+        let integration = AgentIntegrations.integration(for: agent)
+        guard integration.isDetected(context) else { throw SkipReason.notInstalled }
+        return try integration.install(context, dryRun: dryRun)
     }
 
     /// Removes Adrafinil hook entries for `agent`.
@@ -43,24 +45,21 @@ public struct HookInstaller {
     /// `InstallResult` describing the diff without writing anything to disk.
     @discardableResult
     public func uninstall(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
-        let spec = HookSpec.for(agent: agent, cliPath: cliPath, homeRoot: homeRoot)
-        return try spec.uninstall(dryRun: dryRun)
+        return try AgentIntegrations.integration(for: agent).uninstall(context, dryRun: dryRun)
     }
 
     /// Returns a list of agents currently detected on the system.
     public static func detectedAgents(homeRoot: String = NSHomeDirectory()) -> [AgentKind] {
-        AgentKind.allCases.filter { kind in
-            HookSpec.for(agent: kind, cliPath: "", homeRoot: homeRoot).isDetected()
-        }
+        let ctx = HookContext(cliPath: "", homeRoot: homeRoot)
+        return AgentKind.allCases.filter { AgentIntegrations.integration(for: $0).isDetected(ctx) }
     }
 
-    /// Returns the hook-installation state for `agent` (SPEC §7.2 — used by Settings → Agents tab).
+    /// Returns the hook-installation state for `agent` (used by the Settings → Agents tab).
     ///
     /// - `.notInstalled` — no Adrafinil entry found in the agent's config.
     /// - `.installed` — an Adrafinil entry exists and matches what `install()` would write.
     /// - `.modifiedExternally` — an Adrafinil-tagged entry exists but differs from the canonical form.
     public func installState(for agent: AgentKind) -> HookInstallState {
-        let spec = HookSpec.for(agent: agent, cliPath: cliPath, homeRoot: homeRoot)
-        return spec.installState()
+        AgentIntegrations.integration(for: agent).installState(context)
     }
 }

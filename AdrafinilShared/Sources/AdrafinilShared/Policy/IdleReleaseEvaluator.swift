@@ -1,6 +1,6 @@
 import Foundation
 
-/// Decides which held assertions the idle monitor should release on a given sweep (SPEC §5.4).
+/// Decides which held assertions the idle monitor should release on a given sweep.
 ///
 /// Holds the cross-sweep CPU bookkeeping needed for the "CPU-idle for N minutes" rule. The real
 /// process probes (`kill(pid, 0)` for liveness, `proc_pidinfo` for CPU time) are injected as

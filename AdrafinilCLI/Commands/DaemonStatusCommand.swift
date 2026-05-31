@@ -1,7 +1,7 @@
 import Foundation
 import AdrafinilShared
 
-/// `adrafinil daemon-status` — quick liveness check for the daemon (SPEC §8).
+/// `adrafinil daemon-status` — quick liveness check for the daemon.
 ///
 /// Sends a `.ping` request and prints whether the daemon is reachable. Exits 0 in both
 /// cases — the intent is informational, not a hard failure gate for agent hooks.

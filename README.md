@@ -6,7 +6,7 @@ Adrafinil is a macOS menu bar app that prevents the system from sleeping — inc
 
 It's the opposite of always-on wake utilities like `caffeinate` or Amphetamine. Adrafinil only intervenes when an agent (Claude Code, Codex, Cursor, …) is mid-task, and gets out of the way the moment that work finishes.
 
-> ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses a private `IOPMrootDomain` user-client selector for clamshell (lid-closed) sleep, falling back to `pmset disablesleep` if that's ever unavailable. See [Docs/SPEC.md](Docs/SPEC.md) §4.
+> ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses `pmset disablesleep` for clamshell (lid-closed) sleep, after verifying on-device that the cleaner private `IOPMrootDomain` paths don't keep a displayless lid-closed Mac awake. See [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) §2.
 
 ## Features
 
@@ -64,7 +64,7 @@ The daemon refcounts by session key and asks the helper to block sleep while the
 
 ## Architecture
 
-Four products across three privilege tiers (full detail in [Docs/SPEC.md](Docs/SPEC.md); Xcode project layout in [Docs/TARGETS.md](Docs/TARGETS.md)):
+Four products across three privilege tiers (full detail, including the Xcode project layout, in [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md)):
 
 ```
 ┌──────────────────────────────────────────────────────────────┐

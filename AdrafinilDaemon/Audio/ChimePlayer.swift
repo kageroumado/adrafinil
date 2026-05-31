@@ -4,7 +4,7 @@ import CoreAudio
 import OSLog
 import AdrafinilShared
 
-/// Plays the lid-close confirmation chime (SPEC §6.4 / G5).
+/// Plays the lid-close confirmation chime.
 ///
 /// The default cue is a short (~0.4s) two-tone *descending* chime (G5 → D5) synthesized at
 /// runtime — no bundled asset — and played with `afplay`. The user may instead pick a named

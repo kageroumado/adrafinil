@@ -85,7 +85,7 @@ final class DaemonClient {
         }
     }
 
-    /// Consumes the pending "while you were away" summary from the daemon (SPEC §7.3).
+    /// Consumes the pending "while you were away" summary from the daemon.
     ///
     /// Consume-once: the daemon clears the summary after this call. Returns `nil` when there
     /// is no pending summary or the daemon is unreachable.

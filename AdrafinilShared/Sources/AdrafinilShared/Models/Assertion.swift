@@ -42,7 +42,7 @@ public struct DaemonStatus: Codable, Sendable {
     public var cpuTemperatureCelsius: Double?
     public var lastEvent: DaemonEvent?
     /// When `lastEvent` was recorded. Lets the UI scope transient states (e.g. the
-    /// 30-second thermal-cutout menu-bar icon, SPEC §7.1) without its own bookkeeping.
+    /// 30-second thermal-cutout menu-bar icon) without its own bookkeeping.
     public var lastEventAt: Date?
 
     public init(
@@ -64,7 +64,7 @@ public struct DaemonStatus: Codable, Sendable {
     }
 }
 
-/// One agent's line in the "while you were away" summary (SPEC §7.3).
+/// One agent's line in the "while you were away" summary.
 public struct FinishedAgentSummary: Codable, Sendable, Identifiable, Hashable {
     public let tool: String
     public let displayName: String
@@ -80,7 +80,7 @@ public struct FinishedAgentSummary: Codable, Sendable, Identifiable, Hashable {
 }
 
 /// "While you were away" summary, assembled by the daemon when the lid opens after a
-/// period that was closed with at least one active assertion (SPEC §6.4 / §7.3).
+/// period that was closed with at least one active assertion.
 public struct AwaySummary: Codable, Sendable {
     public let closedAt: Date
     public let openedAt: Date

@@ -17,13 +17,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		0B1147C82FC6A14C00D7D25C /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 0B1147B22FC6A14B00D7D25C /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0B1147B92FC6A14B00D7D25C;
-			remoteInfo = Adrafinil;
-		};
 		0B1148642FC6A6D300D7D25C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 0B1147B22FC6A14B00D7D25C /* Project object */;
@@ -100,7 +93,6 @@
 
 /* Begin PBXFileReference section */
 		0B1147BA2FC6A14B00D7D25C /* Adrafinil.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Adrafinil.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		0B1147C72FC6A14C00D7D25C /* AdrafinilTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AdrafinilTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0B1148072FC6A1D700D7D25C /* AdrafinilDaemon */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = AdrafinilDaemon; sourceTree = BUILT_PRODUCTS_DIR; };
 		0B1148322FC6A1E300D7D25C /* AdrafinilHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = AdrafinilHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		0B1148452FC6A1EE00D7D25C /* adrafinil */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = adrafinil; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -127,11 +119,6 @@
 		0B1147BC2FC6A14B00D7D25C /* Adrafinil */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Adrafinil;
-			sourceTree = "<group>";
-		};
-		0B1147CA2FC6A14C00D7D25C /* AdrafinilTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = AdrafinilTests;
 			sourceTree = "<group>";
 		};
 		0B1148082FC6A1D700D7D25C /* AdrafinilDaemon */ = {
@@ -164,11 +151,6 @@
 				0B11485C2FC6A68C00D7D25C /* AdrafinilShared in Frameworks */,
 			);
 		};
-		0B1147C42FC6A14C00D7D25C /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			files = (
-			);
-		};
 		0B1148042FC6A1D700D7D25C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
@@ -194,7 +176,6 @@
 			isa = PBXGroup;
 			children = (
 				0B1147BC2FC6A14B00D7D25C /* Adrafinil */,
-				0B1147CA2FC6A14C00D7D25C /* AdrafinilTests */,
 				0B1148082FC6A1D700D7D25C /* AdrafinilDaemon */,
 				0B1148332FC6A1E300D7D25C /* AdrafinilHelper */,
 				0B1148462FC6A1EE00D7D25C /* AdrafinilCLI */,
@@ -207,7 +188,6 @@
 			isa = PBXGroup;
 			children = (
 				0B1147BA2FC6A14B00D7D25C /* Adrafinil.app */,
-				0B1147C72FC6A14C00D7D25C /* AdrafinilTests.xctest */,
 				0B1148072FC6A1D700D7D25C /* AdrafinilDaemon */,
 				0B1148322FC6A1E300D7D25C /* AdrafinilHelper */,
 				0B1148452FC6A1EE00D7D25C /* adrafinil */,
@@ -253,27 +233,6 @@
 			productName = Adrafinil;
 			productReference = 0B1147BA2FC6A14B00D7D25C /* Adrafinil.app */;
 			productType = "com.apple.product-type.application";
-		};
-		0B1147C62FC6A14C00D7D25C /* AdrafinilTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 0B1147DE2FC6A14C00D7D25C /* Build configuration list for PBXNativeTarget "AdrafinilTests" */;
-			buildPhases = (
-				0B1147C32FC6A14C00D7D25C /* Sources */,
-				0B1147C42FC6A14C00D7D25C /* Frameworks */,
-				0B1147C52FC6A14C00D7D25C /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				0B1147C92FC6A14C00D7D25C /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				0B1147CA2FC6A14C00D7D25C /* AdrafinilTests */,
-			);
-			name = AdrafinilTests;
-			productName = AdrafinilTests;
-			productReference = 0B1147C72FC6A14C00D7D25C /* AdrafinilTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		0B1148062FC6A1D700D7D25C /* AdrafinilDaemon */ = {
 			isa = PBXNativeTarget;
@@ -351,10 +310,6 @@
 					0B1147B92FC6A14B00D7D25C = {
 						CreatedOnToolsVersion = 26.4;
 					};
-					0B1147C62FC6A14C00D7D25C = {
-						CreatedOnToolsVersion = 26.4;
-						TestTargetID = 0B1147B92FC6A14B00D7D25C;
-					};
 					0B1148062FC6A1D700D7D25C = {
 						CreatedOnToolsVersion = 26.4;
 					};
@@ -384,7 +339,6 @@
 			projectRoot = "";
 			targets = (
 				0B1147B92FC6A14B00D7D25C /* Adrafinil */,
-				0B1147C62FC6A14C00D7D25C /* AdrafinilTests */,
 				0B1148062FC6A1D700D7D25C /* AdrafinilDaemon */,
 				0B1148312FC6A1E300D7D25C /* AdrafinilHelper */,
 				0B1148442FC6A1EE00D7D25C /* AdrafinilCLI */,
@@ -398,20 +352,10 @@
 			files = (
 			);
 		};
-		0B1147C52FC6A14C00D7D25C /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			files = (
-			);
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0B1147B62FC6A14B00D7D25C /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			files = (
-			);
-		};
-		0B1147C32FC6A14C00D7D25C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
 			);
@@ -434,11 +378,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		0B1147C92FC6A14C00D7D25C /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 0B1147B92FC6A14B00D7D25C /* Adrafinil */;
-			targetProxy = 0B1147C82FC6A14C00D7D25C /* PBXContainerItemProxy */;
-		};
 		0B1148652FC6A6D300D7D25C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 0B1148442FC6A1EE00D7D25C /* AdrafinilCLI */;
@@ -657,46 +596,6 @@
 			};
 			name = Release;
 		};
-		0B1147DF2FC6A14C00D7D25C /* Debug configuration for PBXNativeTarget "AdrafinilTests" */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = glass.kagerou.AdrafinilTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Adrafinil.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Adrafinil";
-			};
-			name = Debug;
-		};
-		0B1147E02FC6A14C00D7D25C /* Release configuration for PBXNativeTarget "AdrafinilTests" */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = glass.kagerou.AdrafinilTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Adrafinil.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Adrafinil";
-			};
-			name = Release;
-		};
 		0B11480C2FC6A1D700D7D25C /* Debug configuration for PBXNativeTarget "AdrafinilDaemon" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -869,14 +768,6 @@
 			buildConfigurations = (
 				0B1147DC2FC6A14C00D7D25C /* Debug configuration for PBXNativeTarget "Adrafinil" */,
 				0B1147DD2FC6A14C00D7D25C /* Release configuration for PBXNativeTarget "Adrafinil" */,
-			);
-			defaultConfigurationName = Release;
-		};
-		0B1147DE2FC6A14C00D7D25C /* Build configuration list for PBXNativeTarget "AdrafinilTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				0B1147DF2FC6A14C00D7D25C /* Debug configuration for PBXNativeTarget "AdrafinilTests" */,
-				0B1147E02FC6A14C00D7D25C /* Release configuration for PBXNativeTarget "AdrafinilTests" */,
 			);
 			defaultConfigurationName = Release;
 		};

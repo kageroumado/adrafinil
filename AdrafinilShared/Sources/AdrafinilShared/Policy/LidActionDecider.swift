@@ -1,14 +1,14 @@
 import Foundation
 
 /// Decides what the daemon should do the instant the lid closes, given the current blocking
-/// state and the user's lid-close preferences (SPEC §6.4).
+/// state and the user's lid-close preferences.
 ///
 /// Pure and side-effect-free, so the gating can be exhaustively unit-tested without the real
 /// screen-lock (`SACLockScreenImmediate`), chime, or IORegistry machinery. The single gate is
 /// "are we keeping the Mac awake for an agent?" — with zero assertions a lid close is an ordinary
 /// sleep and Adrafinil does nothing. While blocking, the chime and the explicit screen lock are
 /// each independently toggleable, but away-tracking always begins so the lid-open summary
-/// (SPEC §7.3) can be assembled.
+/// can be assembled.
 public struct LidActionDecider {
     public struct Decision: Equatable, Sendable {
         /// Play the lid-close chime (the screen is off, so it's the only close-time feedback).

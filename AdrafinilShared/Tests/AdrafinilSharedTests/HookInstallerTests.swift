@@ -66,7 +66,7 @@ struct HookInstallerTests {
 
         let dict = try readJSON(home.path + "/.codex/hooks.json")
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        // Codex acquires on SessionStart and releases via the process-exit watcher (§5.5):
+        // Codex acquires on SessionStart and releases via the process-exit watcher:
         // `Stop` fires per-turn (not session-end), so no release hook is written.
         #expect(hooks["SessionStart"] != nil)
         #expect(hooks["Stop"] == nil, "Stop is per-turn, not session-end — must not be used for release")
@@ -99,9 +99,9 @@ struct HookInstallerTests {
     @Test func installOpenCodeUsesInfoIdAndNoIdleRelease() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
-        // OpenCode is binary-detected; install via the spec directly to bypass the PATH gate.
-        let spec = HookSpec.for(agent: .openCode, cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
-        _ = try spec.install(dryRun: false)
+        // OpenCode is binary-detected; install via the integration directly to bypass the PATH gate.
+        let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try OpenCodeIntegration().install(ctx, dryRun: false)
 
         let path = home.path + "/.config/opencode/plugins/adrafinil.ts"
         let ts = try String(contentsOfFile: path, encoding: .utf8)
@@ -325,9 +325,9 @@ struct HookInstallerTests {
         FileManager.default.createFile(atPath: binDir + "/aider", contents: nil)
         chmod(binDir + "/aider", 0o755)
 
-        // Use HookSpec directly to sidestep PATH-based isDetected.
-        let spec = HookSpec.for(agent: .aider, cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
-        let result = try spec.install(dryRun: false)
+        // Use the integration directly to sidestep PATH-based isDetected.
+        let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        let result = try AiderIntegration().install(ctx, dryRun: false)
 
         let zshrc  = try String(contentsOfFile: home.path + "/.zshrc", encoding: .utf8)
         let bashrc = try String(contentsOfFile: home.path + "/.bashrc", encoding: .utf8)
@@ -345,9 +345,9 @@ struct HookInstallerTests {
         try "".write(toFile: home.path + "/.zshrc", atomically: true, encoding: .utf8)
         try "".write(toFile: home.path + "/.bashrc", atomically: true, encoding: .utf8)
 
-        let spec = HookSpec.for(agent: .aider, cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
-        _ = try spec.install(dryRun: false)
-        let result = try spec.uninstall(dryRun: false)
+        let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try AiderIntegration().install(ctx, dryRun: false)
+        let result = try AiderIntegration().uninstall(ctx, dryRun: false)
 
         let zshrc  = try String(contentsOfFile: home.path + "/.zshrc", encoding: .utf8)
         let bashrc = try String(contentsOfFile: home.path + "/.bashrc", encoding: .utf8)
@@ -366,8 +366,8 @@ struct HookInstallerTests {
         try "".write(toFile: home.path + "/.zshrc", atomically: true, encoding: .utf8)
         try "".write(toFile: home.path + "/.bashrc", atomically: true, encoding: .utf8)
 
-        let spec = HookSpec.for(agent: .aider, cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
-        _ = try spec.install(dryRun: false)
+        let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try AiderIntegration().install(ctx, dryRun: false)
 
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         #expect(installer.installState(for: .aider) == .installed)

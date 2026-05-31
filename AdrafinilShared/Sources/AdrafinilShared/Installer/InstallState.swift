@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-agent hook-installation state, surfaced in the Settings → Agents tab (SPEC §7.2).
+/// Per-agent hook-installation state, surfaced in the Settings → Agents tab.
 public enum HookInstallState: String, Codable, Sendable {
     /// Adrafinil's hook entry is present and matches what we would write.
     case installed

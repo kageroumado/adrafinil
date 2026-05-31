@@ -44,7 +44,7 @@ public actor AssertionRegistry {
     }
 
     /// Removes an assertion. Returns `true` if a matching key existed, `false` otherwise
-    /// (an unknown-key release is a no-op — the caller may surface a warning, SPEC §5.6).
+    /// (an unknown-key release is a no-op — the caller may surface a warning).
     @discardableResult
     public func release(key: String) -> Bool {
         guard assertions.removeValue(forKey: key) != nil else { return false }
