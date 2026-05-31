@@ -1,5 +1,18 @@
 import Foundation
 
+/// How an assertion came to exist. Governs lifecycle policy: `.manual` holds are explicit,
+/// user-/agent-initiated, time-boxed blocks that are exempt from the CPU-idle release rule
+/// (an intentional hold for a background job has no user activity to measure), whereas `.hook`
+/// and `.sniffed` assertions track a live agent and are subject to the full idle policy.
+public enum AssertionOrigin: String, Codable, Sendable {
+    /// Acquired by an agent's editor hook (the default, and what old state files decode as).
+    case hook
+    /// An explicit `adrafinil hold` — reasoned, TTL-bounded, idle-exempt.
+    case manual
+    /// Auto-acquired by the daemon's process-sniffing sweep.
+    case sniffed
+}
+
 public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     public let key: String
     public let tool: String
@@ -9,10 +22,16 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     public let acquiredAt: Date
     public var lastActivityAt: Date
     public var expiresAt: Date?
+    public let origin: AssertionOrigin
 
     public var id: String { key }
 
     public var age: TimeInterval { Date().timeIntervalSince(acquiredAt) }
+
+    /// Seconds until `expiresAt`, or nil if the assertion has no TTL. Negative once expired.
+    public var timeRemaining: TimeInterval? {
+        expiresAt.map { $0.timeIntervalSince(Date()) }
+    }
 
     public init(
         key: String,
@@ -21,7 +40,8 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         pid: pid_t,
         processName: String,
         acquiredAt: Date = Date(),
-        ttl: TimeInterval? = nil
+        ttl: TimeInterval? = nil,
+        origin: AssertionOrigin = .hook
     ) {
         self.key = key
         self.tool = tool
@@ -31,6 +51,26 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         self.acquiredAt = acquiredAt
         self.lastActivityAt = acquiredAt
         self.expiresAt = ttl.map { acquiredAt.addingTimeInterval($0) }
+        self.origin = origin
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key, tool, reason, pid, processName, acquiredAt, lastActivityAt, expiresAt, origin
+    }
+
+    // Custom decode so state files written before `origin` existed still restore (defaulting to
+    // `.hook`). Encoding stays synthesized.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        tool = try c.decode(String.self, forKey: .tool)
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        pid = try c.decode(pid_t.self, forKey: .pid)
+        processName = try c.decode(String.self, forKey: .processName)
+        acquiredAt = try c.decode(Date.self, forKey: .acquiredAt)
+        lastActivityAt = try c.decode(Date.self, forKey: .lastActivityAt)
+        expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        origin = try c.decodeIfPresent(AssertionOrigin.self, forKey: .origin) ?? .hook
     }
 }
 

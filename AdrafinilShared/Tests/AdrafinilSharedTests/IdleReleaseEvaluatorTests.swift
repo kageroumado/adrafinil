@@ -6,8 +6,8 @@ import Foundation
 struct IdleReleaseEvaluatorTests {
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
 
-    private func assertion(acquiredAt: Date, key: String = "k", pid: pid_t = 100, ttl: TimeInterval? = nil) -> Assertion {
-        Assertion(key: key, tool: "claude-code", pid: pid, processName: "claude", acquiredAt: acquiredAt, ttl: ttl)
+    private func assertion(acquiredAt: Date, key: String = "k", pid: pid_t = 100, ttl: TimeInterval? = nil, origin: AssertionOrigin = .hook) -> Assertion {
+        Assertion(key: key, tool: "claude-code", pid: pid, processName: "claude", acquiredAt: acquiredAt, ttl: ttl, origin: origin)
     }
 
     private func keys(_ rs: [IdleReleaseEvaluator.Release]) -> [String] { rs.map(\.key) }
@@ -101,6 +101,36 @@ struct IdleReleaseEvaluatorTests {
         // Same disabled config, but a dead PID still releases (safety, not preference).
         let dead = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in false }, cpuTime: { _ in 1.0 })
         #expect(reasons(dead) == [.deadProcess])
+    }
+
+    // MARK: Manual-hold idle exemption
+
+    @Test("a manual hold is exempt from CPU-idle release")
+    func manualHoldExemptFromCpuIdle() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100, origin: .manual)
+        let cfg = IdleReleaseEvaluator.Config(enabled: true, idleThresholdMinutes: 5, maxAssertionAgeHours: 1000)
+
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        // Flat CPU well past the threshold — a hook assertion would be CPU-idle released here.
+        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(10_000), config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        #expect(out.isEmpty)
+    }
+
+    @Test("a pid-bound manual hold still releases when its process dies")
+    func manualHoldReleasesOnDeadPid() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100, origin: .manual)
+        let out = e.evaluate(assertions: [a], now: t0, config: .init(), pidAlive: { _ in false }, cpuTime: { _ in 1.0 })
+        #expect(reasons(out) == [.deadProcess])
+    }
+
+    @Test("a manual hold still expires on TTL")
+    func manualHoldExpiresOnTTL() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0.addingTimeInterval(-10), pid: -1, ttl: 5, origin: .manual)
+        let out = e.evaluate(assertions: [a], now: t0, config: .init(), pidAlive: { _ in true }, cpuTime: { _ in nil })
+        #expect(reasons(out) == [.ttlExpired])
     }
 
     // MARK: TTL

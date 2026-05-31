@@ -76,13 +76,16 @@ public final class IdleReleaseEvaluator {
                 releases.append(Release(key: a.key, reason: .deadProcess))
                 continue
             }
-            // CPU-idle check (user-tunable policy — only when enabled). The first observation of a
+            // CPU-idle check (user-tunable policy — only when enabled). Manual holds are exempt: an
+            // explicit `adrafinil hold` for a background job has no user activity to measure and is
+            // governed by its TTL instead. Dead-process release (above) still applies to a pid-bound
+            // hold, so it releases the moment the watched job exits. The first observation of a
             // PID seeds the baseline (and never releases); subsequent sweeps reset the idle clock
             // when CPU advances and release only once it has been flat past the threshold. Seeding
             // on first sight is essential — defaulting `prev` to the current reading would make the
             // change check trivially false forever, collapsing the rule into "release any pid>0
             // assertion `threshold` after *acquisition*" regardless of activity.
-            if config.enabled, a.pid > 0, let cpu = cpuTime(a.pid) {
+            if config.enabled, a.origin != .manual, a.pid > 0, let cpu = cpuTime(a.pid) {
                 if let prev = lastCpuTime[a.pid] {
                     if abs(cpu - prev) > 0.01 {
                         lastCpuChange[a.pid] = now

@@ -89,6 +89,46 @@ final class Daemon {
         }
     }
 
+    /// Outcome of an agent-hold request, so the CLI/MCP can report precisely why a hold did or
+    /// didn't take.
+    enum HoldResult: Sendable {
+        case placed(key: String, count: Int)
+        /// Agent holds are disabled in settings.
+        case disabled
+        /// The app is paused, so nothing can keep the Mac awake right now.
+        case paused
+    }
+
+    /// Places an explicit agent hold: clamps the TTL to the configured cap, mints a `hold:` key,
+    /// and acquires it as a `.manual` assertion (idle-exempt, TTL-bounded). Honors the
+    /// `agentHoldsEnabled` master switch and the pause state.
+    func handleHold(reason: String?, requestedTTL: TimeInterval?, pid: pid_t?, tool: String?) async -> HoldResult {
+        guard settings.agentHoldsEnabled else {
+            log.notice("hold rejected — agent holds are disabled in settings")
+            return .disabled
+        }
+        guard !isPaused else {
+            log.notice("hold rejected — Adrafinil is paused")
+            return .paused
+        }
+        let ttl = ManualHold.clampTTL(requestedTTL, capHours: settings.manualHoldMaxHours)
+        let key = ManualHold.newKey()
+        let label = (tool?.isEmpty == false) ? tool! : ManualHold.defaultTool
+        let assertion = Assertion(
+            key: key,
+            tool: label,
+            reason: reason,
+            pid: pid ?? -1,
+            processName: label,
+            ttl: ttl,
+            origin: .manual
+        )
+        await handleAcquire(assertion)
+        let count = await registry.snapshot().count
+        log.notice("hold placed key='\(key, privacy: .public)' ttl=\(Int(ttl), privacy: .public)s pid=\(pid ?? -1, privacy: .public) reason='\(reason ?? "", privacy: .public)'")
+        return .placed(key: key, count: count)
+    }
+
     func handleAcquire(_ assertion: Assertion) async {
         guard !isPaused else {
             log.notice("acquire ignored — Adrafinil is paused (key='\(assertion.key, privacy: .public)')")

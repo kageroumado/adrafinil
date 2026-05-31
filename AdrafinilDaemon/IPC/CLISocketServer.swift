@@ -128,6 +128,19 @@ final class CLISocketServer {
             }
             return CLIResponse(ok: true, error: nil, blocking: !snapshot.isEmpty, assertionCount: snapshot.count, statusJSON: nil)
 
+        case .hold:
+            let result = runOnMain { @MainActor in
+                await daemonRef.handleHold(reason: req.reason, requestedTTL: req.ttlSeconds, pid: req.pid, tool: req.tool)
+            }
+            switch result {
+            case .placed(let key, let count):
+                return CLIResponse(ok: true, error: nil, blocking: count > 0, assertionCount: count, statusJSON: nil, holdKey: key)
+            case .disabled:
+                return CLIResponse(ok: false, error: "Agent holds are turned off in Adrafinil settings.", blocking: nil, assertionCount: nil, statusJSON: nil)
+            case .paused:
+                return CLIResponse(ok: false, error: "Adrafinil is paused — resume it to place a hold.", blocking: nil, assertionCount: nil, statusJSON: nil)
+            }
+
         case .release:
             guard let key = req.key else {
                 return CLIResponse(ok: false, error: "release requires key", blocking: nil, assertionCount: nil, statusJSON: nil)

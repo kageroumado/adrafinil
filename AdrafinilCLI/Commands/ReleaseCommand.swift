@@ -11,12 +11,16 @@ enum ReleaseCommand {
             exit(2)
         }
         let tool = parser.option("--tool") ?? "unknown"
+
+        // An agent-hold id (`hold:…`) is already the full registry key — release it verbatim. Hook
+        // sessions, by contrast, are keyed `<tool>:<session>`, so those get the tool prefix.
+        let fullKey = ManualHold.isHoldKey(key) ? key : "\(tool):\(key)"
         Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
-            .notice("release \(tool, privacy: .public):\(key, privacy: .public)")
+            .notice("release \(fullKey, privacy: .public)")
 
         let req = CLIRequest(
             op: .release,
-            key: "\(tool):\(key)",
+            key: fullKey,
             tool: tool,
             reason: nil,
             pid: nil,

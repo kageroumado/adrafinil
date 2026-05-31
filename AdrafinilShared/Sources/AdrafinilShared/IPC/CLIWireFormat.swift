@@ -10,6 +10,9 @@ public struct CLIRequest: Codable, Sendable {
         case release
         case status
         case ping
+        /// Place an explicit agent hold. The daemon mints the `hold:` key, clamps the TTL, and
+        /// returns the key in `CLIResponse.holdKey`. Release it later with `op == .release`.
+        case hold
     }
 
     public let op: Op
@@ -45,20 +48,23 @@ public struct CLIResponse: Codable, Sendable {
     public let statusJSON: Data?
     /// Non-fatal advisory, e.g. releasing an unknown key ("warnings, not errors").
     public let warning: String?
+    /// The minted `hold:` key for a successful `.hold` request, so the caller can release it later.
+    public let holdKey: String?
 
     /// Wire keys match the documented protocol: `blocking` serializes as `blockingState`.
     enum CodingKeys: String, CodingKey {
-        case ok, error, assertionCount, statusJSON, warning
+        case ok, error, assertionCount, statusJSON, warning, holdKey
         case blocking = "blockingState"
     }
 
-    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil) {
+    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil) {
         self.ok = ok
         self.error = error
         self.blocking = blocking
         self.assertionCount = assertionCount
         self.statusJSON = statusJSON
         self.warning = warning
+        self.holdKey = holdKey
     }
 }
 

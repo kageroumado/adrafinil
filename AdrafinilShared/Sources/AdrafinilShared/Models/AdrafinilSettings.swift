@@ -24,6 +24,14 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var processSniffingEnabled: Bool = true
     public var autoAcquireForKnownAgents: Bool = false
 
+    /// Allow agents to place explicit, reasoned "keep awake" holds (via `adrafinil hold` or the
+    /// MCP server). When false, hold requests are rejected, so only a live agent session — via its
+    /// editor hooks — can keep the Mac awake.
+    public var agentHoldsEnabled: Bool = true
+    /// Hard cap, in hours, on how long a single agent hold can last. Any longer request is clamped
+    /// down to this — a forgetful agent can never pin the Mac awake indefinitely.
+    public var manualHoldMaxHours: Double = 4
+
     public var launchAtLogin: Bool = true
     public var showInMenuBar: Bool = true
 
@@ -35,6 +43,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case lowBatteryCutoutEnabled, lowBatteryThresholdPercent
         case idleReleaseEnabled, idleReleaseMinutes
         case processSniffingEnabled, autoAcquireForKnownAgents
+        case agentHoldsEnabled, manualHoldMaxHours
         case launchAtLogin, showInMenuBar
     }
 
@@ -57,6 +66,8 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         idleReleaseMinutes = try c.decodeIfPresent(Int.self, forKey: .idleReleaseMinutes) ?? d.idleReleaseMinutes
         processSniffingEnabled = try c.decodeIfPresent(Bool.self, forKey: .processSniffingEnabled) ?? d.processSniffingEnabled
         autoAcquireForKnownAgents = try c.decodeIfPresent(Bool.self, forKey: .autoAcquireForKnownAgents) ?? d.autoAcquireForKnownAgents
+        agentHoldsEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentHoldsEnabled) ?? d.agentHoldsEnabled
+        manualHoldMaxHours = try c.decodeIfPresent(Double.self, forKey: .manualHoldMaxHours) ?? d.manualHoldMaxHours
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
         showInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showInMenuBar) ?? d.showInMenuBar
     }
