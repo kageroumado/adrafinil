@@ -8,7 +8,7 @@ import AdrafinilShared
 struct DebugControlPanel: View {
     @Bindable var control: DebugControl
 
-    private var appDelegate: AppDelegate? { NSApp.delegate as? AppDelegate }
+    private var appDelegate: AppDelegate? { control.appDelegate ?? (NSApp.delegate as? AppDelegate) }
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {

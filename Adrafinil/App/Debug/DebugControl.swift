@@ -73,6 +73,10 @@ final class DebugControl {
     /// when the scenario changes (instead of waiting for the 2s poll) and to render a live preview.
     @ObservationIgnored var statusModel: AppStatusModel?
 
+    /// Set by `AppDelegate` at launch. The control panel is hosted in an AppKit window where
+    /// `NSApp.delegate as? AppDelegate` can come back nil, so we hold an explicit reference.
+    @ObservationIgnored weak var appDelegate: AppDelegate?
+
     @ObservationIgnored let liveClient = DaemonClient()
 
     private init() {}

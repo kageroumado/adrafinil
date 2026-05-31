@@ -114,6 +114,14 @@ struct AgentsSettingsTab: View {
             } footer: {
                 Text("Turn an agent on to let Adrafinil know when it starts and stops working. Turn it off to disconnect it.")
             }
+
+            Section {
+                Button("Re-run setup…") {
+                    (NSApp.delegate as? AppDelegate)?.presentInstaller()
+                }
+            } footer: {
+                Text("Walk through the setup again to reconnect agents or repair the installation.")
+            }
         }
         .formStyle(.grouped)
         .onAppear { refreshRows() }

@@ -10,22 +10,26 @@ struct MenuPopover: View {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 header
 
-                if let s = status.status {
+                // A failed poll takes precedence: if we can't reach the daemon we don't have
+                // trustworthy status, so show the error rather than a stale snapshot.
+                if let err = status.lastError {
+                    errorCard(err)
+                } else if let s = status.status {
                     statusCard(s)
+
+                    if state == .awake {
+                        letItSleepButton
+                    }
 
                     if !s.assertions.isEmpty {
                         agentList(s.assertions)
                     }
-
-                    metaFooter(s)
-                    actions(s)
-                } else if let err = status.lastError {
-                    errorCard(err)
-                    actions(nil)
                 } else {
                     HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
                         .frame(height: 64)
                 }
+
+                bottomBar(status.lastError == nil ? status.status : nil)
             }
             .padding(Theme.Space.lg)
         }
@@ -77,6 +81,7 @@ struct MenuPopover: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(.body, design: .rounded).weight(.semibold))
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -114,54 +119,62 @@ struct MenuPopover: View {
         .glassCard(cornerRadius: Theme.Radius.inner)
     }
 
-    // MARK: - Meta footer
+    // MARK: - Primary action (awake only)
 
-    private func metaFooter(_ s: DaemonStatus) -> some View {
+    /// Shown directly under the "Staying awake" hero so the action reads as part of it:
+    /// releases Adrafinil's wake holds so the Mac sleeps normally again.
+    private var letItSleepButton: some View {
+        Button {
+            Task { await status.forceReleaseAll() }
+        } label: {
+            Label("Let it sleep", systemImage: "moon.fill")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glassProminent)
+        .controlSize(.large)
+        .tint(Theme.awake)
+        .help("Stop keeping your Mac awake — it'll sleep normally again.")
+    }
+
+    // MARK: - Bottom bar (meta + utility actions)
+
+    /// One row: lid/temperature on the left (when known), Settings + Quit on the right.
+    private func bottomBar(_ s: DaemonStatus?) -> some View {
         HStack(spacing: Theme.Space.sm) {
-            Label(s.lidClosed ? "Lid closed" : "Lid open",
-                  systemImage: s.lidClosed ? "laptopcomputer.slash" : "laptopcomputer")
+            if let s { metaLabels(s) }
+            Spacer(minLength: 0)
+            GlassEffectContainer(spacing: Theme.Space.sm) {
+                HStack(spacing: Theme.Space.sm) {
+                    SettingsLink { Image(systemName: "gearshape") }
+                        .help("Settings…")
+                    Button { NSApp.terminate(nil) } label: {
+                        Image(systemName: "power")
+                    }
+                    .help("Quit Adrafinil")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+            }
+        }
+    }
+
+    /// Lid/temperature chips. The popover is only visible while the lid is open or in
+    /// clamshell (lid shut + external display), so "open" is implied — only flag clamshell.
+    @ViewBuilder
+    private func metaLabels(_ s: DaemonStatus) -> some View {
+        HStack(spacing: Theme.Space.sm) {
+            if s.lidClosed {
+                Label("Clamshell", systemImage: "laptopcomputer.slash")
+            }
             if let temp = s.cpuTemperatureCelsius {
-                Text("·").foregroundStyle(.tertiary)
+                if s.lidClosed { Text("·").foregroundStyle(.tertiary) }
                 Label("\(Int(temp))°C", systemImage: "thermometer.medium")
                     .foregroundStyle(temp >= 80 ? Theme.cutout : .secondary)
             }
-            Spacer()
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, Theme.Space.xs)
-    }
-
-    // MARK: - Actions
-
-    private func actions(_ s: DaemonStatus?) -> some View {
-        let active = !(s?.assertions.isEmpty ?? true)
-        return GlassEffectContainer(spacing: Theme.Space.sm) {
-            HStack(spacing: Theme.Space.sm) {
-                Button {
-                    Task { await status.forceReleaseAll() }
-                } label: {
-                    Label("Force sleep", systemImage: "zzz").frame(maxWidth: .infinity)
-                }
-                .disabled(!active)
-                .tint(Theme.awake)
-
-                Button { (NSApp.delegate as? AppDelegate)?.presentInstaller() } label: {
-                    Image(systemName: "checklist")
-                }
-                .help("Re-run setup")
-
-                SettingsLink { Image(systemName: "gearshape") }
-                    .help("Settings…")
-
-                Button { NSApp.terminate(nil) } label: {
-                    Image(systemName: "power")
-                }
-                .help("Quit Adrafinil")
-            }
-            .buttonStyle(.glass)
-            .controlSize(.large)
-        }
+        .padding(.leading, Theme.Space.xs)
     }
 
     // MARK: - Derived state
@@ -195,19 +208,20 @@ struct AssertionRow: View {
     }
 
     var body: some View {
-        HStack(spacing: Theme.Space.sm) {
-            StatusDot(color: Theme.awake, diameter: 6)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack {
-                    Text(displayTool).font(.toolName)
-                    Spacer()
-                    Text(assertion.age.compactDurationString)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                if let reason = assertion.reason {
-                    Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
+        // Dot lives on the name line so single-line rows (the normal case — hooks don't
+        // report a reason) stay vertically centered; a reason, if present, indents beneath.
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: Theme.Space.sm) {
+                StatusDot(color: Theme.awake, diameter: 6)
+                Text(displayTool).font(.toolName)
+                Spacer()
+                Text(assertion.age.compactDurationString)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            if let reason = assertion.reason {
+                Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .padding(.leading, 6 + Theme.Space.sm)
             }
         }
         .padding(.vertical, Theme.Space.sm)

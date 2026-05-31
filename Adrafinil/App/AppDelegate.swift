@@ -14,6 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var installerWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single instance. macOS blocks double-launch from Finder, but launching via Xcode (or a
+        // different build path) bypasses that — and Xcode's Stop doesn't reliably kill a menu-bar
+        // (LSUIElement) app, so old copies pile up. Terminate any other running instance on launch.
+        terminateOtherInstances()
+
         // Be the notification delegate so the away recap shows as a banner even when Adrafinil
         // is the frontmost app (otherwise the system routes it silently to Notification Center).
         UNUserNotificationCenter.current().delegate = self
@@ -52,6 +57,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
+    /// Force-quit any other running copy of this app, leaving only this instance. Force (not
+    /// graceful) so a wedged stray that's ignoring events still goes away.
+    private func terminateOtherInstances() {
+        let me = NSRunningApplication.current
+        for app in NSWorkspace.shared.runningApplications
+        where app.bundleIdentifier == me.bundleIdentifier && app.processIdentifier != me.processIdentifier {
+            app.forceTerminate()
+        }
+    }
+
     /// Shows the first-run setup window. Hosted from AppKit because this is a menu-bar
     /// (`LSUIElement`) app, which does not auto-present SwiftUI windows at launch.
     func presentInstaller() {
@@ -79,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Presents the interactive debug control panel (DEBUG only).
     func presentDebugControlPanel() {
+        DebugControl.shared.appDelegate = self
         if let window = debugPanelWindow {
             window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
         }
