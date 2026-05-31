@@ -156,7 +156,7 @@ Cursor's schema differs (flat `{"command": "..."}` rather than nested `hooks`). 
 |------|----------|
 | Crush | Only `PreToolUse` exists. Use it to call `adrafinil acquire`; rely on the process-exit watcher for release. Config: `~/.config/crush/crush.json`. |
 | Aider | No hooks. Installs a shell alias in `~/.zshrc`/`~/.bashrc` (opt-in) that wraps `aider` with acquire/release. |
-| Hermes | Generates a Python plugin at `~/.hermes/plugins/adrafinil/` (`__init__.py` + mandatory `plugin.yaml`); the session id is a callback `session_id` kwarg. Plugins are opt-in, so it also enables `adrafinil` in `~/.hermes/config.yaml`. |
+| Hermes | A **shell hook** in `~/.hermes/config.yaml` (`hooks.on_session_start`/`on_session_end` → `adrafinil acquire/release --tool hermes`), plus an approval in `~/.hermes/shell-hooks-allowlist.json` (first-use consent). Runs in CLI + Gateway; session id arrives on the hook's stdin `session_id`. Device-verified against NousResearch/hermes-agent — its other two hook systems (Python plugins, gateway-only `HOOK.yaml`) don't fit. |
 | OpenCode | TS plugin at `~/.config/opencode/plugins/adrafinil.ts`. Acquire on `session.created` (id = `event.properties.info.id`); release via the process-exit watcher (`session.idle` is per-turn). |
 | Cline | Shell-alias wrapper in `~/.zshrc`. (Limited: misses in-editor VS Code sessions — Cline's native `~/Documents/Cline/Rules/Hooks/` would be the proper path.) |
 | Pi | TS extension at `~/.pi/agent/extensions/adrafinil.ts`; `pi.on("session_start"/"session_shutdown")`. |

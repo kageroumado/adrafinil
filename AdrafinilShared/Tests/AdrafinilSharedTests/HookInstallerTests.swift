@@ -110,20 +110,47 @@ struct HookInstallerTests {
         #expect(ts.contains("session.created"))
     }
 
-    @Test func installHermesWritesInitAndManifest() throws {
+    @Test func installHermesWritesShellHookAndAllowlist() throws {
         let home = try makeFakeHome(detectedDirs: [".hermes"])
         defer { try? FileManager.default.removeItem(at: home) }
+        // Seed a realistic Hermes config with the default empty hooks map.
+        try "model:\n  default: x\nhooks: {}\nhooks_auto_accept: false\n"
+            .write(toFile: home.path + "/.hermes/config.yaml", atomically: true, encoding: .utf8)
 
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         _ = try installer.install(for: .hermes, dryRun: false)
 
-        let root = home.path + "/.hermes/plugins/adrafinil"
-        let initPy = try String(contentsOfFile: root + "/__init__.py", encoding: .utf8)
-        #expect(FileManager.default.fileExists(atPath: root + "/plugin.yaml"), "manifest is mandatory")
-        #expect(initPy.contains("def register(ctx)"))
-        #expect(initPy.contains("session_id"), "session id is a callback kwarg, not a shell var")
-        #expect(!initPy.contains("HERMES_SESSION_ID"), "the shell-var form does not work in a Python callback")
+        // Shell hook lives in config.yaml's hooks: map — NOT a Python plugin.
+        let cfg = try String(contentsOfFile: home.path + "/.hermes/config.yaml", encoding: .utf8)
+        #expect(cfg.contains("on_session_start"))
+        #expect(cfg.contains("on_session_end"))
+        #expect(cfg.contains("acquire --tool hermes"))
+        #expect(!cfg.contains("HERMES_SESSION_ID"))
+        #expect(!cfg.contains("hooks: {}"), "empty hooks map should have been replaced")
+
+        // Both commands must be allowlisted or Hermes skips them.
+        let allow = try Data(contentsOf: URL(fileURLWithPath: home.path + "/.hermes/shell-hooks-allowlist.json"))
+        let approvals = try #require((try JSONSerialization.jsonObject(with: allow) as? [String: Any])?["approvals"] as? [[String: Any]])
+        #expect(approvals.count == 2)
+        #expect(approvals.contains { ($0["event"] as? String) == "on_session_start" })
+
         #expect(installer.installState(for: .hermes) == .installed)
+    }
+
+    @Test func hermesUninstallRestoresEmptyHooksAndRevokesAllowlist() throws {
+        let home = try makeFakeHome(detectedDirs: [".hermes"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        try "model:\n  default: x\nhooks: {}\nhooks_auto_accept: false\n"
+            .write(toFile: home.path + "/.hermes/config.yaml", atomically: true, encoding: .utf8)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .hermes, dryRun: false)
+        try installer.uninstall(for: .hermes)
+
+        let cfg = try String(contentsOfFile: home.path + "/.hermes/config.yaml", encoding: .utf8)
+        #expect(!cfg.contains("adrafinil"), "our hooks must be gone")
+        #expect(cfg.contains("hooks: {}"), "empty hooks map should be restored")
+        #expect(installer.installState(for: .hermes) == .notInstalled)
     }
 
     @Test func installIsIdempotent() throws {

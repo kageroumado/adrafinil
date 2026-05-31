@@ -229,7 +229,7 @@ private struct AgentInstallRow: View {
         case .geminiCLI:   return ["\(home)/.gemini/settings.json"]
         case .crush:       return ["\(home)/.config/crush/crush.json"]
         case .aider:       return ["\(home)/.zshrc"]
-        case .hermes:      return ["\(home)/.hermes/plugins/adrafinil/__init__.py"]
+        case .hermes:      return ["\(home)/.hermes/config.yaml"]
         case .openCode:    return ["\(home)/.config/opencode/plugins/adrafinil.ts"]
         case .cline:       return ["\(home)/.zshrc"]
         case .pi:          return ["\(home)/.pi/agent/extensions/adrafinil.ts"]

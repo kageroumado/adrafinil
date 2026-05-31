@@ -45,7 +45,7 @@ struct HookSpec {
         case .aider, .cline:
             return try installShellWrapper(dryRun: dryRun)
         case .hermes:
-            return try installHermesPlugin(dryRun: dryRun)
+            return try installHermesShellHook(dryRun: dryRun)
         case .openCode:
             return try installOpenCodePlugin(dryRun: dryRun)
         case .pi:
@@ -63,7 +63,7 @@ struct HookSpec {
         case .cursor:
             return try removeFromCursor(dryRun: dryRun)
         case .hermes:
-            return try removePluginFolder(dryRun: dryRun)
+            return try removeHermesShellHook(dryRun: dryRun)
         case .openCode, .pi:
             return try removePluginFile(dryRun: dryRun)
         case .crush:
@@ -81,7 +81,7 @@ struct HookSpec {
         case .cursor:
             return installStateForCursor()
         case .hermes:
-            return installStateForFilePlugin(configPath)
+            return installStateForHermes()
         case .openCode, .pi:
             return installStateForFilePlugin(configPath)
         case .crush:
@@ -100,7 +100,7 @@ struct HookSpec {
         case .cursor:     return "\(homeRoot)/.cursor/hooks.json"
         case .geminiCLI:  return "\(homeRoot)/.gemini/settings.json"
         case .crush:      return "\(homeRoot)/.config/crush/crush.json"
-        case .hermes:     return "\(pluginRoot)/__init__.py"
+        case .hermes:     return hermesConfigPath
         case .openCode:   return "\(homeRoot)/.config/opencode/plugins/adrafinil.ts"
         case .pi:         return "\(pluginRoot)/adrafinil.ts"
         case .aider, .cline:
@@ -110,7 +110,6 @@ struct HookSpec {
 
     private var pluginRoot: String {
         switch agent {
-        case .hermes: return "\(homeRoot)/.hermes/plugins/adrafinil"
         case .openCode: return "\(homeRoot)/.config/opencode/plugins"
         case .pi: return "\(homeRoot)/.pi/agent/extensions"
         default: return ""
@@ -418,67 +417,139 @@ struct HookSpec {
         return HookInstaller.InstallResult(summary: "removed \(agent.rawValue) wrapper + alias", diff: diff)
     }
 
-    // MARK: - Hermes Python plugin
+    // MARK: - Hermes shell hook (config.yaml `hooks:` + shell-hooks allowlist)
+    //
+    // Verified against an installed Hermes (NousResearch/hermes-agent) on a real device: of its
+    // three hook systems, **shell hooks** are the right fit — declared in `~/.hermes/config.yaml`
+    // under a `hooks:` map, they run in both CLI and Gateway and pipe a JSON payload (with
+    // `session_id`) to the command's **stdin**, which our CLI already reads (`CLIStdin`). The
+    // command must be allowlisted in `~/.hermes/shell-hooks-allowlist.json` (first-use consent),
+    // matched by exact (event, command). `on_session_start`/`on_session_end` are valid hook events.
 
-    /// Canonical Hermes `__init__.py`. Hermes delivers the session id as a callback **kwarg**
-    /// (`session_id`), not a shell env var — `${HERMES_SESSION_ID}` would be a literal string
-    /// inside a Python lambda. The plugin entry point must be named `__init__.py`.
-    private func hermesInitPy() -> String {
+    private var hermesConfigPath: String { "\(homeRoot)/.hermes/config.yaml" }
+    private var hermesAllowlistPath: String { "\(homeRoot)/.hermes/shell-hooks-allowlist.json" }
+
+    private static let hermesMarkerStart = "  # >>> adrafinil (managed)"
+    private static let hermesMarkerEnd = "  # <<< adrafinil"
+
+    /// The post-YAML command string — also the exact string stored in the allowlist. The CLI path
+    /// is shell-quoted so Hermes's `shlex.split` keeps a spaced path as a single arg; the session id
+    /// comes from the hook's stdin `session_id`, so no positional key is needed.
+    private func hermesCommand(_ op: String) -> String {
+        let cli = cliPath.contains("'") ? "\"\(cliPath)\"" : "'\(cliPath)'"
+        return "\(cli) \(op) --tool hermes"
+    }
+
+    /// The `hooks:` block we manage, bracketed by comment markers for clean removal.
+    private func hermesHookBlock() -> String {
         """
-        import subprocess
-
-        CLI = \(swiftStringLiteral: cliPath)
-
-        def _acquire(session_id=None, **kwargs):
-            if session_id:
-                subprocess.run([CLI, "acquire", session_id, "--tool", "hermes"])
-
-        def _release(session_id=None, **kwargs):
-            if session_id:
-                subprocess.run([CLI, "release", session_id, "--tool", "hermes"])
-
-        def register(ctx):
-            ctx.register_hook("on_session_start", _acquire)
-            ctx.register_hook("on_session_end", _release)
+        hooks:
+        \(Self.hermesMarkerStart)
+          on_session_start:
+            - command: "\(hermesCommand("acquire"))"
+          on_session_end:
+            - command: "\(hermesCommand("release"))"
+        \(Self.hermesMarkerEnd)
         """
     }
 
-    /// Mandatory Hermes plugin manifest (declares the hooks it provides).
-    private func hermesPluginYaml() -> String {
-        """
-        name: adrafinil
-        version: 1.0.0
-        description: Adrafinil sleep-prevention session hooks
-        provides_hooks:
-          - on_session_start
-          - on_session_end
-        """
-    }
+    private func installHermesShellHook(dryRun: Bool) throws -> HookInstaller.InstallResult {
+        let existing = (try? String(contentsOfFile: hermesConfigPath, encoding: .utf8)) ?? ""
+        var summary = "wired Hermes on_session_start/on_session_end shell hooks"
+        var diff = ""
 
-    private func installHermesPlugin(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let manifestPath = "\(pluginRoot)/plugin.yaml"
-        var diff = "+ \(configPath)\n+ \(manifestPath)"
-        if !dryRun {
-            try FileManager.default.createDirectory(atPath: pluginRoot, withIntermediateDirectories: true)
-            try hermesInitPy().write(toFile: configPath, atomically: true, encoding: .utf8)
-            try hermesPluginYaml().write(toFile: manifestPath, atomically: true, encoding: .utf8)
-        }
-        // Hermes plugins are opt-in: they only load when enabled in ~/.hermes/config.yaml. Append a
-        // minimal enable block when there's no existing `plugins:` section (a naive merge into an
-        // existing one risks duplicate YAML keys); otherwise surface the manual step.
-        let configYaml = "\(homeRoot)/.hermes/config.yaml"
-        let existing = (try? String(contentsOfFile: configYaml, encoding: .utf8)) ?? ""
-        var summary = "wrote Hermes plugin (plugin.yaml + __init__.py)"
-        if existing.contains("adrafinil") {
-            // already referenced — assume enabled
-        } else if !existing.contains("plugins:") {
-            let block = "\nplugins:\n  enabled:\n    - adrafinil\n"
-            if !dryRun { try (existing + block).write(toFile: configYaml, atomically: true, encoding: .utf8) }
-            diff += "\n~ \(configYaml): enable adrafinil"
+        if existing.contains(Self.hermesMarkerStart) {
+            summary = "already installed"
+        } else if existing.contains("hooks: {}") {
+            // Fresh/default config: replace the empty hooks map with our block.
+            let updated = existing.replacingOccurrences(of: "hooks: {}", with: hermesHookBlock())
+            if !dryRun { try updated.write(toFile: hermesConfigPath, atomically: true, encoding: .utf8) }
+            diff += "~ \(hermesConfigPath): set hooks.on_session_start/on_session_end\n"
+        } else if !existing.contains("\nhooks:") && !existing.hasPrefix("hooks:") {
+            // No hooks map yet: append one.
+            let updated = (existing.isEmpty ? "" : existing + "\n") + hermesHookBlock() + "\n"
+            if !dryRun { try ensureDir(hermesConfigPath); try updated.write(toFile: hermesConfigPath, atomically: true, encoding: .utf8) }
+            diff += "+ \(hermesConfigPath): hooks block\n"
         } else {
-            summary += " — run `hermes plugins enable adrafinil` to activate"
+            // An existing populated `hooks:` map — don't risk a blind YAML merge.
+            summary = "Hermes config already has a hooks: section — add on_session_start/on_session_end manually (see docs)"
         }
+
+        // Allowlist both commands so the hooks run without a first-use TTY prompt (JSON — safe to merge).
+        if !dryRun { try addHermesAllowlistApprovals() }
+        diff += "~ \(hermesAllowlistPath): approve acquire/release"
         return HookInstaller.InstallResult(summary: summary, diff: diff)
+    }
+
+    private func removeHermesShellHook(dryRun: Bool) throws -> HookInstaller.InstallResult {
+        var diff = ""
+        if let text = try? String(contentsOfFile: hermesConfigPath, encoding: .utf8),
+           let sRange = text.range(of: Self.hermesMarkerStart),
+           let eRange = text.range(of: Self.hermesMarkerEnd) {
+            // Remove our marked block. If it leaves `hooks:` childless, normalise back to `hooks: {}`.
+            let lineStart = text.range(of: "\n", options: .backwards, range: text.startIndex..<sRange.lowerBound)?.upperBound ?? sRange.lowerBound
+            let lineEnd = text.range(of: "\n", range: eRange.upperBound..<text.endIndex)?.upperBound ?? text.endIndex
+            var updated = text
+            updated.removeSubrange(lineStart..<lineEnd)
+            updated = updated.replacingOccurrences(of: "hooks:\n", with: "hooks: {}\n")
+            if !dryRun { try updated.write(toFile: hermesConfigPath, atomically: true, encoding: .utf8) }
+            diff += "~ \(hermesConfigPath): removed adrafinil hooks\n"
+        }
+        if !dryRun { try removeHermesAllowlistApprovals() }
+        diff += "~ \(hermesAllowlistPath): revoke adrafinil approvals"
+        return diff.isEmpty ? HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
+                            : HookInstaller.InstallResult(summary: "removed Hermes hooks", diff: diff)
+    }
+
+    private func installStateForHermes() -> HookInstallState {
+        guard let text = try? String(contentsOfFile: hermesConfigPath, encoding: .utf8) else { return .notInstalled }
+        let hasAcquire = text.contains(hermesCommand("acquire"))
+        let hasRelease = text.contains(hermesCommand("release"))
+        guard hasAcquire || hasRelease else { return .notInstalled }
+        // Installed iff both commands are present AND both are allowlisted (else the hooks are skipped).
+        let allowed = hermesIsAllowlisted(hermesCommand("acquire"), event: "on_session_start")
+                   && hermesIsAllowlisted(hermesCommand("release"), event: "on_session_end")
+        return (hasAcquire && hasRelease && allowed) ? .installed : .modifiedExternally
+    }
+
+    // Allowlist: {"approvals": [{"event": ..., "command": ...}, ...]}
+    private func hermesApprovals() -> [(event: String, command: String)] {
+        [("on_session_start", hermesCommand("acquire")), ("on_session_end", hermesCommand("release"))]
+    }
+
+    private func loadHermesAllowlist() -> [[String: Any]] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: hermesAllowlistPath)),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let approvals = obj["approvals"] as? [[String: Any]] else { return [] }
+        return approvals
+    }
+
+    private func hermesIsAllowlisted(_ command: String, event: String) -> Bool {
+        loadHermesAllowlist().contains { ($0["event"] as? String) == event && ($0["command"] as? String) == command }
+    }
+
+    private func writeHermesAllowlist(_ approvals: [[String: Any]]) throws {
+        try ensureDir(hermesAllowlistPath)
+        let data = try JSONSerialization.data(withJSONObject: ["approvals": approvals], options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: hermesAllowlistPath), options: .atomic)
+    }
+
+    private func addHermesAllowlistApprovals() throws {
+        var approvals = loadHermesAllowlist()
+        for a in hermesApprovals() where !hermesIsAllowlisted(a.command, event: a.event) {
+            approvals.append(["event": a.event, "command": a.command])
+        }
+        try writeHermesAllowlist(approvals)
+    }
+
+    private func removeHermesAllowlistApprovals() throws {
+        let approvals = loadHermesAllowlist().filter { ($0["command"] as? String)?.contains("--tool hermes") != true }
+        try writeHermesAllowlist(approvals)
+    }
+
+    private func ensureDir(_ filePath: String) throws {
+        let dir = (filePath as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     }
 
     // MARK: - OpenCode TS plugin
@@ -605,7 +676,6 @@ struct HookSpec {
         // generators the installer writes, so the two never drift).
         let canonical: String?
         switch agent {
-        case .hermes:   canonical = hermesInitPy()
         case .openCode: canonical = openCodePluginTS()
         case .pi:       canonical = piExtensionTS()
         default:        return .installed
