@@ -567,6 +567,10 @@ struct HookSpec {
     /// drop the assertion mid-session (the same trap as Codex's per-turn `Stop`). Release instead
     /// rides the daemon's process-exit watcher when the `opencode` process exits (SPEC §5.5). The
     /// session id is `event.properties.info.id` for `session.created` (the `Session` object).
+    ///
+    /// Device-verified against opencode 1.2.17: plugins load from `~/.config/opencode/plugins/`
+    /// (plural), `({ $ })` and `({ event })` destructuring work, and this exact plugin fired
+    /// `acquire ses_… --tool opencode` on `session.created`.
     private func openCodePluginTS() -> String {
         """
         export const Adrafinil = async ({ $ }) => {
@@ -594,6 +598,9 @@ struct HookSpec {
     /// acquires; `session_shutdown` (fired on process exit) releases. Pi has no session-id env var
     /// or stdin payload — the id is the session file path (`undefined` for ephemeral sessions, so
     /// fall back to the pid). Shelling out via `node:child_process`, mirroring the OpenCode plugin.
+    ///
+    /// Device-verified against pi 0.78.0: this exact extension fired `acquire <session-file> --tool
+    /// pi` on `session_start` and `release <same> --tool pi` on `session_shutdown`.
     private func piExtensionTS() -> String {
         """
         import { execFileSync } from "node:child_process"
