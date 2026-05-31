@@ -68,6 +68,8 @@ final class DebugControl {
 
     var popover: PopoverScenario = .manyAgents
     var useLiveDaemon = false
+    /// Mirrors the daemon's paused master switch so the live preview can exercise pause/resume.
+    var paused = false
 
     /// The live menu-bar model, set by `AdrafinilApp` at launch. Used to force an immediate refresh
     /// when the scenario changes (instead of waiting for the 2s poll) and to render a live preview.
@@ -95,12 +97,23 @@ final class MockStatusProvider: StatusProviding {
     func fetchStatus() async throws -> DaemonStatus {
         if control.useLiveDaemon { return try await control.liveClient.fetchStatus() }
         if let error = control.popover.error { throw error }
-        return control.popover.status
+        var s = control.popover.status
+        if control.paused {
+            s.paused = true
+            s.assertions = []
+            s.isBlocking = false
+        }
+        return s
     }
 
     func forceReleaseAll() async throws {
         if control.useLiveDaemon { try await control.liveClient.forceReleaseAll(); return }
         control.popover = .idle
+    }
+
+    func setPaused(_ paused: Bool) async throws {
+        if control.useLiveDaemon { try await control.liveClient.setPaused(paused); return }
+        control.paused = paused
     }
 
     func reloadSettings() async throws {

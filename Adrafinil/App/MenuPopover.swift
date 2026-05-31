@@ -17,8 +17,8 @@ struct MenuPopover: View {
                 } else if let s = status.status {
                     statusCard(s)
 
-                    if state == .awake {
-                        letItSleepButton
+                    if state == .awake || state == .paused {
+                        pauseToggleButton
                     }
 
                     if !s.assertions.isEmpty {
@@ -68,6 +68,11 @@ struct MenuPopover: View {
                 icon: "moon.zzz.fill", tint: .secondary,
                 title: "Sleeping normally",
                 subtitle: "No agents active — close the lid and it sleeps")
+        case .paused:
+            heroCard(
+                icon: "pause.circle.fill", tint: .secondary,
+                title: "Paused",
+                subtitle: "Adrafinil is off — agents won't keep your Mac awake")
         }
     }
 
@@ -119,21 +124,26 @@ struct MenuPopover: View {
         .glassCard(cornerRadius: Theme.Radius.inner)
     }
 
-    // MARK: - Primary action (awake only)
+    // MARK: - Primary action (pause / resume)
 
-    /// Shown directly under the "Staying awake" hero so the action reads as part of it:
-    /// releases Adrafinil's wake holds so the Mac sleeps normally again.
-    private var letItSleepButton: some View {
-        Button {
-            Task { await status.forceReleaseAll() }
+    /// Shown directly under the hero so the action reads as part of it. When awake it pauses
+    /// Adrafinil ("Let it sleep"); when paused it resumes ("Resume"). Pausing releases every
+    /// hold and ignores agents until resumed.
+    private var pauseToggleButton: some View {
+        let pausing = state == .awake
+        return Button {
+            Task { await status.setPaused(pausing) }
         } label: {
-            Label("Let it sleep", systemImage: "moon.fill")
+            Label(pausing ? "Let it sleep" : "Resume",
+                  systemImage: pausing ? "moon.fill" : "sun.max.fill")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.glassProminent)
         .controlSize(.large)
         .tint(Theme.awake)
-        .help("Stop keeping your Mac awake — it'll sleep normally again.")
+        .help(pausing
+              ? "Pause Adrafinil — your Mac sleeps normally until you resume."
+              : "Resume Adrafinil — let agents keep your Mac awake again.")
     }
 
     // MARK: - Bottom bar (meta + utility actions)
@@ -179,10 +189,11 @@ struct MenuPopover: View {
 
     // MARK: - Derived state
 
-    private enum HeroState { case awake, idle, cutout }
+    private enum HeroState { case awake, idle, cutout, paused }
 
     private var state: HeroState {
         guard let s = status.status else { return .idle }
+        if s.paused { return .paused }
         if let at = s.lastEventAt, Date().timeIntervalSince(at) < 30,
            s.lastEvent == .thermalCutout || s.lastEvent == .lowBatteryCutout {
             return .cutout
@@ -243,6 +254,11 @@ struct AssertionRow: View {
 }
 #Preview("Popover · thermal cutout") {
     MenuPopover(status: AppStatusModel(previewStatus: Fixtures.thermalCutout))
+}
+#Preview("Popover · paused") {
+    var paused = Fixtures.idle
+    paused.paused = true
+    return MenuPopover(status: AppStatusModel(previewStatus: paused))
 }
 #Preview("Popover · daemon error") {
     MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable()))

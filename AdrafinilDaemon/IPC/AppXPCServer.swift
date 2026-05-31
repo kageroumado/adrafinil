@@ -59,6 +59,14 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
         }
     }
 
+    func setPaused(_ paused: Bool, reply: @escaping @Sendable (Bool) -> Void) {
+        let r = SendableReply(reply)
+        Task { @MainActor in
+            await daemon.handleSetPaused(paused)
+            r.call(true)
+        }
+    }
+
     func reloadSettings(reply: @escaping @Sendable (Bool) -> Void) {
         let r = SendableReply(reply)
         Task { @MainActor in

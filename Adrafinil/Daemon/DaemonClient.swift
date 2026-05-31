@@ -79,6 +79,12 @@ final class DaemonClient {
         }
     }
 
+    func setPaused(_ paused: Bool) async throws {
+        _ = try await call { (proxy, done: @escaping @Sendable (Result<Bool, Error>) -> Void) in
+            proxy.setPaused(paused) { done(.success($0)) }
+        }
+    }
+
     func reloadSettings() async throws {
         _ = try await call { (proxy, done: @escaping @Sendable (Result<Bool, Error>) -> Void) in
             proxy.reloadSettings { done(.success($0)) }

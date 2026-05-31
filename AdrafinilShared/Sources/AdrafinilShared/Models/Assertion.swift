@@ -44,6 +44,9 @@ public struct DaemonStatus: Codable, Sendable {
     /// When `lastEvent` was recorded. Lets the UI scope transient states (e.g. the
     /// 30-second thermal-cutout menu-bar icon) without its own bookkeeping.
     public var lastEventAt: Date?
+    /// `true` when the user has paused Adrafinil: all holds are released and agent acquires are
+    /// ignored until resumed. The Mac sleeps normally meanwhile.
+    public var paused: Bool
 
     public init(
         isBlocking: Bool,
@@ -52,7 +55,8 @@ public struct DaemonStatus: Codable, Sendable {
         helperConnected: Bool,
         cpuTemperatureCelsius: Double?,
         lastEvent: DaemonEvent?,
-        lastEventAt: Date? = nil
+        lastEventAt: Date? = nil,
+        paused: Bool = false
     ) {
         self.isBlocking = isBlocking
         self.assertions = assertions
@@ -61,6 +65,7 @@ public struct DaemonStatus: Codable, Sendable {
         self.cpuTemperatureCelsius = cpuTemperatureCelsius
         self.lastEvent = lastEvent
         self.lastEventAt = lastEventAt
+        self.paused = paused
     }
 }
 

@@ -8,8 +8,12 @@ import Foundation
     /// Returns the current daemon status as a JSON-encoded `DaemonStatus`.
     func status(reply: @escaping @Sendable (Data?, Error?) -> Void)
 
-    /// Force-releases every assertion. Used by the menu bar "Force sleep now" button.
+    /// Force-releases every assertion.
     func forceReleaseAll(reply: @escaping @Sendable (Bool) -> Void)
+
+    /// Pauses or resumes the whole app. Pausing releases everything and ignores agent acquires
+    /// until resumed. Drives the menu-bar "Let it sleep" / "Resume" toggle.
+    func setPaused(_ paused: Bool, reply: @escaping @Sendable (Bool) -> Void)
 
     /// Reapplies the user's settings (the daemon reloads from disk).
     func reloadSettings(reply: @escaping @Sendable (Bool) -> Void)

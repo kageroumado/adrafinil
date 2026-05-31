@@ -13,6 +13,10 @@ final class Daemon {
 
     var settings: AdrafinilSettings = AdrafinilSettings.load()
 
+    /// User-controlled master switch. While paused, all holds are released and agent acquires are
+    /// ignored, so the Mac sleeps normally. In-memory: a daemon restart resumes (fresh) by default.
+    private(set) var isPaused = false
+
     let lidMonitor = LidStateMonitor()
     let processWatcher = ProcessWatcher()
     let idleMonitor = IdleMonitor()
@@ -70,7 +74,26 @@ final class Daemon {
 
     // MARK: - Public API used by IPC servers
 
+    /// Pause/resume the whole app. Pausing releases everything and makes `handleAcquire` a no-op
+    /// until resumed; resuming lets agents re-acquire on their next hook event.
+    func handleSetPaused(_ paused: Bool) async {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        if paused {
+            log.notice("Paused — releasing all assertions and ignoring agent acquires until resumed")
+            await registry.removeAll()
+            await persistAndSync(event: .released)
+            await syncHelperToRegistry()
+        } else {
+            log.notice("Resumed — agents can keep the Mac awake again")
+        }
+    }
+
     func handleAcquire(_ assertion: Assertion) async {
+        guard !isPaused else {
+            log.notice("acquire ignored — Adrafinil is paused (key='\(assertion.key, privacy: .public)')")
+            return
+        }
         let isNew = await registry.acquire(assertion)
         // Watch the owning process so the assertion is force-released if the agent dies without
         // firing its end hook. watch() is idempotent. pid <= 0 means the CLI
@@ -114,7 +137,8 @@ final class Daemon {
             helperConnected: helperClient.isConnected,
             cpuTemperatureCelsius: thermalMonitor.lastReadingCelsius,
             lastEvent: eventLog.last,
-            lastEventAt: eventLog.lastAt
+            lastEventAt: eventLog.lastAt,
+            paused: isPaused
         )
     }
 

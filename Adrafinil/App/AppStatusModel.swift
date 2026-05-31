@@ -64,6 +64,12 @@ final class AppStatusModel {
         await refresh()
     }
 
+    /// Pause (`true`) or resume (`false`) the whole app, then refresh so the UI reflects it now.
+    func setPaused(_ paused: Bool) async {
+        try? await provider.setPaused(paused)
+        await refresh()
+    }
+
 #if DEBUG
     /// Fixed-snapshot model for previews and the gallery: seeds `status`/`awaySummary` synchronously
     /// and does not poll, so a scenario renders deterministically without a daemon.
