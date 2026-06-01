@@ -210,12 +210,18 @@ struct InstallerView: View {
 
             Spacer(minLength: Theme.Space.md)
 
-            HStack(spacing: Theme.Space.sm) {
+            HStack {
                 Spacer()
-                Button("Skip") { step = .done }.buttonStyle(.glass)
-                Button("Install") { Task { await runInstall() } }
-                    .buttonStyle(.glassProminent)
-                    .disabled(selected.isEmpty)
+                // Own tight glass container so Skip and Install read as one connected control pair
+                // instead of the stretched glass "bridge" they formed inside the outer container.
+                GlassEffectContainer(spacing: Theme.Space.xs) {
+                    HStack(spacing: Theme.Space.xs) {
+                        Button("Skip") { step = .done }.buttonStyle(.glass)
+                        Button("Install") { Task { await runInstall() } }
+                            .buttonStyle(.glassProminent)
+                            .disabled(selected.isEmpty)
+                    }
+                }
             }
             .controlSize(.large)
         }
