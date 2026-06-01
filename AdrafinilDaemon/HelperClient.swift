@@ -9,6 +9,13 @@ final class HelperClient {
     private(set) var isConnected: Bool = false
     private var desiredBlockedState: Bool = false
 
+    /// Reconnect backoff. A helper that crashes on launch would otherwise be relaunched in a tight
+    /// loop (each invalidation immediately reapplies, which respawns it). Back off exponentially,
+    /// capped, and reset once a call succeeds.
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempts = 0
+    private static let maxBackoff: Double = 30
+
     private func ensureConnection() -> NSXPCConnection {
         if let c = connection { return c }
         let c = NSXPCConnection(machServiceName: AdrafinilConstants.helperMachServiceName, options: .privileged)
@@ -44,6 +51,7 @@ final class HelperClient {
                     self?.log.error("Helper setSleepBlocked error: \(error.localizedDescription)")
                 } else {
                     self?.log.info("Helper applied blocked=\(applied)")
+                    Task { @MainActor in self?.reconnectAttempts = 0 }  // call landed — reset backoff
                 }
                 once.resume(())
             }
@@ -59,17 +67,27 @@ final class HelperClient {
         // helper resets disablesleep to 0 on init) and reapply the desired state. Only bother
         // if we actually want sleep blocked — if we wanted it allowed, a dead helper already
         // means sleep is allowed, so there's nothing to reapply.
-        if desiredBlockedState {
-            Task { @MainActor in await setBlocked(true) }
-        }
+        scheduleReapplyIfNeeded()
     }
 
     private func handleInterruption() {
         log.warning("Helper XPC interrupted — will reapply on next call")
         connection = nil
         isConnected = false
-        if desiredBlockedState {
-            Task { @MainActor in await setBlocked(true) }
+        scheduleReapplyIfNeeded()
+    }
+
+    /// Reapplies the desired blocked state after a backoff, so a helper that fails to launch is
+    /// retried with widening gaps (1, 2, 4, … capped) instead of in a tight respawn loop.
+    private func scheduleReapplyIfNeeded() {
+        guard desiredBlockedState else { return }
+        reconnectTask?.cancel()
+        let delay = min(pow(2.0, Double(reconnectAttempts)), Self.maxBackoff)
+        reconnectAttempts += 1
+        reconnectTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.desiredBlockedState else { return }
+            await self.setBlocked(true)
         }
     }
 }

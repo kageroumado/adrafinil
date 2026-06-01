@@ -9,6 +9,9 @@ final class EventLog {
     private(set) var last: DaemonEvent?
     private(set) var lastAt: Date?
 
+    /// `ISO8601DateFormatter` is expensive to construct; build it once rather than per append.
+    private let timestampFormatter = ISO8601DateFormatter()
+
     init(url: URL = AdrafinilConstants.appSupportURL.appendingPathComponent(AdrafinilConstants.eventLogFilename)) {
         self.url = url
     }
@@ -18,7 +21,7 @@ final class EventLog {
         last = event
         lastAt = now
         let entry: [String: String] = [
-            "t": ISO8601DateFormatter().string(from: now),
+            "t": timestampFormatter.string(from: now),
             "event": event.rawValue
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: entry) else { return }

@@ -58,7 +58,7 @@ struct LiveSetupProvider: SetupProviding {
         // power-management prefs and nothing in powerd clears it on the setter's death — so once the
         // helper is unregistered, a still-set block would leave the Mac unable to sleep with no
         // component left to fix it. forceReleaseAll drives the helper to clear it and awaits that.
-        try? await DaemonClient().forceReleaseAll()
+        try? await DaemonClient.shared.forceReleaseAll()
 
         let installer = HookInstaller(
             cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil"

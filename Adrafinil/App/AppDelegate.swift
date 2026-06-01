@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `confirmQuit`), so resume here to undo a previous quit-pause — reopening the app puts it
         // back to work. Skipped before setup, when there's no daemon to talk to yet.
         if !HelperInstaller.isFirstRun {
-            Task { try? await DaemonClient().setPaused(false) }
+            Task { try? await DaemonClient.shared.setPaused(false) }
         }
     }
 
@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isUninstalling { return .terminateNow }
         // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable.
         Task {
-            try? await DaemonClient().setPaused(true)
+            try? await DaemonClient.shared.setPaused(true)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

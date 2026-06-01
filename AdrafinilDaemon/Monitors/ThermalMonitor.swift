@@ -11,9 +11,16 @@ final class ThermalMonitor {
     var enabled: Bool = true
     var thresholdCelsius: Double = 80.0
     var lidClosed: Bool = false
-    /// Whether any assertion is currently held. The cutout only fires while we are actively
-    /// keeping the Mac awake — with zero assertions there is nothing to cut out.
-    var isBlocking: Bool = false
+    /// Whether any assertion is currently held. The cutout only fires while we are actively keeping
+    /// the Mac awake — with zero assertions there is nothing to cut out — so this also gates the
+    /// poll itself: the 15s SMC read runs only while blocking, leaving the daemon idle (no periodic
+    /// CPU wakeups) for the vast majority of its life when no agent is active.
+    var isBlocking: Bool = false {
+        didSet {
+            guard isBlocking != oldValue else { return }
+            if isBlocking { startPolling() } else { stopPolling() }
+        }
+    }
     var onCutout: (() -> Void)?
     /// Fired on every successful reading (used by the daemon to track peak temp while closed).
     var onReading: ((Double) -> Void)?
@@ -28,14 +35,33 @@ final class ThermalMonitor {
 
     func start() {
         _ = smc.open()
+        // No polling until something is blocking — `isBlocking`'s didSet arms/disarms the timer.
+        if isBlocking { startPolling() }
+    }
+
+    /// One-shot read for callers that want a current temperature while the poll is stopped (e.g. the
+    /// popover asking for a value when no agent is active). Refreshes the cache as a side effect.
+    func readNow() -> Double? {
+        guard let temp = smc.readTemperature(key: sensorKey) else { return lastReadingCelsius }
+        lastReadingCelsius = temp
+        return temp
+    }
+
+    private func startPolling() {
+        guard timer == nil else { return }
+        tick()  // seed a fresh reading immediately when blocking begins
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
     }
 
+    private func stopPolling() {
+        timer?.invalidate()
+        timer = nil
+    }
+
     private func tick() {
-        // Read every tick so the menu-bar popover can always show a current temperature;
-        // SMC reads are cheap. The cutout itself is gated below.
+        // Read on each tick while blocking; the cutout itself is gated below.
         guard let temp = smc.readTemperature(key: sensorKey) else { return }
         lastReadingCelsius = temp
         onReading?(temp)

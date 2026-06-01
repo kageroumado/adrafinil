@@ -29,6 +29,10 @@ final class Daemon {
     var appXPCServer: AppXPCServer!
     var cliServer: CLISocketServer!
 
+    /// Pushes status changes to subscribed menu bar apps, so the app doesn't poll. Populated by
+    /// `DaemonXPCService.subscribe`; fanned out by `broadcastStatus()`.
+    let statusBroadcaster = StatusBroadcaster()
+
     private var sweepTimer: Timer?
     private var blockingObserver: Task<Void, Never>?
 
@@ -69,7 +73,7 @@ final class Daemon {
         for a in await registry.snapshot() where a.pid > 0 { processWatcher.watch(pid: a.pid) }
         await syncHelperToRegistry()
 
-        startSweep()
+        updateSweepTimer()
     }
 
     // MARK: - Public API used by IPC servers
@@ -86,6 +90,9 @@ final class Daemon {
             await syncHelperToRegistry()
         } else {
             log.notice("Resumed — agents can keep the Mac awake again")
+            // Resume changes no assertions, so it doesn't pass through persistAndSync — push the
+            // new paused=false state explicitly so the app's hero card flips immediately.
+            await broadcastStatus()
         }
     }
 
@@ -175,11 +182,21 @@ final class Daemon {
             assertions: snapshot,
             lidClosed: lidMonitor.isLidClosed,
             helperConnected: helperClient.isConnected,
-            cpuTemperatureCelsius: thermalMonitor.lastReadingCelsius,
+            // While blocking, the monitor polls and `lastReadingCelsius` is current. While idle the
+            // poll is stopped (no wakeups), so read once on demand for callers that want a live temp.
+            cpuTemperatureCelsius: thermalMonitor.isBlocking ? thermalMonitor.lastReadingCelsius : thermalMonitor.readNow(),
             lastEvent: eventLog.last,
             lastEventAt: eventLog.lastAt,
-            paused: isPaused
+            paused: isPaused,
+            awaySummaryPending: pendingAwaySummary != nil
         )
+    }
+
+    /// Encodes the current status and pushes it to every subscribed app. Called at each state
+    /// transition so the app updates instantly without polling. No-op when no app is subscribed.
+    private func broadcastStatus() async {
+        let status = await currentStatus()
+        statusBroadcaster.broadcast(status)
     }
 
     /// Returns and clears the pending "while you were away" summary (consume-once).
@@ -196,6 +213,8 @@ final class Daemon {
         thermalMonitor.enabled = settings.thermalCutoutEnabled
         batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
+        // The sweep only exists to auto-acquire for sniffed agents — start/stop it as that toggles.
+        updateSweepTimer()
     }
 
     // MARK: - Internal
@@ -250,6 +269,8 @@ final class Daemon {
                 } else {
                     await self.finishAwayTracking()
                 }
+                // Push the lid-state change (and any freshly-pending away summary) to the app.
+                await self.broadcastStatus()
             }
         }
 
@@ -313,22 +334,29 @@ final class Daemon {
         batteryMonitor.start()
     }
 
-    /// Periodic safety-net sweep: re-arms exit-watching for every held assertion
-    /// (covers assertions restored after a daemon restart that never went through `handleAcquire`)
-    /// and, when the user has opted in, auto-acquires for running known-agent processes that have
-    /// no assertion yet.
-    private func startSweep() {
-        sweepTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.processSweep() }
+    /// Starts or stops the process-sniffing sweep to match settings. The sweep exists solely to
+    /// auto-acquire for running known agents that started without notifying us; re-arming exit-watch
+    /// for held assertions is already done once in `start()` (and on every `handleAcquire`), and
+    /// `kqueue` watches persist until the process exits — so when auto-acquire is off there is
+    /// nothing for a periodic sweep to do, and it would only wake the CPU (and walk the full process
+    /// table) for nothing. So the timer runs only while sniffing *and* auto-acquire are both on.
+    private func updateSweepTimer() {
+        let needed = settings.processSniffingEnabled && settings.autoAcquireForKnownAgents
+        if needed, sweepTimer == nil {
+            sweepTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+                Task { @MainActor in await self?.processSweep() }
+            }
+        } else if !needed, let timer = sweepTimer {
+            timer.invalidate()
+            sweepTimer = nil
         }
     }
 
     private func processSweep() async {
-        guard settings.processSniffingEnabled else { return }
+        // The timer is only armed when both flags are on (see updateSweepTimer), but re-check in
+        // case settings changed between the tick being scheduled and it firing.
+        guard settings.processSniffingEnabled, settings.autoAcquireForKnownAgents else { return }
         let snapshot = await registry.snapshot()
-        for a in snapshot where a.pid > 0 { processWatcher.watch(pid: a.pid) }
-
-        guard settings.autoAcquireForKnownAgents else { return }
         let watchedPids = Set(snapshot.map(\.pid))
         for proc in ProcessResolver.runningProcesses() {
             guard let kind = AgentKind.forRunningProcess(name: proc.name, path: proc.path),
@@ -389,6 +417,7 @@ final class Daemon {
         stateStore.save(snapshot)
         // Helper sync is edge-triggered via the registry's blockingStateChanges stream —
         // no redundant XPC round-trip on every acquire/release here.
+        await broadcastStatus()
     }
 
     private func syncHelperToRegistry() async {

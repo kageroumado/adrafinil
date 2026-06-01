@@ -12,6 +12,9 @@ protocol StatusProviding {
     func setPaused(_ paused: Bool) async throws
     func reloadSettings() async throws
     func consumeAwaySummary() async -> AwaySummary?
+    /// A live stream of status pushed by the source. The live client bridges the daemon's XPC push;
+    /// previews/mocks return a finished stream and rely on explicit `fetchStatus()` refreshes.
+    func statusUpdates() -> AsyncStream<DaemonStatus>
 }
 
 extension DaemonClient: StatusProviding {}
@@ -60,6 +63,12 @@ final class PreviewStatusProvider: StatusProviding {
     func consumeAwaySummary() async -> AwaySummary? {
         defer { pendingSummary = nil }
         return pendingSummary
+    }
+
+    /// Previews don't push; the model seeds its snapshot directly. Finish immediately so the
+    /// consuming task ends cleanly rather than awaiting forever.
+    func statusUpdates() -> AsyncStream<DaemonStatus> {
+        AsyncStream { $0.finish() }
     }
 }
 #endif

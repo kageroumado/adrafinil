@@ -25,13 +25,31 @@ final class BatteryMonitor {
     private(set) var lastOnBattery: Bool = false
 
     private let evaluator = LowBatteryCutoutEvaluator()
-    private var timer: Timer?
+    private var runLoopSource: CFRunLoopSource?
 
     func start() {
-        tick()
-        // Battery moves slowly; a 30s cadence is plenty and cheap.
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        tick()  // seed an initial reading
+        // Event-driven instead of polled: IOKit fires this source whenever power-source info changes
+        // (plug/unplug, charge level), so there are no wakeups while nothing changes — and on AC at
+        // full charge it is completely silent. The callback lands on the main run loop, which is the
+        // daemon's main thread (= the main actor), so `assumeIsolated` is safe.
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let callback: IOPowerSourceCallbackType = { rawContext in
+            guard let rawContext else { return }
+            let monitor = Unmanaged<BatteryMonitor>.fromOpaque(rawContext).takeUnretainedValue()
+            MainActor.assumeIsolated { monitor.tick() }
+        }
+        guard let source = IOPSNotificationCreateRunLoopSource(callback, context)?.takeRetainedValue() else {
+            log.error("Failed to create power-source notification source — battery cutout disabled")
+            return
+        }
+        runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+    }
+
+    isolated deinit {
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .defaultMode)
         }
     }
 

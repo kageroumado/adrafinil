@@ -8,6 +8,13 @@ import Foundation
     /// Returns the current daemon status as a JSON-encoded `DaemonStatus`.
     func status(reply: @escaping @Sendable (Data?, Error?) -> Void)
 
+    /// Registers the calling connection for push updates: from now on the daemon calls the
+    /// connection's exported `AppXPCProtocol.statusChanged` whenever its state changes. Replies with
+    /// the current `DaemonStatus` (JSON-encoded) so the subscriber has an immediate snapshot — and so
+    /// a re-subscribe after a reconnect closes any gap without a separate `status` round-trip. The
+    /// registration is dropped automatically when the connection invalidates.
+    func subscribe(reply: @escaping @Sendable (Data?, Error?) -> Void)
+
     /// Force-releases every assertion.
     func forceReleaseAll(reply: @escaping @Sendable (Bool) -> Void)
 

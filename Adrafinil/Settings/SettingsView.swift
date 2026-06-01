@@ -16,6 +16,10 @@ struct SettingsView: View {
     /// real device; previews/gallery inject a desktop to exercise the degraded layout.
     var device: DeviceCapabilities = .current
 
+    /// Debounces the cross-process settings reload so dragging a slider (which fires `onChange`
+    /// continuously) triggers one daemon reload after the drag settles, not dozens during it.
+    @State private var reloadTask: Task<Void, Never>?
+
     var body: some View {
         TabView {
             GeneralSettingsTab(settings: $appSettings, device: device)
@@ -31,6 +35,8 @@ struct SettingsView: View {
         // centrally so one tab's save can't clobber a field another tab just changed, and
         // re-register the login item only when that specific toggle flips.
         .onChange(of: appSettings) { old, new in
+            // Persist immediately — it's a small local write and must never be lost if the window
+            // closes mid-edit.
             try? new.save()
             if old.launchAtLogin != new.launchAtLogin {
                 Task {
@@ -41,7 +47,14 @@ struct SettingsView: View {
                     }
                 }
             }
-            Task { try? await DaemonClient().reloadSettings() }
+            // Debounce the daemon reload so a slider drag doesn't fire a cross-process reload (and a
+            // daemon-side disk re-read) on every intermediate value.
+            reloadTask?.cancel()
+            reloadTask = Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { return }
+                try? await DaemonClient.shared.reloadSettings()
+            }
         }
     }
 }

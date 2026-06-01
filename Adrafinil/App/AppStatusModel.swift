@@ -7,10 +7,12 @@ extension Notification.Name {
     static let adrafinilAwaySummaryReceived = Notification.Name("glass.kagerou.adrafinil.awaySummaryReceived")
 }
 
-/// Observable model the menu bar UI binds to. Polls the daemon every 2s.
+/// Observable model the menu bar UI binds to. Driven by the daemon's push stream
+/// (`StatusProviding.statusUpdates()`) rather than polling, so neither process wakes the CPU while
+/// nothing changes. A slow heartbeat backstops a silently-wedged connection.
 ///
-/// When a fresh `AwaySummary` is received from the daemon, this model:
-/// 1. Sets `awaySummary` (observable by SwiftUI views).
+/// When the daemon flags a pending `AwaySummary` (on lid-open after a kept-awake period), this model:
+/// 1. Consumes it (one call, only when flagged) and sets `awaySummary` (observable by SwiftUI views).
 /// 2. Posts `adrafinilAwaySummaryReceived` on the default `NotificationCenter`
 ///    with the summary as `object` — `AppDelegate` subscribes to this and delivers
 ///    a native system notification via `AwayNotifier`.
@@ -24,38 +26,68 @@ final class AppStatusModel {
     /// panel is dismissed (either by the user or the 8-second auto-dismiss timer).
     var awaySummary: AwaySummary?
 
-    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
+    @ObservationIgnored private var heartbeatTimer: Timer?
+    /// Guards against firing overlapping summary consumes if pushes arrive while one is in flight.
+    @ObservationIgnored private var consumingSummary = false
     @ObservationIgnored private let provider: any StatusProviding
 
+    /// How often the heartbeat re-fetches as a safety net behind the push stream. Push handles every
+    /// real change instantly; this only guards a wedged connection and refreshes a stale temperature.
+    private static let heartbeatInterval: TimeInterval = 60
+
     /// - Parameters:
-    ///   - provider: the daemon-facing data source. Defaults to the live XPC client; previews and
-    ///     the gallery inject a `PreviewStatusProvider`.
-    ///   - poll: when `true` (production), refreshes every 2s. Previews pass `false` for a fixed snapshot.
-    init(provider: any StatusProviding = DaemonClient(), poll: Bool = true) {
+    ///   - provider: the daemon-facing data source. Defaults to the shared live XPC client; previews
+    ///     and the gallery inject a `PreviewStatusProvider`.
+    ///   - poll: when `true` (production), subscribes to pushes + runs the heartbeat. Previews pass
+    ///     `false` for a fixed snapshot.
+    init(provider: any StatusProviding = DaemonClient.shared, poll: Bool = true) {
         self.provider = provider
-        Task { @MainActor in await refresh() }
         if poll {
-            // Register in `.common` modes, not the default mode `Timer.scheduledTimer` would use:
-            // while the menu-bar popover is open the run loop is in event-tracking mode, and a
-            // default-mode timer is paused there — which froze the popover (stale hold countdowns,
-            // expired holds never disappearing) for as long as it stayed open.
-            let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            // Set up the push subscription synchronously (the AsyncStream builder runs now), so the
+            // connection is established with its callback before the initial refresh reuses it.
+            let updates = provider.statusUpdates()
+            subscriptionTask = Task { @MainActor [weak self] in
+                for await status in updates {
+                    guard let self else { break }
+                    self.apply(status)
+                }
+            }
+            // Heartbeat in `.common` mode: a default-mode timer is suspended while the menu-bar
+            // popover holds the run loop in event-tracking, which would stall the backstop.
+            let t = Timer(timeInterval: Self.heartbeatInterval, repeats: true) { [weak self] _ in
                 Task { @MainActor in await self?.refresh() }
             }
             RunLoop.main.add(t, forMode: .common)
-            timer = t
+            heartbeatTimer = t
         }
+        Task { @MainActor in await refresh() }  // immediate first snapshot
+    }
+
+    isolated deinit {
+        subscriptionTask?.cancel()
+        heartbeatTimer?.invalidate()
     }
 
     func refresh() async {
         do {
-            status = try await provider.fetchStatus()
-            lastError = nil
+            apply(try await provider.fetchStatus())
         } catch {
             lastError = error.localizedDescription
         }
+    }
 
-        if let summary = await provider.consumeAwaySummary() {
+    /// Applies a fresh status (from a push or a fetch) and, only when the daemon flags one, fetches
+    /// the pending away summary — so the summary costs a round-trip exactly when it exists, not on
+    /// every update.
+    private func apply(_ status: DaemonStatus) {
+        self.status = status
+        lastError = nil
+        guard status.awaySummaryPending, !consumingSummary else { return }
+        consumingSummary = true
+        Task { @MainActor in
+            defer { consumingSummary = false }
+            guard let summary = await provider.consumeAwaySummary() else { return }
             awaySummary = summary
             NotificationCenter.default.post(
                 name: .adrafinilAwaySummaryReceived,

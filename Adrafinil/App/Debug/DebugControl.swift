@@ -74,7 +74,7 @@ final class DebugControl {
     var paused = false
 
     /// The live menu-bar model, set by `AdrafinilApp` at launch. Used to force an immediate refresh
-    /// when the scenario changes (instead of waiting for the 2s poll) and to render a live preview.
+    /// when the scenario changes (instead of waiting for the heartbeat) and to render a live preview.
     @ObservationIgnored var statusModel: AppStatusModel?
 
     /// Set by `AppDelegate` at launch. The control panel is hosted in an AppKit window where
@@ -128,6 +128,12 @@ final class MockStatusProvider: StatusProviding {
 
     func consumeAwaySummary() async -> AwaySummary? {
         control.useLiveDaemon ? await control.liveClient.consumeAwaySummary() : nil
+    }
+
+    /// The debug model drives updates by re-fetching on scenario switch (`DebugControl.apply`) and
+    /// the model's heartbeat, not by push — so finish the stream immediately.
+    func statusUpdates() -> AsyncStream<DaemonStatus> {
+        AsyncStream { $0.finish() }
     }
 }
 #endif

@@ -88,6 +88,11 @@ public struct DaemonStatus: Codable, Sendable {
     /// ignored until resumed. The Mac sleeps normally meanwhile.
     public var paused: Bool
 
+    /// `true` when the daemon has a "while you were away" summary waiting to be consumed (set on
+    /// lid-open after a kept-awake period). The app fetches the summary via `consumeAwaySummary`
+    /// only when this is set, rather than polling for it on every refresh.
+    public var awaySummaryPending: Bool
+
     public init(
         isBlocking: Bool,
         assertions: [Assertion],
@@ -96,7 +101,8 @@ public struct DaemonStatus: Codable, Sendable {
         cpuTemperatureCelsius: Double?,
         lastEvent: DaemonEvent?,
         lastEventAt: Date? = nil,
-        paused: Bool = false
+        paused: Bool = false,
+        awaySummaryPending: Bool = false
     ) {
         self.isBlocking = isBlocking
         self.assertions = assertions
@@ -106,6 +112,7 @@ public struct DaemonStatus: Codable, Sendable {
         self.lastEvent = lastEvent
         self.lastEventAt = lastEventAt
         self.paused = paused
+        self.awaySummaryPending = awaySummaryPending
     }
 }
 
