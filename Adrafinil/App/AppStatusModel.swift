@@ -35,9 +35,15 @@ final class AppStatusModel {
         self.provider = provider
         Task { @MainActor in await refresh() }
         if poll {
-            timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            // Register in `.common` modes, not the default mode `Timer.scheduledTimer` would use:
+            // while the menu-bar popover is open the run loop is in event-tracking mode, and a
+            // default-mode timer is paused there — which froze the popover (stale hold countdowns,
+            // expired holds never disappearing) for as long as it stayed open.
+            let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
                 Task { @MainActor in await self?.refresh() }
             }
+            RunLoop.main.add(t, forMode: .common)
+            timer = t
         }
     }
 
