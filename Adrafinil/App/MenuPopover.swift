@@ -9,13 +9,14 @@ struct MenuPopover: View {
     var device: DeviceCapabilities = .current
 
     var body: some View {
-        // Drive the popover from a TimelineView. The model's run-loop poll timer is suspended while
-        // the menu-bar popover is open, which froze hold countdowns and left TTL-expired holds on
-        // screen. TimelineView re-renders reliably here, so we use it both to tick the countdowns
-        // (from `context.date`) and to keep the daemon poll running while the popover is up.
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        // The model's run-loop poll timer is suspended while the menu-bar popover is open, so a
+        // TimelineView drives liveness instead. The per-second hold countdown is now drawn by
+        // Text(timerInterval:) (system-managed), so this only needs a coarse tick — enough to
+        // refresh the daemon poll, update age labels, and drop a hold from the list shortly after
+        // it expires.
+        TimelineView(.periodic(from: .now, by: 5)) { context in
             content(now: context.date)
-                .task(id: Int(context.date.timeIntervalSinceReferenceDate) / 2) {
+                .task(id: context.date) {
                     await status.refresh()
                 }
         }
@@ -274,14 +275,18 @@ struct AssertionRow: View {
         AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 
-    /// A hold shows its countdown; a live agent shows how long it's been working. Both derive from
-    /// the injected `now`, so they update on each TimelineView tick.
-    private var trailingText: String {
+    /// A hold shows a live, system-managed countdown (`Text(timerInterval:)` — updates itself every
+    /// second down to 0:00 without re-rendering the popover); a live agent shows how long it's been
+    /// working, refreshed on the popover's coarse TimelineView tick.
+    @ViewBuilder
+    private var trailingView: some View {
         if isHold, let exp = assertion.expiresAt {
-            let remaining = exp.timeIntervalSince(now)
-            if remaining > 0 { return remaining.remainingString }
+            // Stable range (acquiredAt…expiresAt) so the timer doesn't reset each tick; it renders
+            // the remaining time counting down.
+            Text(timerInterval: assertion.acquiredAt...exp, countsDown: true)
+        } else {
+            Text(now.timeIntervalSince(assertion.acquiredAt).compactDurationString)
         }
-        return now.timeIntervalSince(assertion.acquiredAt).compactDurationString
     }
 
     var body: some View {
@@ -292,7 +297,7 @@ struct AssertionRow: View {
                 leadingMark
                 Text(displayTool).font(.toolName)
                 Spacer()
-                Text(trailingText)
+                trailingView
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 if isHold, let onRelease {
