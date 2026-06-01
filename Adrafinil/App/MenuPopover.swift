@@ -9,6 +9,23 @@ struct MenuPopover: View {
     var device: DeviceCapabilities = .current
 
     var body: some View {
+        // Drive the popover from a TimelineView. The model's run-loop poll timer is suspended while
+        // the menu-bar popover is open, which froze hold countdowns and left TTL-expired holds on
+        // screen. TimelineView re-renders reliably here, so we use it both to tick the countdowns
+        // (from `context.date`) and to keep the daemon poll running while the popover is up.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            content(now: context.date)
+                .task(id: Int(context.date.timeIntervalSinceReferenceDate) / 2) {
+                    await status.refresh()
+                }
+        }
+        .frame(width: Theme.popoverWidth)
+    }
+
+    @ViewBuilder
+    private func content(now: Date) -> some View {
+        let live = liveStatus(now: now)
+        let hero = heroState(live, now: now)
         GlassEffectContainer(spacing: Theme.Space.md) {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 header
@@ -17,26 +34,38 @@ struct MenuPopover: View {
                 // trustworthy status, so show the error rather than a stale snapshot.
                 if let err = status.lastError {
                     errorCard(err)
-                } else if let s = status.status {
-                    statusCard(s)
+                } else if let live {
+                    statusCard(live, state: hero, now: now)
 
-                    if state == .awake || state == .paused {
-                        pauseToggleButton
+                    if hero == .awake || hero == .paused {
+                        pauseToggleButton(state: hero)
                     }
 
-                    if !s.assertions.isEmpty {
-                        agentList(s.assertions)
+                    if !live.assertions.isEmpty {
+                        agentList(live.assertions, now: now)
                     }
                 } else {
                     HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
                         .frame(height: 64)
                 }
 
-                bottomBar(status.lastError == nil ? status.status : nil)
+                bottomBar(status.lastError == nil ? live : nil)
             }
             .padding(Theme.Space.lg)
         }
-        .frame(width: Theme.popoverWidth)
+    }
+
+    /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
+    /// countdown hits zero rather than lingering until the daemon's next sweep. `isBlocking` is
+    /// recomputed from what remains.
+    private func liveStatus(now: Date) -> DaemonStatus? {
+        guard var s = status.status else { return nil }
+        s.assertions = s.assertions.filter { a in
+            guard let exp = a.expiresAt else { return true }
+            return exp > now
+        }
+        if s.assertions.isEmpty { s.isBlocking = false }
+        return s
     }
 
     // MARK: - Header
@@ -54,30 +83,30 @@ struct MenuPopover: View {
     // MARK: - Status card (hero)
 
     @ViewBuilder
-    private func statusCard(_ s: DaemonStatus) -> some View {
+    private func statusCard(_ s: DaemonStatus, state: HeroState, now: Date) -> some View {
         switch state {
         case .awake:
             heroCard(
                 icon: "sun.max.fill", tint: Theme.awake,
                 title: "Staying awake",
-                subtitle: awakeSubtitle(s))
+                subtitle: awakeSubtitle(s), dimmed: false)
         case .cutout:
             heroCard(
                 icon: cutoutIcon(s), tint: Theme.cutout,
                 title: cutoutTitle(s),
-                subtitle: "Sleep is back to normal")
+                subtitle: "Sleep is back to normal", dimmed: false)
         case .idle:
             heroCard(
                 icon: "moon.zzz.fill", tint: .secondary,
                 title: "Sleeping normally",
                 subtitle: device.hasLid
                     ? "No agents active — close the lid and it sleeps"
-                    : "No agents active — it sleeps when idle")
+                    : "No agents active — it sleeps when idle", dimmed: true)
         case .paused:
             heroCard(
                 icon: "pause.circle.fill", tint: .secondary,
                 title: "Paused",
-                subtitle: "Adrafinil is off — agents won't keep your Mac awake")
+                subtitle: "Adrafinil is off — agents won't keep your Mac awake", dimmed: false)
         }
     }
 
@@ -92,7 +121,7 @@ struct MenuPopover: View {
         return parts.isEmpty ? "Keeping your Mac awake" : parts.joined(separator: " · ")
     }
 
-    private func heroCard(icon: String, tint: Color, title: String, subtitle: String) -> some View {
+    private func heroCard(icon: String, tint: Color, title: String, subtitle: String, dimmed: Bool) -> some View {
         HStack(spacing: Theme.Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 26))
@@ -108,7 +137,7 @@ struct MenuPopover: View {
         }
         .padding(Theme.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(tint: state == .idle ? nil : tint.opacity(0.18))
+        .glassCard(tint: dimmed ? nil : tint.opacity(0.18))
     }
 
     private func errorCard(_ message: String) -> some View {
@@ -129,11 +158,11 @@ struct MenuPopover: View {
 
     // MARK: - Agent list
 
-    private func agentList(_ assertions: [Assertion]) -> some View {
+    private func agentList(_ assertions: [Assertion], now: Date) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(assertions.enumerated()), id: \.element.id) { index, a in
                 if index > 0 { Divider().padding(.leading, Theme.Space.md) }
-                AssertionRow(assertion: a) {
+                AssertionRow(assertion: a, now: now) {
                     Task { await status.releaseAssertion(key: a.key) }
                 }
             }
@@ -147,7 +176,7 @@ struct MenuPopover: View {
     /// Shown directly under the hero so the action reads as part of it. When awake it pauses
     /// Adrafinil ("Let it sleep"); when paused it resumes ("Resume"). Pausing releases every
     /// hold and ignores agents until resumed.
-    private var pauseToggleButton: some View {
+    private func pauseToggleButton(state: HeroState) -> some View {
         let pausing = state == .awake
         return Button {
             Task { await status.setPaused(pausing) }
@@ -209,10 +238,10 @@ struct MenuPopover: View {
 
     private enum HeroState { case awake, idle, cutout, paused }
 
-    private var state: HeroState {
-        guard let s = status.status else { return .idle }
+    private func heroState(_ s: DaemonStatus?, now: Date) -> HeroState {
+        guard let s else { return .idle }
         if s.paused { return .paused }
-        if let at = s.lastEventAt, Date().timeIntervalSince(at) < 30,
+        if let at = s.lastEventAt, now.timeIntervalSince(at) < 30,
            s.lastEvent == .thermalCutout || s.lastEvent == .lowBatteryCutout {
             return .cutout
         }
@@ -231,6 +260,9 @@ struct MenuPopover: View {
 
 struct AssertionRow: View {
     let assertion: Assertion
+    /// Current time, injected from the popover's TimelineView so the countdown/age tick live while
+    /// the popover is open. Defaults to now for non-timeline callers (previews).
+    var now: Date = Date()
     /// Non-nil for releasable rows (agent holds). Invoked by the trailing ✕.
     var onRelease: (() -> Void)? = nil
 
@@ -242,12 +274,14 @@ struct AssertionRow: View {
         AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 
-    /// A hold shows its countdown; a live agent shows how long it's been working.
+    /// A hold shows its countdown; a live agent shows how long it's been working. Both derive from
+    /// the injected `now`, so they update on each TimelineView tick.
     private var trailingText: String {
-        if isHold, let remaining = assertion.timeRemaining, remaining > 0 {
-            return remaining.remainingString
+        if isHold, let exp = assertion.expiresAt {
+            let remaining = exp.timeIntervalSince(now)
+            if remaining > 0 { return remaining.remainingString }
         }
-        return assertion.age.compactDurationString
+        return now.timeIntervalSince(assertion.acquiredAt).compactDurationString
     }
 
     var body: some View {
