@@ -2,8 +2,16 @@ import SwiftUI
 import AdrafinilShared
 
 struct InstallerView: View {
-    var setup: any SetupProviding = LiveSetupProvider()
-    var agentHooks: any AgentHooksProviding = LiveAgentHooksProvider()
+    let setup: any SetupProviding
+    let agentHooks: any AgentHooksProviding
+
+    init(setup: any SetupProviding = LiveSetupProvider(),
+         agentHooks: any AgentHooksProviding = LiveAgentHooksProvider(),
+         initialStep: Step = .helper) {
+        self.setup = setup
+        self.agentHooks = agentHooks
+        self._step = State(initialValue: initialStep)
+    }
 
     @State private var detected: Set<AgentKind> = []
     @State private var selected: Set<AgentKind> = []
@@ -12,6 +20,7 @@ struct InstallerView: View {
     @State private var helperErrors: [String] = []
     @State private var needsApproval = false
     @State private var registering = false
+    @State private var window: NSWindow?
 
     enum Step { case helper, agents, done }
 
@@ -28,10 +37,25 @@ struct InstallerView: View {
             }
             .padding(Theme.Space.xl + Theme.Space.sm)
         }
+        .background(WindowAccessor { window = $0 })
         .onAppear {
             detected = Set(agentHooks.detectedAgents())
             selected = detected
         }
+        // When approval is pending we send the user to System Settings → Login Items, which opens
+        // over us. Slide our window to the left edge so the two sit side by side instead.
+        .onChange(of: needsApproval) { _, pending in
+            if pending { moveWindowToLeft() }
+        }
+    }
+
+    private func moveWindowToLeft() {
+        guard let window, let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        frame.origin.x = visible.minX + Theme.Space.lg
+        frame.origin.y = visible.midY - frame.height / 2
+        window.setFrame(frame, display: true, animate: true)
     }
 
     // MARK: - Step 1 · helper
@@ -48,6 +72,7 @@ struct InstallerView: View {
                 HStack(spacing: 4) {
                     Text("It's fully open source —").foregroundStyle(.secondary)
                     Link("view it on GitHub", destination: Self.repoURL)
+                        .focusEffectDisabled()
                 }
                 .font(.callout)
             }
@@ -135,29 +160,39 @@ struct InstallerView: View {
     // MARK: - Step 2 · agents
 
     private var agentsStep: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.md) {
+        // Only agents we actually found — connecting one that isn't installed is meaningless, and
+        // a long greyed-out list is just noise. Undetected ones can be connected later in Settings.
+        let agents = AgentKind.allCases.filter { detected.contains($0) }
+        return VStack(alignment: .leading, spacing: Theme.Space.md) {
             Text("Connect your agents").font(.system(.title2, design: .rounded).weight(.semibold))
             Text("Each agent you turn on lets Adrafinil know when it starts and stops working, so your Mac stays awake only while it's busy. You can change this any time in Settings.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(AgentKind.allCases.enumerated()), id: \.element) { index, kind in
-                        if index > 0 { Divider().padding(.leading, Theme.Space.md) }
-                        AgentRow(
-                            kind: kind,
-                            isDetected: detected.contains(kind),
-                            isSelected: selected.contains(kind)
-                        ) { sel in
-                            if sel { selected.insert(kind) } else { selected.remove(kind) }
+            if agents.isEmpty {
+                VStack(spacing: Theme.Space.sm) {
+                    Image(systemName: "binoculars").font(.system(size: 28)).foregroundStyle(.secondary)
+                    Text("No supported agents found yet").font(.headline)
+                    Text("Install one of the supported agents, then connect it any time from Settings → Agents.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, Theme.Space.xl)
+                .glassCard(cornerRadius: Theme.Radius.inner)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(agents.enumerated()), id: \.element) { index, kind in
+                            if index > 0 { Divider().padding(.leading, Theme.Space.md) }
+                            AgentRow(kind: kind, isSelected: selected.contains(kind)) { sel in
+                                if sel { selected.insert(kind) } else { selected.remove(kind) }
+                            }
                         }
                     }
+                    .padding(.vertical, Theme.Space.xs)
+                    .glassCard(cornerRadius: Theme.Radius.inner)
                 }
-                .padding(.vertical, Theme.Space.xs)
-                .glassCard(cornerRadius: Theme.Radius.inner)
+                .frame(maxHeight: 240)
             }
-            .frame(maxHeight: 280)
 
             if !installLog.isEmpty {
                 ScrollView {
@@ -169,11 +204,13 @@ struct InstallerView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Theme.Space.sm)
                 }
-                .frame(maxHeight: 96)
+                .frame(maxHeight: 80)
                 .glassCard(cornerRadius: Theme.Radius.inner)
             }
 
-            HStack {
+            Spacer(minLength: Theme.Space.md)
+
+            HStack(spacing: Theme.Space.sm) {
                 Spacer()
                 Button("Skip") { step = .done }.buttonStyle(.glass)
                 Button("Install") { Task { await runInstall() } }
@@ -216,34 +253,37 @@ struct InstallerView: View {
     }
 }
 
+/// A detected-agent row: name on the left, a switch in a consistent right-hand column. Only shown
+/// for agents we actually found, so no detection/tier chrome is needed.
 struct AgentRow: View {
     let kind: AgentKind
-    let isDetected: Bool
     let isSelected: Bool
     let onToggle: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
-            Toggle(isOn: Binding(get: { isSelected }, set: { onToggle($0) })) {
-                Text(kind.displayName).font(.toolName)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .disabled(!isDetected)
-
-            Spacer()
-
-            if isDetected {
-                StateChip(text: "detected", systemImage: "dot.radiowaves.left.and.right", tint: Theme.ok)
-            } else {
-                StateChip(text: "not detected", tint: .secondary)
-            }
-            StateChip(text: "tier \(kind.tier)", tint: .secondary)
+            Text(kind.displayName).font(.toolName)
+            Spacer(minLength: Theme.Space.md)
+            Toggle("", isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
         }
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)
-        .opacity(isDetected ? 1 : 0.55)
     }
+}
+
+/// Captures the hosting `NSWindow` so the installer can reposition itself (e.g. slide aside when
+/// System Settings opens for approval).
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { if let window = view.window { onResolve(window) } }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 #if DEBUG
@@ -254,6 +294,12 @@ struct AgentRow: View {
 #Preview("Installer · needs approval") {
     InstallerView(setup: PreviewSetupProvider(simulateApproval: true),
                   agentHooks: PreviewAgentHooksProvider())
+        .frame(width: 560, height: 600)
+}
+#Preview("Installer · agents") {
+    InstallerView(setup: PreviewSetupProvider(),
+                  agentHooks: PreviewAgentHooksProvider(),
+                  initialStep: .agents)
         .frame(width: 560, height: 600)
 }
 #endif

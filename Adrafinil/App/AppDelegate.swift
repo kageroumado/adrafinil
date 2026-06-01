@@ -79,10 +79,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (otherwise AppKit shrinks the window to a too-short height and clips the bottom button).
         let hosting = NSHostingController(rootView: InstallerView().frame(width: 560, height: 600))
         let window = NSWindow(contentViewController: hosting)
-        // Modern, chromeless look: keep the traffic lights but hide the title and blend the titlebar
-        // into the content, and let the whole surface be draggable.
+        // Modern, chromeless look: keep the traffic lights but hide the title text and make the
+        // titlebar transparent. Not full-size-content — that pushed the content under the titlebar
+        // and left an odd gap on steps without a hero image.
         window.title = "Adrafinil Setup"            // for the window menu / accessibility only
-        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.styleMask = [.titled, .closable]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
