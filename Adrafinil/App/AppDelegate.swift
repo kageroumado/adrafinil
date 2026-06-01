@@ -1,5 +1,6 @@
 import AppKit
 import AdrafinilShared
+import ServiceManagement
 import SwiftUI
 import UserNotifications
 
@@ -50,6 +51,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // app simply connects to it (a failed connection before setup is handled gracefully).
         if HelperInstaller.isFirstRun {
             presentInstaller()
+        }
+
+        // Self-heal the login item. `launchAtLogin` defaults on, but only setup and the Settings
+        // toggle register it — so after an in-place update (or if it was never registered) the
+        // menu-bar app wouldn't return on its own after a reboot. Re-register on launch when the
+        // setting is on and it isn't already enabled.
+        if AdrafinilSettings.load().launchAtLogin, SMAppService.mainApp.status != .enabled {
+            try? SMAppService.mainApp.register()
         }
     }
 

@@ -35,6 +35,19 @@ enum HelperInstaller {
             (name: "Daemon", result: await registerIfNeeded(service: agent, name: "Daemon")),
         ]
 
+        // Register the menu-bar app itself as a login item so it's present after a reboot without
+        // any manual step. `launchAtLogin` defaults to true, but its Settings toggle only registers
+        // on *change* — so nothing ever enabled it on a fresh install. Setup is where we make it
+        // real. (Users can still turn it off later in Settings, which unregisters it.)
+        do {
+            if SMAppService.mainApp.status != .enabled {
+                try SMAppService.mainApp.register()
+                log.notice("main app registered as login item")
+            }
+        } catch {
+            log.error("main app login-item registration failed: \(error.localizedDescription, privacy: .public)")
+        }
+
         // Only consider first-run "done" if nothing hard-failed; a pending approval still
         // counts (the services are registered and enable once the user approves). A hard
         // failure leaves the flag clear so the setup flow re-presents on next launch.

@@ -74,7 +74,7 @@ private final class RealIdleAssertion: IdleSleepAsserting {
         let kr = IOPMAssertionCreateWithName(
             kIOPMAssertPreventUserIdleSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Adrafinil — agent active" as CFString,
+            "Adrafinil: agent active" as CFString,
             &assertionID
         )
         if kr == kIOReturnSuccess {
