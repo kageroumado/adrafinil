@@ -75,10 +75,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let hosting = NSHostingController(rootView: InstallerView())
+        // Fix the content size on the SwiftUI root so the hosting controller's fitting size matches
+        // (otherwise AppKit shrinks the window to a too-short height and clips the bottom button).
+        let hosting = NSHostingController(rootView: InstallerView().frame(width: 560, height: 600))
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Adrafinil Setup"
-        window.styleMask = [.titled, .closable]
+        // Modern, chromeless look: keep the traffic lights but hide the title and blend the titlebar
+        // into the content, and let the whole surface be draggable.
+        window.title = "Adrafinil Setup"            // for the window menu / accessibility only
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.setContentSize(NSSize(width: 560, height: 600))
         window.center()
         window.isReleasedWhenClosed = false

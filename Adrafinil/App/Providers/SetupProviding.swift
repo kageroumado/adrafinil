@@ -6,8 +6,12 @@ import AppKit
 /// One service's registration outcome, surfaced in the installer's helper step.
 struct SetupOutcome: Identifiable, Equatable {
     let name: String
-    /// Non-nil when registration hard-failed; nil means enabled or pending approval.
+    /// Non-nil when registration hard-failed.
     let failureMessage: String?
+    /// `true` when the service registered but the user must still approve it in System Settings →
+    /// Login Items before it enables. The installer surfaces this with guidance instead of silently
+    /// advancing.
+    var requiresApproval: Bool = false
     var id: String { name }
 }
 
@@ -20,6 +24,8 @@ protocol SetupProviding {
     func installHelper() async -> [SetupOutcome]
     func symlinkCLI() async
     func uninstallEverything() async
+    /// Opens System Settings → Login Items so the user can approve a pending background service.
+    func openLoginItems()
 }
 
 @MainActor
@@ -28,15 +34,23 @@ struct LiveSetupProvider: SetupProviding {
 
     func installHelper() async -> [SetupOutcome] {
         await HelperInstaller.installIfNeeded().map { entry in
-            if case .failed(let msg) = entry.result {
+            switch entry.result {
+            case .failed(let msg):
                 return SetupOutcome(name: entry.name, failureMessage: msg)
+            case .pendingApproval:
+                return SetupOutcome(name: entry.name, failureMessage: nil, requiresApproval: true)
+            case .enabled:
+                return SetupOutcome(name: entry.name, failureMessage: nil)
             }
-            return SetupOutcome(name: entry.name, failureMessage: nil)
         }
     }
 
     func symlinkCLI() async {
         await CLISymlinker.symlinkIfNeeded()
+    }
+
+    func openLoginItems() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 
     func uninstallEverything() async {
@@ -70,11 +84,14 @@ struct LiveSetupProvider: SetupProviding {
 @MainActor
 struct PreviewSetupProvider: SetupProviding {
     var isFirstRun: Bool = true
+    /// Drives a preview of the "needs approval" guidance in the installer's helper step.
+    var simulateApproval: Bool = false
     func installHelper() async -> [SetupOutcome] {
-        [SetupOutcome(name: "Helper", failureMessage: nil),
-         SetupOutcome(name: "Daemon", failureMessage: nil)]
+        [SetupOutcome(name: "Helper", failureMessage: nil, requiresApproval: simulateApproval),
+         SetupOutcome(name: "Daemon", failureMessage: nil, requiresApproval: simulateApproval)]
     }
     func symlinkCLI() async {}
     func uninstallEverything() async {}
+    func openLoginItems() {}
 }
 #endif

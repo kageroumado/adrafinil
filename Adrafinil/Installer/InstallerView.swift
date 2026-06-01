@@ -10,9 +10,12 @@ struct InstallerView: View {
     @State private var installLog: [String] = []
     @State private var step: Step = .helper
     @State private var helperErrors: [String] = []
+    @State private var needsApproval = false
     @State private var registering = false
 
     enum Step { case helper, agents, done }
+
+    private static let repoURL = URL(string: "https://github.com/kageroumado/adrafinil")!
 
     var body: some View {
         GlassEffectContainer(spacing: Theme.Space.lg) {
@@ -39,8 +42,15 @@ struct InstallerView: View {
                 .font(.system(size: 48)).foregroundStyle(Theme.awake)
                 .symbolRenderingMode(.hierarchical)
             Text("Welcome to Adrafinil").font(.system(.largeTitle, design: .rounded).weight(.semibold))
-            Text("Adrafinil installs a small privileged helper so it can block clamshell sleep while your AI agents work. The helper is open source — see github.com/kageroumado/adrafinil.")
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text("Adrafinil installs a small privileged helper so it can block clamshell sleep while your AI agents work.")
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text("It's fully open source —").foregroundStyle(.secondary)
+                    Link("view it on GitHub", destination: Self.repoURL)
+                }
+                .font(.callout)
+            }
 
             if !helperErrors.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
@@ -55,23 +65,69 @@ struct InstallerView: View {
                 .glassCard(cornerRadius: Theme.Radius.inner)
             }
 
+            if needsApproval {
+                approvalCard
+            }
+
             Spacer()
-            HStack {
+            HStack(spacing: Theme.Space.sm) {
+                if needsApproval {
+                    Button("Open Login Items") { setup.openLoginItems() }
+                        .buttonStyle(.glass)
+                }
                 Spacer()
-                Button(registering ? "Registering…" : (helperErrors.isEmpty ? "Continue" : "Retry")) {
-                    Task {
-                        registering = true
-                        let outcomes = await setup.installHelper()
-                        registering = false
-                        helperErrors = outcomes.compactMap { outcome in
-                            outcome.failureMessage.map { "\(outcome.name): \($0)" }
-                        }
-                        if helperErrors.isEmpty { step = .agents }
+                Button(continueTitle) {
+                    if needsApproval {
+                        // The services are registered; they enable once approved. Proceed to agents.
+                        step = .agents
+                    } else {
+                        registerHelper()
                     }
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glassProminent)
                 .controlSize(.large)
                 .disabled(registering)
+            }
+            .controlSize(.large)
+        }
+    }
+
+    private var continueTitle: String {
+        if registering { return "Registering…" }
+        if needsApproval { return "Continue" }
+        return helperErrors.isEmpty ? "Continue" : "Retry"
+    }
+
+    /// Guidance shown when SMAppService registered the services but the user must approve them in
+    /// System Settings before they enable — otherwise the user is left at a just-opened Login Items
+    /// pane with no idea why.
+    private var approvalCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Label("One quick approval", systemImage: "hand.raised.fill")
+                .font(.headline)
+                .foregroundStyle(Theme.awake)
+            Text("System Settings → Login Items & Extensions just opened. Turn **Adrafinil** on under “Allow in the Background,” then come back and click Continue.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Theme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(cornerRadius: Theme.Radius.inner)
+    }
+
+    private func registerHelper() {
+        Task {
+            registering = true
+            let outcomes = await setup.installHelper()
+            registering = false
+            helperErrors = outcomes.compactMap { outcome in
+                outcome.failureMessage.map { "\(outcome.name): \($0)" }
+            }
+            guard helperErrors.isEmpty else { return }
+            if outcomes.contains(where: \.requiresApproval) {
+                needsApproval = true   // stay here, show guidance, wait for the user to approve
+            } else {
+                step = .agents
             }
         }
     }
@@ -193,6 +249,11 @@ struct AgentRow: View {
 #if DEBUG
 #Preview("Installer · helper") {
     InstallerView(setup: PreviewSetupProvider(), agentHooks: PreviewAgentHooksProvider())
+        .frame(width: 560, height: 600)
+}
+#Preview("Installer · needs approval") {
+    InstallerView(setup: PreviewSetupProvider(simulateApproval: true),
+                  agentHooks: PreviewAgentHooksProvider())
         .frame(width: 560, height: 600)
 }
 #endif
