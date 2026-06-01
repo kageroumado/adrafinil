@@ -9,6 +9,10 @@ enum Theme {
 
     /// The amber accent — "awake". Backed by the AccentColor asset (light + dark variants).
     static let awake = Color.accentColor
+    /// Foreground for content sitting *on* the saturated amber accent (e.g. a prominent button).
+    /// The accent fill stays light in both light and dark mode, so this is a fixed warm near-black
+    /// rather than `.primary` (which would flip to white in dark mode and fail contrast on amber).
+    static let onAwake = Color(.sRGB, red: 0.16, green: 0.08, blue: 0.0, opacity: 1)
     /// Cool grey for the idle / asleep state.
     static let idle = Color.secondary
     /// Safety cutout (thermal / low-battery force-release).

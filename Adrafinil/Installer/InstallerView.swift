@@ -15,6 +15,9 @@ struct InstallerView: View {
 
     @State private var detected: Set<AgentKind> = []
     @State private var selected: Set<AgentKind> = []
+    /// Which agents should also get Adrafinil's MCP self-hold tool. A separate decision from
+    /// `selected` (the session hook), mirroring Settings → Agents — defaults on for capable agents.
+    @State private var mcpSelected: Set<AgentKind> = []
     @State private var installLog: [String] = []
     @State private var step: Step = .helper
     @State private var helperErrors: [String] = []
@@ -41,6 +44,7 @@ struct InstallerView: View {
         .onAppear {
             detected = Set(agentHooks.detectedAgents())
             selected = detected
+            mcpSelected = Set(detected.filter { agentHooks.mcpSupported(for: $0) })
         }
         // When approval is pending we send the user to System Settings → Login Items, which opens
         // over us. Slide our window to the left edge so the two sit side by side instead.
@@ -67,7 +71,7 @@ struct InstallerView: View {
                 .symbolRenderingMode(.hierarchical)
             Text("Welcome to Adrafinil").font(.system(.largeTitle, design: .rounded).weight(.semibold))
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                Text("Adrafinil installs a small privileged helper so it can block clamshell sleep while your AI agents work.")
+                Text("Adrafinil keeps your Mac awake — even with the lid closed — while your AI agents work.")
                     .foregroundStyle(.secondary)
                 HStack(spacing: 4) {
                     Text("It's fully open source —").foregroundStyle(.secondary)
@@ -76,6 +80,8 @@ struct InstallerView: View {
                 }
                 .font(.callout)
             }
+
+            whatGetsInstalled
 
             if !helperErrors.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
@@ -114,6 +120,50 @@ struct InstallerView: View {
                 .disabled(registering)
             }
             .controlSize(.large)
+        }
+    }
+
+    /// Up-front disclosure of the three things setup puts on the system. Mirrors the uninstall
+    /// summary in Settings → About, so the user sees the same components going in that they're told
+    /// about coming out — important for a tool that's a menu-bar app, a background service, and a CLI.
+    private var whatGetsInstalled: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            Text("What gets set up")
+                .font(.subheadline.weight(.semibold))
+
+            installItem(
+                icon: "menubar.dock.rectangle",
+                title: Text("A menu bar app"),
+                detail: "The controls you're looking at now — its window opens from the menu bar.")
+            installItem(
+                icon: "gearshape.2.fill",
+                title: Text("A background helper"),
+                detail: "Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart.")
+            installItem(
+                icon: "terminal",
+                title: Text("The ") + Text("adrafinil").monospaced() + Text(" command"),
+                detail: "Lets your agents tell Adrafinil when they start and stop working.")
+        }
+        .padding(Theme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(cornerRadius: Theme.Radius.inner)
+    }
+
+    private func installItem(icon: String, title: Text, detail: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(Theme.awake)
+                .symbolRenderingMode(.hierarchical)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                title.font(.callout.weight(.medium))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -165,7 +215,7 @@ struct InstallerView: View {
         let agents = AgentKind.allCases.filter { detected.contains($0) }
         return VStack(alignment: .leading, spacing: Theme.Space.md) {
             Text("Connect your agents").font(.system(.title2, design: .rounded).weight(.semibold))
-            Text("Each agent you turn on lets Adrafinil know when it starts and stops working, so your Mac stays awake only while it's busy. You can change this any time in Settings.")
+            Text("Connect each agent so Adrafinil knows when it's working and keeps your Mac awake only then. Some agents can also keep it awake on their own — for a build or deploy that runs past their reply. You can change all of this later in Settings.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
 
@@ -183,9 +233,18 @@ struct InstallerView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(agents.enumerated()), id: \.element) { index, kind in
                             if index > 0 { Divider().padding(.leading, Theme.Space.md) }
-                            AgentRow(kind: kind, isSelected: selected.contains(kind)) { sel in
-                                if sel { selected.insert(kind) } else { selected.remove(kind) }
-                            }
+                            AgentRow(
+                                kind: kind,
+                                isSelected: selected.contains(kind),
+                                mcpSupported: agentHooks.mcpSupported(for: kind),
+                                isMCPSelected: mcpSelected.contains(kind),
+                                onToggle: { sel in
+                                    if sel { selected.insert(kind) } else { selected.remove(kind) }
+                                },
+                                onToggleMCP: { sel in
+                                    if sel { mcpSelected.insert(kind) } else { mcpSelected.remove(kind) }
+                                }
+                            )
                         }
                     }
                     .padding(.vertical, Theme.Space.xs)
@@ -253,30 +312,70 @@ struct InstallerView: View {
             } catch {
                 installLog.append("[\(agent.displayName)] \(error.localizedDescription)")
             }
+            // The MCP self-hold tool is a separate registration, only for capable agents the user
+            // left enabled. Independent of the hook above, but only meaningful once connected.
+            if agentHooks.mcpSupported(for: agent), mcpSelected.contains(agent) {
+                do {
+                    try agentHooks.installMCP(for: agent)
+                    installLog.append("[\(agent.displayName)] self-hold enabled")
+                } catch {
+                    installLog.append("[\(agent.displayName)] self-hold: \(error.localizedDescription)")
+                }
+            }
         }
         await setup.symlinkCLI()
         step = .done
     }
 }
 
-/// A detected-agent row: name on the left, a switch in a consistent right-hand column. Only shown
-/// for agents we actually found, so no detection/tier chrome is needed.
+/// A detected-agent row. The top line connects the session hook (Adrafinil tracks when the agent
+/// works); MCP-capable agents get an indented sub-toggle for the self-hold tool, mirroring
+/// Settings → Agents so the two surfaces use identical language. Only shown for detected agents.
 struct AgentRow: View {
     let kind: AgentKind
     let isSelected: Bool
+    let mcpSupported: Bool
+    let isMCPSelected: Bool
     let onToggle: (Bool) -> Void
+    let onToggleMCP: (Bool) -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(spacing: Theme.Space.md) {
+                Text(kind.displayName).font(.toolName)
+                Spacer(minLength: Theme.Space.md)
+                Toggle("", isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            if mcpSupported { mcpSubRow }
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, Theme.Space.sm)
+    }
+
+    /// Indented secondary control: registers Adrafinil's MCP self-hold tool. Disabled (and dimmed)
+    /// until the agent is connected above — MCP without a connection isn't a meaningful setup choice.
+    private var mcpSubRow: some View {
         HStack(spacing: Theme.Space.md) {
-            Text(kind.displayName).font(.toolName)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Let it keep your Mac awake on its own")
+                    .font(.subheadline)
+                Text("Adds Adrafinil as an MCP tool in \(kind.displayName), so it can keep your Mac awake for work that runs past its reply.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer(minLength: Theme.Space.md)
-            Toggle("", isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
+            Toggle("", isOn: Binding(get: { isMCPSelected }, set: { onToggleMCP($0) }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
         }
-        .padding(.horizontal, Theme.Space.md)
-        .padding(.vertical, Theme.Space.sm)
+        .padding(.leading, Theme.Space.md)
+        .disabled(!isSelected)
+        .opacity(isSelected ? 1 : 0.45)
     }
 }
 

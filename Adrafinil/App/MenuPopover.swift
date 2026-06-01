@@ -34,16 +34,16 @@ struct MenuPopover: View {
                 // A failed poll takes precedence: if we can't reach the daemon we don't have
                 // trustworthy status, so show the error rather than a stale snapshot.
                 if let err = status.lastError {
-                    errorCard(err)
+                    errorCard(err).transition(.popoverSection)
                 } else if let live {
-                    statusCard(live, state: hero, now: now)
+                    statusCard(live, state: hero, now: now).transition(.popoverSection)
 
                     if hero == .awake || hero == .paused {
-                        pauseToggleButton(state: hero)
+                        pauseToggleButton(state: hero).transition(.popoverSection)
                     }
 
                     if !live.assertions.isEmpty {
-                        agentList(live.assertions, now: now)
+                        agentList(live.assertions, now: now).transition(.popoverSection)
                     }
                 } else {
                     HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
@@ -54,6 +54,16 @@ struct MenuPopover: View {
             }
             .padding(Theme.Space.lg)
         }
+        // Animate layout (and the window's resize) whenever the set of visible sections changes —
+        // hero state, hold count, or a daemon error appearing/disappearing — so clicking "Let it
+        // sleep" or an agent finishing glides the panel to its new size instead of snapping.
+        .animation(.smooth(duration: 0.3), value: layoutSignature(live, hero))
+    }
+
+    /// A compact, order-stable key for the popover's layout: which sections are visible and how
+    /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
+    private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
+        "\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -75,9 +85,7 @@ struct MenuPopover: View {
         HStack(spacing: Theme.Space.sm) {
             Text("Adrafinil").font(.heroTitle)
             Spacer()
-            Link("made by kageroumado", destination: URL(string: "https://github.com/kageroumado")!)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            AttributionLink()
         }
     }
 
@@ -107,7 +115,7 @@ struct MenuPopover: View {
             heroCard(
                 icon: "pause.circle.fill", tint: .secondary,
                 title: "Paused",
-                subtitle: "Adrafinil is off — agents won't keep your Mac awake", dimmed: false)
+                subtitle: "Agents won't keep your Mac awake until you resume", dimmed: false)
         }
     }
 
@@ -131,8 +139,12 @@ struct MenuPopover: View {
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(.body, design: .rounded).weight(.semibold))
+                // Always reserve two lines so a one-line subtitle (e.g. "3 agents working") and a
+                // two-line one (e.g. the paused state's "Agents won't keep your Mac awake …") give
+                // the card the same height — the pause/resume button below then stays put across
+                // states instead of jumping.
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2, reservesSpace: true)
             }
             Spacer(minLength: 0)
         }
@@ -147,7 +159,7 @@ struct MenuPopover: View {
                 .font(.system(size: 26)).foregroundStyle(.secondary)
                 .symbolRenderingMode(.hierarchical).frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Daemon not reachable").font(.system(.body, design: .rounded).weight(.semibold))
+                Text("Adrafinil's helper isn't responding").font(.system(.body, design: .rounded).weight(.semibold))
                 Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 0)
@@ -169,7 +181,9 @@ struct MenuPopover: View {
             }
         }
         .padding(.vertical, Theme.Space.xs)
-        .glassCard(cornerRadius: Theme.Radius.inner)
+        // A top-level card in the popover, sibling to the hero — so it shares the hero's `card`
+        // radius (the `glassCard` default), not the smaller `inner` radius meant for nesting.
+        .glassCard()
     }
 
     // MARK: - Primary action (pause / resume)
@@ -185,6 +199,7 @@ struct MenuPopover: View {
             Label(pausing ? "Let it sleep" : "Resume",
                   systemImage: pausing ? "moon.fill" : "sun.max.fill")
                 .frame(maxWidth: .infinity)
+                .foregroundStyle(Theme.onAwake)
         }
         .buttonStyle(.glassProminent)
         .controlSize(.large)
@@ -203,10 +218,12 @@ struct MenuPopover: View {
             Spacer(minLength: 0)
             GlassEffectContainer(spacing: Theme.Space.sm) {
                 HStack(spacing: Theme.Space.sm) {
-                    SettingsLink { Image(systemName: "gearshape") }
+                    SettingsLink { utilityIcon("gearshape") }
                         .help("Settings…")
-                    Button { NSApp.terminate(nil) } label: {
-                        Image(systemName: "power")
+                    Button { (NSApp.delegate as? AppDelegate)?.confirmQuit() } label: {
+                        // `xmark` (quit the app), not `power` — a power glyph in a Mac context
+                        // reads as "shut down the Mac", the wrong mental model for closing the app.
+                        utilityIcon("xmark")
                     }
                     .help("Quit Adrafinil")
                 }
@@ -222,7 +239,7 @@ struct MenuPopover: View {
     private func metaLabels(_ s: DaemonStatus) -> some View {
         HStack(spacing: Theme.Space.sm) {
             if s.lidClosed {
-                Label("Clamshell", systemImage: "laptopcomputer.slash")
+                Label("Lid closed", systemImage: "laptopcomputer.slash")
             }
             if let temp = s.cpuTemperatureCelsius {
                 if s.lidClosed { Text("·").foregroundStyle(.tertiary) }
@@ -233,6 +250,14 @@ struct MenuPopover: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.leading, Theme.Space.xs)
+    }
+
+    /// A glyph for the bottom-bar utility buttons (Settings / Quit), pinned to a fixed square so
+    /// both `.glass` capsules come out the same size — otherwise each capsule hugs its glyph and
+    /// the taller `gearshape` makes its button visibly taller than `xmark`.
+    private func utilityIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .frame(width: 16, height: 16)
     }
 
     // MARK: - Derived state
@@ -254,6 +279,41 @@ struct MenuPopover: View {
     }
     private func cutoutTitle(_ s: DaemonStatus) -> String {
         s.lastEvent == .lowBatteryCutout ? "Low-battery cutout" : "Thermal cutout"
+    }
+}
+
+// MARK: - Transitions
+
+private extension AnyTransition {
+    /// How a popover section enters/leaves as the panel resizes around it: a fade with a slight
+    /// upward settle, so sections appear to grow out of / collapse into the panel rather than pop.
+    static var popoverSection: AnyTransition {
+        .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+    }
+}
+
+// MARK: - AttributionLink
+
+/// The "made by kageroumado" credit in the popover header. Reads as quiet secondary text but signals
+/// it's a link with a trailing external-link arrow, and underlines on hover so the affordance is
+/// unmistakable once the pointer lands on it.
+private struct AttributionLink: View {
+    @State private var hovering = false
+
+    var body: some View {
+        Link(destination: URL(string: "https://github.com/kageroumado")!) {
+            HStack(spacing: 2) {
+                Text("made by kageroumado")
+                    .underline(hovering)
+                Image(systemName: "arrow.up.right")
+                    .font(.caption2)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

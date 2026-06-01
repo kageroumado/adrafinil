@@ -14,6 +14,9 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var installerWindow: NSWindow?
 
+    /// Set by the uninstall flow so its own teardown isn't gated/paused by `applicationShouldTerminate`.
+    private var isUninstalling = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Single instance. macOS blocks double-launch from Finder, but launching via Xcode (or a
         // different build path) bypasses that — and Xcode's Stop doesn't reliably kill a menu-bar
@@ -60,10 +63,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if AdrafinilSettings.load().launchAtLogin, SMAppService.mainApp.status != .enabled {
             try? SMAppService.mainApp.register()
         }
+
+        // Adrafinil is active only while this app is open. Quitting pauses the daemon (see
+        // `confirmQuit`), so resume here to undo a previous quit-pause — reopening the app puts it
+        // back to work. Skipped before setup, when there's no daemon to talk to yet.
+        if !HelperInstaller.isFirstRun {
+            Task { try? await DaemonClient().setPaused(false) }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// The single quit gate. Adrafinil is split across three executables (this app, the user
+    /// daemon, the root helper), but the user shouldn't have to think about that — quitting should
+    /// turn all of it off. The launchd services can't be force-killed (KeepAlive, and the helper is
+    /// privileged) without re-triggering approval, so instead we pause the daemon — which releases
+    /// every wake-lock and ignores agents until resumed — leaving the services registered but idle.
+    /// `applicationDidFinishLaunching` resumes on the next launch, so "Adrafinil is active only
+    /// while its app is open" holds. Centralizing here means every quit path (the popover's power
+    /// button, ⌘Q from a window, logout) stops the daemon, not just the button.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Uninstall tears everything down itself (and unregisters the daemon), so don't gate it.
+        if isUninstalling { return .terminateNow }
+        // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable.
+        Task {
+            try? await DaemonClient().setPaused(true)
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    /// Confirms before quitting from the popover's power button — the one quit affordance that's
+    /// easy to hit by reflex. The actual stop-everything work happens in `applicationShouldTerminate`.
+    /// Run as an AppKit modal (not a SwiftUI alert) because the menu-bar popover dismisses the
+    /// moment it loses key focus, which would tear down a popover-hosted alert before it appears.
+    func confirmQuit() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Quit Adrafinil?"
+        alert.informativeText = """
+            Quitting turns Adrafinil off: your Mac goes back to sleeping normally and your agents \
+            stop being tracked until you open it again.
+
+            To pause without quitting, use “Let it sleep” instead.
+            """
+        alert.addButton(withTitle: "Quit")    // default — Return
+        alert.addButton(withTitle: "Cancel")  // Esc
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Marks the impending termination as an uninstall so `applicationShouldTerminate` doesn't try
+    /// to pause a daemon that's being removed. Called by the About tab's uninstall flow.
+    func beginUninstall() {
+        isUninstalling = true
     }
 
     /// Force-quit any other running copy of this app, leaving only this instance. Force (not

@@ -16,8 +16,8 @@ final class DaemonClient {
         case invalidResponse
         var errorDescription: String? {
             switch self {
-            case .noConnection: "Daemon not reachable"
-            case .invalidResponse: "Daemon returned invalid response"
+            case .noConnection: "Couldn't reach Adrafinil's background helper."
+            case .invalidResponse: "Adrafinil's background helper sent an unexpected response."
             }
         }
     }

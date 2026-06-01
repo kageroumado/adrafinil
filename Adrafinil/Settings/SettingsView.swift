@@ -129,15 +129,18 @@ struct AgentsSettingsTab: View {
             } header: {
                 Text("Your agents")
             } footer: {
-                Text("Turn an agent on to let Adrafinil know when it starts and stops working. Turn it off to disconnect it. For supported agents you can also let them keep your Mac awake on their own — Adrafinil adds a hold tool the agent can call.")
+                Text("Turn an agent on and Adrafinil keeps your Mac awake while it's working, then lets it sleep again when the agent stops. Turn it off to disconnect. Some agents can also keep your Mac awake on their own — that adds Adrafinil as an MCP tool they can call.")
             }
 
             Section {
-                Button("Re-run setup…") {
+                Button("Open setup again…") {
                     (NSApp.delegate as? AppDelegate)?.presentInstaller()
                 }
+                // Keep this out of the form's initial focus: as the only plain button it otherwise
+                // lands the first-responder ring, making a secondary utility read as the main action.
+                .focusEffectDisabled()
             } footer: {
-                Text("Walk through the setup again to reconnect agents or repair the installation.")
+                Text("Reopens the guided setup. Use it to connect a new agent, or to fix one that shows “Needs attention”.")
             }
         }
         .formStyle(.grouped)
@@ -186,7 +189,7 @@ private struct AgentInstallRow: View {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(.borderless)
-                .help("Reveal config in Finder")
+                .help("Show \(model.kind.displayName)'s settings file in Finder")
 
                 Toggle("", isOn: Binding(
                     get: { isInstalled },
@@ -204,7 +207,27 @@ private struct AgentInstallRow: View {
                 .controlSize(.small)
             }
 
+            if model.installState == .modifiedExternally { reconnectNote }
+
             if model.mcpSupported { mcpToggle }
+        }
+    }
+
+    /// Shown when the agent's config was edited outside Adrafinil so it no longer matches what we
+    /// wrote. Re-installing overwrites the entry with the canonical form, restoring the connection.
+    private var reconnectNote: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+            Text("\(model.kind.displayName)'s settings were changed outside Adrafinil, so the connection may no longer work.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: Theme.Space.sm)
+            Button("Reconnect") {
+                try? agentHooks.install(for: model.kind)
+                onChange()
+            }
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.borderless)
         }
     }
 
@@ -216,7 +239,7 @@ private struct AgentInstallRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Let it keep your Mac awake on its own")
                     .font(.subheadline)
-                Text("Adds a hold tool the agent can call to stay awake past its turn.")
+                Text("Adds Adrafinil as an MCP tool in \(model.kind.displayName), so the agent can keep your Mac awake for work that runs past its reply.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -241,15 +264,18 @@ private struct AgentInstallRow: View {
         .padding(.leading, Theme.Space.md)
     }
 
+    /// Only the two states the toggle can't convey on its own get a chip: a reassuring "Connected"
+    /// when healthy, and a "Needs attention" warning when the config drifted. A plain off agent
+    /// shows nothing — the off switch already says it.
     @ViewBuilder
     private var stateChip: some View {
         switch model.installState {
         case .installed:
-            StateChip(text: "Installed", systemImage: "checkmark.circle.fill", tint: Theme.ok)
+            StateChip(text: "Connected", systemImage: "checkmark.circle.fill", tint: Theme.ok)
         case .notInstalled:
-            StateChip(text: "Not installed", systemImage: "circle", tint: .secondary)
+            EmptyView()
         case .modifiedExternally:
-            StateChip(text: "Modified", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
+            StateChip(text: "Needs attention", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
         }
     }
 }
@@ -397,6 +423,9 @@ struct AboutTab: View {
     }
 
     private func performUninstall() {
+        // Tell the quit gate this is an uninstall, so it doesn't try to pause a daemon we're
+        // unregistering out from under it.
+        (NSApp.delegate as? AppDelegate)?.beginUninstall()
         Task {
             await setup.uninstallEverything()
             NSApp.terminate(nil)
