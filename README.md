@@ -1,12 +1,47 @@
-# Adrafinil
+<div align="center">
 
-Keep your Mac awake only while AI agents are working.
+[![adrafinil](https://readme-typing-svg.demolab.com/?font=DotGothic16&weight=400&size=22&duration=3800&pause=900&color=FF5FA6&center=true&vCenter=true&width=820&height=60&lines=wakefulness%20only%20for%20machines%20with%20work%20left%20undone%20%E2%99%A1;stays%20awake%20while%20your%20agents%20work%20%E3%83%BB%20then%20sleeps;not%20caffeine%20%E3%83%BB%20the%20eugeroic;rx%20no.%20006%20%E3%83%BB%20%E6%9C%8D%E7%94%A8%E6%B3%A8%E6%84%8F%20%E3%83%BB%20best%20taken%20%40%203%20a.m.)](https://kagerou.glass)
 
-Adrafinil is a macOS menu bar app that prevents the system from sleeping — including clamshell (lid-closed) sleep — **exclusively while an AI coding agent has an active session**. When no agent is working, sleep behavior is untouched: close the lid and the Mac sleeps normally.
+# adrafinil
 
-It's the opposite of always-on wake utilities like `caffeinate` or Amphetamine. Adrafinil only intervenes when an agent (Claude Code, Codex, Cursor, …) is mid-task, and gets out of the way the moment that work finishes.
+**rx no. 006 ・ a·draf·i·nil /əˈdræfɪnɪl/ ・ a eugeroic for machines ♡**
 
-> ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses `pmset disablesleep` for clamshell (lid-closed) sleep, after verifying on-device that the cleaner private `IOPMrootDomain` paths don't keep a displayless lid-closed Mac awake. See [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) §2.
+[![kagerou.glass](https://img.shields.io/badge/kagerou.glass-ff5fa6?style=for-the-badge&logo=safari&logoColor=white)](https://kagerou.glass)
+[![the ledger](https://img.shields.io/badge/the_ledger-c2a4f2?style=for-the-badge&logo=readthedocs&logoColor=white)](https://kagerou.glass/blog/)
+[![@kageroumado](https://img.shields.io/badge/@kageroumado-76e6e0?style=for-the-badge&logo=x&logoColor=0d0a10)](https://x.com/kageroumado)
+[![ko-fi](https://img.shields.io/badge/ko--fi-ff86bf?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/kageroumado)
+[![macOS Tahoe](https://img.shields.io/badge/macOS-Tahoe_26%2B-0d0a10?style=for-the-badge&logo=apple&logoColor=white)](#requirements)
+[![MIT](https://img.shields.io/badge/license-MIT-9be7c4?style=for-the-badge)](LICENSE)
+
+</div>
+
+> **服用注意 ・ for machines that keep watch after you've gone to sleep.**
+>
+> It's 3 a.m. You're asleep. The agent isn't — it's still mid-thought in a session you started
+> hours ago, and you've closed the lid over it like an eyelid that won't quite shut. `caffeinate`
+> and Amphetamine are stimulants: they keep the machine wired *forever*, whether or not anyone's
+> home. Adrafinil is the eugeroic. It does **nothing** until an agent acquires it, keeps your Mac
+> awake through a closed lid only for as long as that work lives, and clears the moment the last
+> session releases. It only ever wakes for the work — then you both sleep. ♡
+
+---
+
+Keep your Mac awake **only while AI agents are working**.
+
+Adrafinil is a macOS menu bar app that prevents the system from sleeping — including clamshell
+(lid-closed) sleep — **exclusively while an AI coding agent has an active session**. When no agent
+is working, sleep behavior is untouched: close the lid and the Mac sleeps normally.
+
+It's the opposite of always-on wake utilities like `caffeinate` or Amphetamine. Adrafinil only
+intervenes when an agent (Claude Code, Codex, Cursor, …) is mid-task, and gets out of the way the
+moment that work finishes.
+
+> ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates
+> that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an
+> unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses
+> `pmset disablesleep` for clamshell (lid-closed) sleep, after verifying on-device that the cleaner
+> private `IOPMrootDomain` paths don't keep a displayless lid-closed Mac awake. See
+> [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md) §2.
 
 ## Features
 
@@ -34,7 +69,11 @@ cd adrafinil
 open Adrafinil.xcodeproj
 ```
 
-In Xcode, select the **Adrafinil** scheme and Run. You'll need to set a development team for code signing — the daemon (LaunchAgent) and helper (LaunchDaemon) are embedded into the app bundle and registered with the system when the app launches.
+In Xcode, select the **Adrafinil** scheme and Run. You'll need to set a development team for code
+signing — the daemon (LaunchAgent) and helper (LaunchDaemon) are embedded into the app bundle and
+registered with the system when the app launches. (No Team ID is baked into the source; the XPC
+caller check reads your *own* signing team at runtime, so a rebuild under any Developer ID
+authorizes its own components without code changes.)
 
 For a headless compile check without local signing identities:
 
@@ -60,11 +99,13 @@ adrafinil acquire <session-key> --tool claude-code --reason "long build"   # on 
 adrafinil release <session-key>                                            # on SessionEnd
 ```
 
-The daemon refcounts by session key and asks the helper to block sleep while the count is non-zero. Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
+The daemon refcounts by session key and asks the helper to block sleep while the count is non-zero.
+Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
 
 ## Architecture
 
-Four products across three privilege tiers (full detail, including the Xcode project layout, in [Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md)):
+Four products across three privilege tiers (full detail, including the Xcode project layout, in
+[Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md)):
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -110,4 +151,6 @@ Four products across three privilege tiers (full detail, including the Xcode pro
 
 ## Acknowledgements
 
-Built by [@kageroumado](https://x.com/kageroumado). The name is a nod to [adrafinil](https://en.wikipedia.org/wiki/Adrafinil) — a wakefulness-promoting prodrug — because the app keeps your machine awake only when it actually has work to do.
+Built by [@kageroumado](https://x.com/kageroumado), dispensed at [kagerou.glass](https://kagerou.glass).
+The name is a nod to [adrafinil](https://en.wikipedia.org/wiki/Adrafinil) — a wakefulness-promoting
+prodrug — because the app keeps your machine awake only when it actually has work to do.
