@@ -7,10 +7,12 @@ struct InstallerView: View {
 
     init(setup: any SetupProviding = LiveSetupProvider(),
          agentHooks: any AgentHooksProviding = LiveAgentHooksProvider(),
-         initialStep: Step = .helper) {
+         initialStep: Step = .helper,
+         previewInstalling: Bool = false) {
         self.setup = setup
         self.agentHooks = agentHooks
         self._step = State(initialValue: initialStep)
+        self._isInstalling = State(initialValue: previewInstalling)
     }
 
     @State private var detected: Set<AgentKind> = []
@@ -18,14 +20,38 @@ struct InstallerView: View {
     /// Which agents should also get Adrafinil's MCP self-hold tool. A separate decision from
     /// `selected` (the session hook), mirroring Settings → Agents — defaults on for capable agents.
     @State private var mcpSelected: Set<AgentKind> = []
-    @State private var installLog: [String] = []
     @State private var step: Step = .helper
     @State private var helperErrors: [String] = []
     @State private var needsApproval = false
     @State private var registering = false
     @State private var window: NSWindow?
 
+    /// Drives the install choreography: once true, the agent list collapses to just the selected
+    /// agents, each row shows live status instead of its toggles, and the footer morphs into a
+    /// progress bar.
+    @State private var isInstalling = false
+    /// Per-agent install status, filled in as `runInstall` walks the selected agents in order.
+    @State private var phases: [AgentKind: InstallPhase] = [:]
+    /// Set when the success step appears, to spring the seal in.
+    @State private var sealPopped = false
+
     enum Step { case helper, agents, done }
+
+    /// A connecting agent's live status during the install choreography.
+    enum InstallPhase: Equatable { case pending, installing, done, failed }
+
+    /// Fraction of the selected agents that have finished (done or failed). Drives the progress bar.
+    private var installProgress: Double {
+        guard !selected.isEmpty else { return 0 }
+        let finished = phases.values.filter { $0 == .done || $0 == .failed }.count
+        return Double(finished) / Double(selected.count)
+    }
+
+    /// How one setup step gives way to the next: the new step fades and scales up into place while
+    /// the old one fades out — a gentle morph rather than a hard cut (used for agents → done).
+    private static let stepTransition: AnyTransition = .asymmetric(
+        insertion: .opacity.combined(with: .scale(scale: 0.96)),
+        removal: .opacity)
 
     private static let repoURL = URL(string: "https://github.com/kageroumado/adrafinil")!
 
@@ -33,9 +59,9 @@ struct InstallerView: View {
         GlassEffectContainer(spacing: Theme.Space.lg) {
             VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 switch step {
-                case .helper:  helperStep
-                case .agents:  agentsStep
-                case .done:    doneStep
+                case .helper:  helperStep.transition(Self.stepTransition)
+                case .agents:  agentsStep.transition(Self.stepTransition)
+                case .done:    doneStep.transition(Self.stepTransition)
                 }
             }
             .padding(Theme.Space.xl + Theme.Space.sm)
@@ -45,6 +71,12 @@ struct InstallerView: View {
             detected = Set(agentHooks.detectedAgents())
             selected = detected
             mcpSelected = Set(detected.filter { agentHooks.mcpSupported(for: $0) })
+            // Preview-only: seed a mid-install snapshot so the installing layout is inspectable.
+            if isInstalling {
+                let ordered = AgentKind.allCases.filter { selected.contains($0) }
+                if ordered.indices.contains(0) { phases[ordered[0]] = .done }
+                if ordered.indices.contains(1) { phases[ordered[1]] = .installing }
+            }
         }
         // When approval is pending we send the user to System Settings → Login Items, which opens
         // over us. Slide our window to the left edge so the two sit side by side instead.
@@ -212,7 +244,9 @@ struct InstallerView: View {
     private var agentsStep: some View {
         // Only agents we actually found — connecting one that isn't installed is meaningless, and
         // a long greyed-out list is just noise. Undetected ones can be connected later in Settings.
-        let agents = AgentKind.allCases.filter { detected.contains($0) }
+        // Once installing, the list collapses to just the agents being connected.
+        let detectedAgents = AgentKind.allCases.filter { detected.contains($0) }
+        let agents = isInstalling ? detectedAgents.filter { selected.contains($0) } : detectedAgents
         return VStack(alignment: .leading, spacing: Theme.Space.md) {
             Text("Connect your agents").font(.system(.title2, design: .rounded).weight(.semibold))
             Text("Connect each agent so Adrafinil knows when it's working and keeps your Mac awake only then. Some agents can also keep it awake on their own — for a build or deploy that runs past their reply. You can change all of this later in Settings.")
@@ -238,6 +272,7 @@ struct InstallerView: View {
                                 isSelected: selected.contains(kind),
                                 mcpSupported: agentHooks.mcpSupported(for: kind),
                                 isMCPSelected: mcpSelected.contains(kind),
+                                phase: isInstalling ? (phases[kind] ?? .pending) : nil,
                                 onToggle: { sel in
                                     if sel { selected.insert(kind) } else { selected.remove(kind) }
                                 },
@@ -253,36 +288,51 @@ struct InstallerView: View {
                 .frame(maxHeight: 240)
             }
 
-            if !installLog.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(installLog, id: \.self) {
-                            Text($0).font(.system(.caption, design: .monospaced))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Theme.Space.sm)
-                }
-                .frame(maxHeight: 80)
-                .glassCard(cornerRadius: Theme.Radius.inner)
-            }
-
             Spacer(minLength: Theme.Space.md)
 
-            HStack {
-                Spacer()
-                // Own tight glass container so Skip and Install read as one connected control pair
-                // instead of the stretched glass "bridge" they formed inside the outer container.
-                GlassEffectContainer(spacing: Theme.Space.xs) {
-                    HStack(spacing: Theme.Space.xs) {
-                        Button("Skip") { step = .done }.buttonStyle(.glass)
-                        Button("Install") { Task { await runInstall() } }
-                            .buttonStyle(.glassProminent)
-                            .disabled(selected.isEmpty)
+            if isInstalling {
+                ProgressView(value: installProgress)
+                    .progressViewStyle(.linear)
+                    .tint(Theme.awake)
+                    .transition(.opacity)
+            }
+
+            installFooter
+                .controlSize(.large)
+        }
+    }
+
+    /// Bottom controls for the agents step. In selection mode it's the Skip/Install pair; once
+    /// installing, Skip slides away and the prominent button stretches full-width and morphs into a
+    /// "Connecting…" capsule — the same control growing into the progress affordance.
+    private var installFooter: some View {
+        // Own tight glass container so Skip and Install read as one connected control pair instead
+        // of the stretched glass "bridge" they'd form inside the outer container.
+        GlassEffectContainer(spacing: Theme.Space.xs) {
+            HStack(spacing: Theme.Space.xs) {
+                if !isInstalling {
+                    Spacer()
+                    Button("Skip") { withAnimation(.smooth) { step = .done } }
+                        .buttonStyle(.glass)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
+                }
+                Button { Task { await runInstall() } } label: {
+                    if isInstalling {
+                        HStack(spacing: Theme.Space.sm) {
+                            ProgressView().controlSize(.small).tint(Theme.onAwake)
+                            Text("Connecting your agents…")
+                        }
+                        .foregroundStyle(Theme.onAwake)
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Install")
                     }
                 }
+                .buttonStyle(.glassProminent)
+                .tint(Theme.awake)
+                .disabled(isInstalling || selected.isEmpty)
+                .frame(maxWidth: isInstalling ? .infinity : nil)
             }
-            .controlSize(.large)
         }
     }
 
@@ -291,7 +341,15 @@ struct InstallerView: View {
     private var doneStep: some View {
         VStack(alignment: .center, spacing: Theme.Space.lg) {
             Spacer()
-            Image(systemName: "checkmark.seal.fill").font(.system(size: 64)).foregroundStyle(Theme.ok)
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(Theme.ok)
+                .symbolRenderingMode(.hierarchical)
+                .scaleEffect(sealPopped ? 1 : 0.5)
+                .opacity(sealPopped ? 1 : 0)
+                .onAppear {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { sealPopped = true }
+                }
             Text("Adrafinil is set up").font(.system(.title, design: .rounded).weight(.semibold))
             Text("It now lives in your menu bar. Close the lid while an agent is working — your Mac stays awake. No agent running? Sleep behaves normally.")
                 .multilineTextAlignment(.center)
@@ -304,27 +362,46 @@ struct InstallerView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Walks the selected agents in display order, animating each from pending → installing → done
+    /// so the (near-instant) real work reads as a deliberate, satisfying sequence. The hooks run on
+    /// the main actor; the short sleeps only pace the choreography, they don't gate the install.
     private func runInstall() async {
-        for agent in selected {
+        let agents = AgentKind.allCases.filter { selected.contains($0) }
+
+        // Enter installing mode: the list collapses to these agents, the footer morphs, and every
+        // row starts pending. One animation so the morph and the pending states land together.
+        withAnimation(.smooth(duration: 0.35)) {
+            isInstalling = true
+            for agent in agents { phases[agent] = .pending }
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+
+        for agent in agents {
+            withAnimation(.smooth(duration: 0.25)) { phases[agent] = .installing }
+            try? await Task.sleep(for: .milliseconds(340))
+
+            var ok = true
             do {
                 try agentHooks.install(for: agent)
-                installLog.append("[\(agent.displayName)] connected")
-            } catch {
-                installLog.append("[\(agent.displayName)] \(error.localizedDescription)")
-            }
-            // The MCP self-hold tool is a separate registration, only for capable agents the user
-            // left enabled. Independent of the hook above, but only meaningful once connected.
-            if agentHooks.mcpSupported(for: agent), mcpSelected.contains(agent) {
-                do {
+                // The MCP self-hold tool is a separate registration, only for capable agents the
+                // user left enabled — independent of the hook, but set up in the same beat.
+                if agentHooks.mcpSupported(for: agent), mcpSelected.contains(agent) {
                     try agentHooks.installMCP(for: agent)
-                    installLog.append("[\(agent.displayName)] self-hold enabled")
-                } catch {
-                    installLog.append("[\(agent.displayName)] self-hold: \(error.localizedDescription)")
                 }
+            } catch {
+                ok = false
             }
+
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                phases[agent] = ok ? .done : .failed
+            }
+            try? await Task.sleep(for: .milliseconds(200))
         }
+
         await setup.symlinkCLI()
-        step = .done
+        // Let the last check settle and the bar reach 100% before morphing to the success step.
+        try? await Task.sleep(for: .milliseconds(450))
+        withAnimation(.smooth(duration: 0.4)) { step = .done }
     }
 }
 
@@ -336,6 +413,9 @@ struct AgentRow: View {
     let isSelected: Bool
     let mcpSupported: Bool
     let isMCPSelected: Bool
+    /// Non-nil once installation begins: the row shows live status instead of its toggles, and the
+    /// MCP sub-row collapses (its setup is folded into the single connecting beat).
+    var phase: InstallerView.InstallPhase? = nil
     let onToggle: (Bool) -> Void
     let onToggleMCP: (Bool) -> Void
 
@@ -343,16 +423,49 @@ struct AgentRow: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(spacing: Theme.Space.md) {
                 Text(kind.displayName).font(.toolName)
+                    .foregroundStyle(phase == .pending ? .secondary : .primary)
                 Spacer(minLength: Theme.Space.md)
-                Toggle("", isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
+                trailing
             }
-            if mcpSupported { mcpSubRow }
+            if mcpSupported, phase == nil { mcpSubRow }
         }
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)
+        .background(
+            Theme.controlShape
+                .fill(Theme.awake.opacity(phase == .installing ? 0.12 : 0))
+                .padding(.horizontal, Theme.Space.xs)
+        )
+    }
+
+    /// The trailing control: the selection toggle before install, then live status once connecting.
+    @ViewBuilder
+    private var trailing: some View {
+        switch phase {
+        case nil:
+            Toggle("", isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        case .pending:
+            Image(systemName: "circle")
+                .font(.system(size: 15))
+                .foregroundStyle(.quaternary)
+        case .installing:
+            ProgressView().controlSize(.small)
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Theme.ok)
+                .transition(.scale(scale: 0.4).combined(with: .opacity))
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 15))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Theme.warn)
+                .transition(.scale(scale: 0.4).combined(with: .opacity))
+        }
     }
 
     /// Indented secondary control: registers Adrafinil's MCP self-hold tool. Disabled (and dimmed)
@@ -405,6 +518,13 @@ private struct WindowAccessor: NSViewRepresentable {
     InstallerView(setup: PreviewSetupProvider(),
                   agentHooks: PreviewAgentHooksProvider(),
                   initialStep: .agents)
+        .frame(width: 560, height: 600)
+}
+#Preview("Installer · installing") {
+    InstallerView(setup: PreviewSetupProvider(),
+                  agentHooks: PreviewAgentHooksProvider(),
+                  initialStep: .agents,
+                  previewInstalling: true)
         .frame(width: 560, height: 600)
 }
 #endif
