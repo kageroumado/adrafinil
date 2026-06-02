@@ -3,12 +3,17 @@ import OSLog
 import AdrafinilShared
 
 final class HelperXPCService: NSObject, HelperXPCProtocol, @unchecked Sendable {
-    private let blocker = SleepBlocker()
-    private let lock = NSLock()
+    /// The process-wide blocker, shared across every connection (see `SleepBlocker`). Internally
+    /// synchronized, so this service needs no lock of its own.
+    private let blocker: SleepBlocker
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "XPCService")
 
+    init(blocker: SleepBlocker) {
+        self.blocker = blocker
+        super.init()
+    }
+
     func setSleepBlocked(_ blocked: Bool, reply: @escaping @Sendable (Bool, NSError?) -> Void) {
-        lock.lock(); defer { lock.unlock() }
         log.notice("XPC setSleepBlocked(\(blocked, privacy: .public)) received from daemon")
         do {
             try blocker.set(blocked: blocked)

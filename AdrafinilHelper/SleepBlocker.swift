@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
+import os
 import OSLog
 import AdrafinilShared
 
@@ -38,23 +39,45 @@ import AdrafinilShared
 /// policy clears it on construction (crash recovery) and again on release, and the daemon
 /// re-applies the blocked state on wake (see `SystemPowerMonitor`).
 ///
-/// Not internally synchronized: `HelperXPCService` serializes every call under a lock.
+/// **One shared instance per process.** The sleep-blocking state is machine-global — the wrong
+/// thing to scope per XPC connection. `HelperListenerDelegate` owns a single `SleepBlocker` and
+/// hands the *same* instance to every `HelperXPCService`, so a daemon reconnect (restart or XPC
+/// interruption) reuses the existing assertion instead of minting a fresh one and orphaning the
+/// old (a leaked `IOPMAssertion` the kernel only reclaims on process death). Because it's now
+/// shared across connections, the policy it guards lives inside an `OSAllocatedUnfairLock` (which
+/// is `Sendable` and owns its protected state), so the blocker is internally synchronized — it no
+/// longer relies on each `HelperXPCService` holding a per-instance lock (which wouldn't serialize
+/// across instances anyway).
 final class SleepBlocker {
-    private let policy: SleepBlockPolicy
+    /// The policy, guarded by the lock that owns it. `uncheckedState` because `SleepBlockPolicy`
+    /// holds the non-`Sendable` IOKit/`pmset` mechanisms — the lock *is* the isolation that makes
+    /// touching them across connections safe.
+    private let policy: OSAllocatedUnfairLock<SleepBlockPolicy>
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
-    var isBlocked: Bool { policy.isBlocked }
+    var isBlocked: Bool { policy.withLock { $0.isBlocked } }
 
     init() {
         log.notice("init — clearing any stale disablesleep state from a prior instance")
         // SleepBlockPolicy clears any stale clamshell block on construction (crash recovery).
-        policy = SleepBlockPolicy(idle: RealIdleAssertion(), clamshell: PMSetClamshellControl())
+        policy = OSAllocatedUnfairLock(
+            uncheckedState: SleepBlockPolicy(idle: RealIdleAssertion(), clamshell: PMSetClamshellControl())
+        )
     }
 
     func set(blocked: Bool) throws {
-        log.notice("set(blocked: \(blocked, privacy: .public)) — was \(self.isBlocked, privacy: .public)")
-        try policy.set(blocked: blocked)
-        log.notice("set complete — isBlocked=\(self.isBlocked, privacy: .public)")
+        // `withLock`'s body is `@Sendable`, so it can't capture `self`; bind the (Sendable) Logger
+        // locally and capture that, keeping the before/after logging inside the critical section.
+        let log = self.log
+        try policy.withLock { policy in
+            // Read into locals before logging: the Logger interpolation is an escaping autoclosure,
+            // which can't capture the `inout policy`.
+            let was = policy.isBlocked
+            log.notice("set(blocked: \(blocked, privacy: .public)) — was \(was, privacy: .public)")
+            try policy.set(blocked: blocked)
+            let now = policy.isBlocked
+            log.notice("set complete — isBlocked=\(now, privacy: .public)")
+        }
     }
 }
 
@@ -65,6 +88,12 @@ private final class RealIdleAssertion: IdleSleepAsserting {
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
     var isHeld: Bool { assertionID != 0 }
+
+    /// Defensive: if a `SleepBlocker` is ever torn down while still holding the assertion, release
+    /// it here rather than leaking it until process death. With the shared-instance design this
+    /// should only ever fire at process exit (where the kernel would reclaim it anyway), but it
+    /// makes any future per-instance use leak-free by construction.
+    deinit { release() }
 
     func acquire() {
         guard assertionID == 0 else {
