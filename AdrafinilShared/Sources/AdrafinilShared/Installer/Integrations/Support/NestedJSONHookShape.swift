@@ -11,6 +11,16 @@ import Foundation
 /// Adrafinil's own entries are tagged with `_adrafinil: true` so install is self-healing (it
 /// replaces a stale entry in place) and uninstall removes only ours, leaving the user's hooks intact.
 struct NestedJSONHookShape {
+    /// An extra release hook on its own event, narrowed by a `matcher`. Claude Code uses one for
+    /// `Notification` matched to `idle_prompt`: an Esc-interrupt skips `Stop`, so without this the
+    /// hold would linger until the daemon's CPU-idle backstop. Claude fires an `idle_prompt`
+    /// Notification ~60s after the agent goes idle (the `finally` that records query-completion runs
+    /// on interrupt too), so releasing on it frees the Mac shortly after an interrupted turn.
+    struct MatchedRelease {
+        let event: String
+        let matcher: String
+    }
+
     let configPath: String
     let startEvent: String
     /// Release-hook event, or nil to release via the daemon's process-exit watcher instead
@@ -23,6 +33,8 @@ struct NestedJSONHookShape {
     /// `SessionStart`/`SessionEnd` (session-scoped) to `UserPromptSubmit`/`Stop` (activity-scoped),
     /// and a lingering `SessionStart` → acquire would otherwise re-introduce the whole-session hold.
     var obsoleteEvents: [String] = []
+    /// Additional `releaseCommand` hooks beyond `endEvent`, each on its own event with a matcher.
+    var extraReleases: [MatchedRelease] = []
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         let before = ConfigFileIO.readJSON(configPath) ?? [:]
@@ -30,7 +42,11 @@ struct NestedJSONHookShape {
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
         merge(into: &hooks, event: startEvent, command: acquireCommand)
         if let endEvent { merge(into: &hooks, event: endEvent, command: releaseCommand) }
-        for event in obsoleteEvents where event != startEvent && event != endEvent {
+        for extra in extraReleases {
+            merge(into: &hooks, event: extra.event, command: releaseCommand, matcher: extra.matcher)
+        }
+        let managed = Set([startEvent, endEvent].compactMap { $0 } + extraReleases.map(\.event))
+        for event in obsoleteEvents where !managed.contains(event) {
             stripAdrafinil(from: &hooks, event: event)
         }
         after["hooks"] = hooks
@@ -40,8 +56,10 @@ struct NestedJSONHookShape {
             try ConfigFileIO.ensureParentDir(of: configPath)
             try ConfigFileIO.writeJSON(after, to: configPath)
         }
-        let summary = endEvent.map { "wired \(startEvent)/\($0) hooks" }
-            ?? "wired \(startEvent) hook (release via process-exit watcher)"
+        let releaseEvents = ([endEvent].compactMap { $0 } + extraReleases.map(\.event)).joined(separator: "+")
+        let summary = releaseEvents.isEmpty
+            ? "wired \(startEvent) hook (release via process-exit watcher)"
+            : "wired \(startEvent) acquire + \(releaseEvents) release hooks"
         return HookInstaller.InstallResult(summary: summary, diff: diff)
     }
 
@@ -53,7 +71,7 @@ struct NestedJSONHookShape {
         // Clean our entry from this agent's current events, the events it has since migrated away
         // from (`obsoleteEvents`), plus the legacy `SessionEnd`/`Stop` events an earlier version may
         // have written.
-        let events = Set([startEvent, endEvent].compactMap { $0 } + obsoleteEvents + ["SessionEnd", "Stop"])
+        let events = Set([startEvent, endEvent].compactMap { $0 } + extraReleases.map(\.event) + obsoleteEvents + ["SessionEnd", "Stop"])
         for event in events {
             stripAdrafinil(from: &hooks, event: event)
         }
@@ -77,13 +95,21 @@ struct NestedJSONHookShape {
             (hooks[event] as? [[String: Any]]).map { Self.command(in: $0) != nil } ?? false
         }
 
+        // Every extra matched-release hook must carry our release command, or the install is partial
+        // (e.g. upgrading from a build that predated the Notification/idle_prompt release).
+        let extrasInstalled = extraReleases.allSatisfy { extra in
+            (hooks[extra.event] as? [[String: Any]]).flatMap { Self.command(in: $0) } == releaseCommand
+        }
+
         guard let endEvent else {
-            return installedAcquire == acquireCommand && !hasObsolete ? .installed : .modifiedExternally
+            let ok = installedAcquire == acquireCommand && extrasInstalled && !hasObsolete
+            return ok ? .installed : .modifiedExternally
         }
         guard let endArr = hooks[endEvent] as? [[String: Any]],
               let installedRelease = Self.command(in: endArr) else { return .notInstalled }
 
-        let matches = installedAcquire == acquireCommand && installedRelease == releaseCommand && !hasObsolete
+        let matches = installedAcquire == acquireCommand && installedRelease == releaseCommand
+            && extrasInstalled && !hasObsolete
         return matches ? .installed : .modifiedExternally
     }
 
@@ -92,11 +118,12 @@ struct NestedJSONHookShape {
     /// Inserts (or repairs) our entry under `event`. Idempotent: if an Adrafinil-tagged entry
     /// already exists it's *replaced* with the canonical form, so re-running install upgrades a
     /// stale command instead of leaving the broken one in place. A non-Adrafinil entry is untouched.
-    private func merge(into hooks: inout [String: Any], event: String, command: String) {
+    private func merge(into hooks: inout [String: Any], event: String, command: String, matcher: String? = nil) {
         var arr = (hooks[event] as? [[String: Any]]) ?? []
-        let canonical: [String: Any] = [
+        var canonical: [String: Any] = [
             "hooks": [["type": "command", "command": command, "_adrafinil": true]]
         ]
+        if let matcher { canonical["matcher"] = matcher }
         if let idx = arr.firstIndex(where: { Self.entryReferencesAdrafinil($0) }) {
             arr[idx] = canonical
         } else {

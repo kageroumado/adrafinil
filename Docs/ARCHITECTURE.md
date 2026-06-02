@@ -91,7 +91,7 @@ These support shell-command hooks with a session-start and (mostly) a session-en
 
 | Tool | Config path | Start event | End event |
 |------|-------------|-------------|-----------|
-| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit` | `Stop` |
+| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit` | `Stop` + `Notification`[`idle_prompt`] |
 | Codex | `~/.codex/hooks.json` | `SessionStart` | — (process-exit; `Stop` is per-turn, see §3.5) |
 | Cursor | `~/.cursor/hooks.json` | `sessionStart` | `sessionEnd` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
@@ -101,10 +101,12 @@ Claude Code, Codex, and Gemini CLI share a nested JSON shape (`{"hooks": {event:
 **Claude Code holds are activity-scoped** (others are still session-scoped). It acquires on
 `UserPromptSubmit` (a turn begins) and releases on `Stop` (the agent finishes responding,
 `reason: 'completed'` in the query loop), so an open-but-idle session at the prompt holds nothing
-and the Mac can sleep — only an actively-working turn keeps it awake. The two turn boundaries that
-don't end in a clean `Stop` — an Esc-interrupt (the abort short-circuits the Stop hook) and walking
-away mid permission-prompt — fall through to the CPU-idle sweep (§4) and process-exit watcher
-(§3.4), so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
+and the Mac can sleep — only an actively-working turn keeps it awake. An **Esc-interrupt** is the one
+turn-end that fires no `Stop` (the abort short-circuits it); Claude instead fires a `Notification` of
+type `idle_prompt` ~60s after the agent goes idle (the query-completion timestamp that arms it is
+recorded in a `finally`, so it arms on interrupt too), and a `Notification`-matched-`idle_prompt`
+release hook frees the Mac shortly after. The CPU-idle sweep (§4) and process-exit watcher (§3.4)
+remain as final backstops (e.g. the terminal closed mid-turn), so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
 entries (the shape's `obsoleteEvents`) so a stale `SessionStart` → acquire can't re-pin the whole
 session. Codex/Cursor/Gemini per-turn event names aren't device-verified yet, so they stay
 session-scoped with the CPU-idle sweep as their idle backstop.

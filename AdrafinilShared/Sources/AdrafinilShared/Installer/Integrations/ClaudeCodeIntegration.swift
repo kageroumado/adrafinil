@@ -9,10 +9,12 @@ import Foundation
 /// (`reason: 'completed'` in the query loop). Acquiring/releasing on those means the Mac is only
 /// kept awake while the agent is actually working, and an open-but-idle session lets it sleep.
 ///
-/// The two turn-boundary gaps that don't end in a clean `Stop` — an Esc-interrupt (the abort
-/// short-circuits before the Stop hook runs) and walking away during a permission prompt — are
-/// covered by the daemon's CPU-idle sweep (the idle `claude` process burns ~0 CPU) and the
-/// process-exit watcher, so no explicit session-end hook is needed.
+/// An Esc-interrupt is the one turn-end that fires no `Stop` (the abort short-circuits it). Claude
+/// fires a `Notification` of type `idle_prompt` ~60s after the agent goes idle — and the
+/// query-completion timestamp that arms it is recorded in a `finally`, so it arms on interrupt too —
+/// so a third hook, `Notification` matched to `idle_prompt` → release, frees the Mac shortly after an
+/// interrupted turn. The daemon's CPU-idle sweep and process-exit watcher remain as final backstops
+/// (e.g. the terminal closed mid-turn), so no explicit session-end hook is needed.
 ///
 /// Claude Code is the only agent that also exposes a real session-id env var to hooks —
 /// `CLAUDE_CODE_SESSION_ID` (verified against 2.1.158; *not* `CLAUDE_SESSION_ID`, which expands
@@ -45,7 +47,8 @@ struct ClaudeCodeIntegration: AgentIntegration {
             endEvent: "Stop",
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
-            obsoleteEvents: ["SessionStart", "SessionEnd"]
+            obsoleteEvents: ["SessionStart", "SessionEnd"],
+            extraReleases: [.init(event: "Notification", matcher: "idle_prompt")]
         )
     }
 

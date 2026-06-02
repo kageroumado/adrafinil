@@ -63,6 +63,47 @@ struct HookInstallerTests {
         // Session-scoped events must not be wired — that was the whole-session-hold bug.
         #expect(hooks["SessionStart"] == nil)
         #expect(hooks["SessionEnd"] == nil)
+
+        // Esc-interrupt release: Notification matched to idle_prompt, carrying the release command.
+        let notif = try #require(hooks["Notification"] as? [[String: Any]])
+        let entry = try #require(notif.first { ($0["matcher"] as? String) == "idle_prompt" })
+        let inner = try #require(entry["hooks"] as? [[String: Any]])
+        #expect((inner.first?["command"] as? String)?.contains("release") == true)
+        #expect((inner.first?["command"] as? String)?.contains("claude-code") == true)
+    }
+
+    @Test func uninstallClaudeCodeRemovesNotificationHook() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+        #expect(installer.installState(for: .claudeCode) == .installed)
+        try installer.uninstall(for: .claudeCode)
+        #expect(installer.installState(for: .claudeCode) == .notInstalled)
+
+        let hooks = try #require(try readJSON(home.path + "/.claude/settings.json")["hooks"] as? [String: Any])
+        let notif = (hooks["Notification"] as? [[String: Any]]) ?? []
+        #expect(notif.allSatisfy { ($0["matcher"] as? String) != "idle_prompt" }, "our Notification entry must be gone")
+    }
+
+    /// An install missing the Notification release (a build predating it) must read as not-fully-installed
+    /// so the UI nudges a reinstall that adds it.
+    @Test func installStateNotInstalledWhenNotificationHookMissing() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+
+        // Simulate the pre-idle_prompt state: drop the Notification hook only.
+        let path = home.path + "/.claude/settings.json"
+        var dict = try readJSON(path)
+        var hooks = dict["hooks"] as! [String: Any]
+        hooks["Notification"] = nil
+        dict["hooks"] = hooks
+        try writeJSON(dict, to: path)
+
+        #expect(installer.installState(for: .claudeCode) == .modifiedExternally)
     }
 
     /// Upgrading from the old `SessionStart`/`SessionEnd` wiring must strip the stale acquire/release
