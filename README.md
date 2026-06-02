@@ -95,9 +95,13 @@ swift test
 Agents don't talk to Adrafinil directly. Each agent's hook system calls the bundled CLI:
 
 ```sh
-adrafinil acquire <session-key> --tool claude-code --reason "long build"   # on SessionStart
-adrafinil release <session-key>                                            # on SessionEnd
+adrafinil acquire <session-key> --tool claude-code --reason "long build"   # when a turn starts
+adrafinil release <session-key>                                            # when the agent goes idle
 ```
+
+Holds are **activity-scoped**, not session-scoped: Claude Code acquires on `UserPromptSubmit` and
+releases on `Stop`, so the Mac is only kept awake while the agent is actually working — an
+open-but-idle session at the prompt lets it sleep normally.
 
 The daemon refcounts by session key and asks the helper to block sleep while the count is non-zero.
 Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.

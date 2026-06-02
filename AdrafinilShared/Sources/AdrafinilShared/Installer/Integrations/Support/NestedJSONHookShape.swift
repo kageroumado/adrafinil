@@ -18,6 +18,11 @@ struct NestedJSONHookShape {
     let endEvent: String?
     let acquireCommand: String
     let releaseCommand: String
+    /// Events this integration used to wire but no longer does. Install proactively strips any
+    /// Adrafinil-tagged entry from them so upgrading self-heals — e.g. Claude Code moved from
+    /// `SessionStart`/`SessionEnd` (session-scoped) to `UserPromptSubmit`/`Stop` (activity-scoped),
+    /// and a lingering `SessionStart` → acquire would otherwise re-introduce the whole-session hold.
+    var obsoleteEvents: [String] = []
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         let before = ConfigFileIO.readJSON(configPath) ?? [:]
@@ -25,6 +30,9 @@ struct NestedJSONHookShape {
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
         merge(into: &hooks, event: startEvent, command: acquireCommand)
         if let endEvent { merge(into: &hooks, event: endEvent, command: releaseCommand) }
+        for event in obsoleteEvents where event != startEvent && event != endEvent {
+            stripAdrafinil(from: &hooks, event: event)
+        }
         after["hooks"] = hooks
 
         let diff = ConfigFileIO.makeDiff(before: before, after: after)
@@ -42,14 +50,12 @@ struct NestedJSONHookShape {
             return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
         }
         let before = dict
-        // Clean our entry from this agent's events plus the legacy `Stop` event an earlier
-        // version may have written.
-        let events = Set([startEvent, endEvent].compactMap { $0 } + ["SessionEnd", "Stop"])
+        // Clean our entry from this agent's current events, the events it has since migrated away
+        // from (`obsoleteEvents`), plus the legacy `SessionEnd`/`Stop` events an earlier version may
+        // have written.
+        let events = Set([startEvent, endEvent].compactMap { $0 } + obsoleteEvents + ["SessionEnd", "Stop"])
         for event in events {
-            if var arr = hooks[event] as? [[String: Any]] {
-                arr = arr.filter { !Self.entryReferencesAdrafinil($0) }
-                hooks[event] = arr
-            }
+            stripAdrafinil(from: &hooks, event: event)
         }
         dict["hooks"] = hooks
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
@@ -64,13 +70,20 @@ struct NestedJSONHookShape {
         guard let startArr = hooks[startEvent] as? [[String: Any]],
               let installedAcquire = Self.command(in: startArr) else { return .notInstalled }
 
+        // A leftover Adrafinil entry under an event we've migrated away from means the config is in
+        // a stale, mixed state — report it as externally modified so the UI nudges a reinstall, which
+        // strips the obsolete entry.
+        let hasObsolete = obsoleteEvents.contains { event in
+            (hooks[event] as? [[String: Any]]).map { Self.command(in: $0) != nil } ?? false
+        }
+
         guard let endEvent else {
-            return installedAcquire == acquireCommand ? .installed : .modifiedExternally
+            return installedAcquire == acquireCommand && !hasObsolete ? .installed : .modifiedExternally
         }
         guard let endArr = hooks[endEvent] as? [[String: Any]],
               let installedRelease = Self.command(in: endArr) else { return .notInstalled }
 
-        let matches = installedAcquire == acquireCommand && installedRelease == releaseCommand
+        let matches = installedAcquire == acquireCommand && installedRelease == releaseCommand && !hasObsolete
         return matches ? .installed : .modifiedExternally
     }
 
@@ -89,6 +102,14 @@ struct NestedJSONHookShape {
         } else {
             arr.append(canonical)
         }
+        hooks[event] = arr
+    }
+
+    /// Removes every Adrafinil-tagged entry from one event's array, leaving the user's own hooks
+    /// untouched. Shared by uninstall and install's obsolete-event cleanup.
+    private func stripAdrafinil(from hooks: inout [String: Any], event: String) {
+        guard var arr = hooks[event] as? [[String: Any]] else { return }
+        arr = arr.filter { !Self.entryReferencesAdrafinil($0) }
         hooks[event] = arr
     }
 

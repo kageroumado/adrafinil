@@ -21,6 +21,11 @@ struct HookInstallerTests {
         return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
     }
 
+    private func writeJSON(_ object: [String: Any], to path: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted])
+        try data.write(to: URL(fileURLWithPath: path))
+    }
+
     // MARK: - Detection
 
     @Test func detectsClaudeCodeByConfigDir() throws {
@@ -40,21 +45,74 @@ struct HookInstallerTests {
 
     // MARK: - Install: Claude Code shape
 
-    @Test func installClaudeCodeWritesSessionStartAndEnd() throws {
+    @Test func installClaudeCodeWritesActivityScopedHooks() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         let result = try installer.install(for: .claudeCode, dryRun: false)
 
-        #expect(result.summary.contains("SessionStart"))
-        #expect(result.summary.contains("SessionEnd"))
+        #expect(result.summary.contains("UserPromptSubmit"))
+        #expect(result.summary.contains("Stop"))
 
         let path = home.path + "/.claude/settings.json"
         let dict = try readJSON(path)
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        #expect(hooks["SessionStart"] != nil)
-        #expect(hooks["SessionEnd"] != nil)
+        #expect(hooks["UserPromptSubmit"] != nil)
+        #expect(hooks["Stop"] != nil)
+        // Session-scoped events must not be wired — that was the whole-session-hold bug.
+        #expect(hooks["SessionStart"] == nil)
+        #expect(hooks["SessionEnd"] == nil)
+    }
+
+    /// Upgrading from the old `SessionStart`/`SessionEnd` wiring must strip the stale acquire/release
+    /// entries, or a lingering `SessionStart` → acquire would keep re-introducing the whole-session hold.
+    @Test func installClaudeCodeMigratesAwayFromSessionScopedHooks() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.path + "/.claude/settings.json"
+
+        try writeJSON([
+            "hooks": [
+                "SessionStart": [["hooks": [["type": "command", "command": "adrafinil acquire $CLAUDE_CODE_SESSION_ID --tool claude-code", "_adrafinil": true]]]],
+                "SessionEnd": [["hooks": [["type": "command", "command": "adrafinil release $CLAUDE_CODE_SESSION_ID --tool claude-code", "_adrafinil": true]]]],
+            ],
+        ], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        #expect(hooks["UserPromptSubmit"] != nil)
+        #expect(hooks["Stop"] != nil)
+        #expect((hooks["SessionStart"] as? [[String: Any]])?.isEmpty == true)
+        #expect((hooks["SessionEnd"] as? [[String: Any]])?.isEmpty == true)
+        #expect(installer.installState(for: .claudeCode) == .installed)
+    }
+
+    /// A user's own `SessionStart` hook must survive the migration cleanup untouched.
+    @Test func migrationPreservesUserSessionStartHook() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.path + "/.claude/settings.json"
+
+        try writeJSON([
+            "hooks": [
+                "SessionStart": [
+                    ["hooks": [["type": "command", "command": "adrafinil acquire X --tool claude-code", "_adrafinil": true]]],
+                    ["hooks": [["type": "command", "command": "echo my-own-hook"]]],
+                ],
+            ],
+        ], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        let sessionStart = try #require(hooks["SessionStart"] as? [[String: Any]])
+        #expect(sessionStart.count == 1)
+        let inner = try #require(sessionStart.first?["hooks"] as? [[String: Any]])
+        #expect(inner.first?["command"] as? String == "echo my-own-hook")
     }
 
     @Test func installCodexWritesSessionStartOnlyAndSourcesIdFromStdin() throws {
@@ -163,7 +221,7 @@ struct HookInstallerTests {
 
         let dict = try readJSON(home.path + "/.claude/settings.json")
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        let startEntries = try #require(hooks["SessionStart"] as? [Any])
+        let startEntries = try #require(hooks["UserPromptSubmit"] as? [Any])
         #expect(startEntries.count == 1, "double-install should not duplicate hook entries")
     }
 
@@ -171,10 +229,10 @@ struct HookInstallerTests {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
-        // User already has a hook configured.
+        // User already has a hook configured under the same event we wire.
         let existing: [String: Any] = [
             "hooks": [
-                "SessionStart": [
+                "UserPromptSubmit": [
                     ["hooks": [["type": "command", "command": "echo user-hook"]]]
                 ]
             ]
@@ -188,7 +246,7 @@ struct HookInstallerTests {
 
         let dict = try readJSON(settingsPath)
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        let startEntries = try #require(hooks["SessionStart"] as? [Any])
+        let startEntries = try #require(hooks["UserPromptSubmit"] as? [Any])
         #expect(startEntries.count == 2, "must preserve the user's existing hook alongside ours")
     }
 
@@ -219,10 +277,10 @@ struct HookInstallerTests {
         defer { try? FileManager.default.removeItem(at: home) }
 
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
-        // Seed a user hook first.
+        // Seed a user hook first, under the same event we wire.
         let existing: [String: Any] = [
             "hooks": [
-                "SessionStart": [["hooks": [["type": "command", "command": "echo user-hook"]]]]
+                "UserPromptSubmit": [["hooks": [["type": "command", "command": "echo user-hook"]]]]
             ]
         ]
         let settingsPath = home.path + "/.claude/settings.json"
@@ -234,7 +292,7 @@ struct HookInstallerTests {
 
         let dict = try readJSON(settingsPath)
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        let startEntries = try #require(hooks["SessionStart"] as? [Any])
+        let startEntries = try #require(hooks["UserPromptSubmit"] as? [Any])
         #expect(startEntries.count == 1, "uninstall must leave the user's hook intact")
     }
 
@@ -295,11 +353,11 @@ struct HookInstallerTests {
         let settingsPath = home.path + "/.claude/settings.json"
         var dict = try readJSON(settingsPath)
         var hooks = dict["hooks"] as! [String: Any]
-        var startArr = hooks["SessionStart"] as! [[String: Any]]
+        var startArr = hooks["UserPromptSubmit"] as! [[String: Any]]
         var innerHooks = startArr[0]["hooks"] as! [[String: Any]]
         innerHooks[0]["command"] = "adrafinil acquire TAMPERED --tool claude-code"
         startArr[0] = ["hooks": innerHooks]
-        hooks["SessionStart"] = startArr
+        hooks["UserPromptSubmit"] = startArr
         dict["hooks"] = hooks
         let tampered = try JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted])
         try tampered.write(to: URL(fileURLWithPath: settingsPath))

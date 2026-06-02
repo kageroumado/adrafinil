@@ -91,12 +91,23 @@ These support shell-command hooks with a session-start and (mostly) a session-en
 
 | Tool | Config path | Start event | End event |
 |------|-------------|-------------|-----------|
-| Claude Code | `~/.claude/settings.json` | `SessionStart` | `SessionEnd` |
+| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit` | `Stop` |
 | Codex | `~/.codex/hooks.json` | `SessionStart` | — (process-exit; `Stop` is per-turn, see §3.5) |
 | Cursor | `~/.cursor/hooks.json` | `sessionStart` | `sessionEnd` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
 
 Claude Code, Codex, and Gemini CLI share a nested JSON shape (`{"hooks": {event: [{"hooks": [{type, command}]}]}}`); Cursor uses a flatter shape (`{"command": …}` entries directly). Only Claude Code also exposes a real session-id env var; the others deliver the id only on stdin.
+
+**Claude Code holds are activity-scoped** (others are still session-scoped). It acquires on
+`UserPromptSubmit` (a turn begins) and releases on `Stop` (the agent finishes responding,
+`reason: 'completed'` in the query loop), so an open-but-idle session at the prompt holds nothing
+and the Mac can sleep — only an actively-working turn keeps it awake. The two turn boundaries that
+don't end in a clean `Stop` — an Esc-interrupt (the abort short-circuits the Stop hook) and walking
+away mid permission-prompt — fall through to the CPU-idle sweep (§4) and process-exit watcher
+(§3.4), so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
+entries (the shape's `obsoleteEvents`) so a stale `SessionStart` → acquire can't re-pin the whole
+session. Codex/Cursor/Gemini per-turn event names aren't device-verified yet, so they stay
+session-scoped with the CPU-idle sweep as their idle backstop.
 
 ### 3.3 Tier-2 agents (partial / non-trivial integration)
 
@@ -123,7 +134,7 @@ Verified against Codex 0.135.0 on a real device:
 
 ### 3.6 Subagent and resume semantics
 
-`SessionStart` fires on resume and clear; subagents fire their own start/end. Reference counting handles both: each acquire is keyed by `(tool, session_key)`, release with the same key is idempotent, duplicate acquires are no-ops, and releases for unknown keys are warnings, not errors.
+For Claude Code, every turn re-fires `UserPromptSubmit` → acquire and `Stop` → release on the *same* session key, so a multi-turn session cycles acquire→release→acquire harmlessly; subagents run inside a turn (their `SubagentStop` is not wired). For the session-scoped agents, `SessionStart` fires on resume and clear, and subagents fire their own start/end. Reference counting handles all of it: each acquire is keyed by `(tool, session_key)`, release with the same key is idempotent, a re-acquire of a live key just refreshes its activity timestamp, and releases for unknown keys are warnings, not errors.
 
 ---
 
