@@ -1,0 +1,91 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.12000,0.06500,0.02600,1.00000",
+      "display-p3:0.02600,0.01300,0.00600,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.85
+      }
+    }
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "c_pin.svg",
+          "name" : "pin"
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Pin",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.87
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    },
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "image-name" : "c_arms.svg",
+          "name" : "arms"
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Arms",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.45
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.14
+      }
+    },
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "image-name" : "c_bloom.svg",
+          "name" : "bloom"
+        },
+        {
+          "image-name" : "c_core.svg",
+          "name" : "core"
+        }
+      ],
+      "name" : "Glow",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.16
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

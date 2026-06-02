@@ -54,3 +54,6 @@ fastlane/test_output
 *.tmp
 .env
 .env.local
+
+## Claude Code
+.claude/
