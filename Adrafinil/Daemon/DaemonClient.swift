@@ -224,8 +224,14 @@ final class DaemonClient {
 
 /// The app's `AppXPCProtocol` callback object: receives status pushes from the daemon and forwards
 /// them to a Sendable handler. NSXPC invokes `statusChanged` on its own private queue.
+///
+/// `statusChanged` **must** be `nonisolated`: under the app's MainActor-by-default isolation it
+/// would otherwise be implicitly `@MainActor`, and NSXPC calling an `@objc` MainActor method from
+/// its private (non-main) queue trips the Swift runtime's executor-isolation assertion
+/// (`swift_task_checkIsolated` → `EXC_BREAKPOINT`). It only forwards to a `@Sendable` closure, so
+/// running off-main is safe; the closure hops to the main actor as needed.
 private final class AppStatusCallback: NSObject, AppXPCProtocol, @unchecked Sendable {
     private let onStatus: @Sendable (Data) -> Void
     init(onStatus: @escaping @Sendable (Data) -> Void) { self.onStatus = onStatus }
-    func statusChanged(_ encodedStatus: Data) { onStatus(encodedStatus) }
+    nonisolated func statusChanged(_ encodedStatus: Data) { onStatus(encodedStatus) }
 }
