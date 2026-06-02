@@ -48,4 +48,33 @@ struct ProcessResolverTests {
         #expect(!procs.isEmpty)
         #expect(procs.contains { $0.pid == getpid() })
     }
+
+    // MARK: - gatewayPID
+
+    @Test func gatewayPIDMissingFileIsNegative() {
+        #expect(ProcessResolver.gatewayPID(pidFilePath: "/no/such/gateway.pid") == -1)
+    }
+
+    @Test func gatewayPIDParsesLiveJSONPid() throws {
+        // Hermes writes {"pid": N, "kind": "hermes-gateway", …}. Our own pid is guaranteed alive.
+        let file = NSTemporaryDirectory() + "gw-\(getpid())-json.pid"
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        try #"{"pid": \#(getpid()), "kind": "hermes-gateway"}"#.write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(ProcessResolver.gatewayPID(pidFilePath: file) == getpid())
+    }
+
+    @Test func gatewayPIDParsesLiveBareIntPid() throws {
+        let file = NSTemporaryDirectory() + "gw-\(getpid())-bare.pid"
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        try "\(getpid())\n".write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(ProcessResolver.gatewayPID(pidFilePath: file) == getpid())
+    }
+
+    @Test func gatewayPIDRejectsDeadPid() throws {
+        // A stale pid-file pointing at a long-dead PID must resolve to -1, not a recycled process.
+        let file = NSTemporaryDirectory() + "gw-stale.pid"
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        try #"{"pid": 2147483600}"#.write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(ProcessResolver.gatewayPID(pidFilePath: file) == -1)
+    }
 }

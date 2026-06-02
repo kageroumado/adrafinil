@@ -5,10 +5,19 @@ import Foundation
 ///
 /// Verified against an installed Hermes on a real device: of its three hook systems, shell hooks
 /// are the right fit — declared in `config.yaml`, they run in both CLI and Gateway and pipe a JSON
-/// payload (with `session_id`) to the command's **stdin**, which our CLI already reads.
-/// `on_session_start`/`on_session_end` are valid hook events. The command must be allowlisted
-/// (first-use consent), matched by exact (event, command); without it the hooks are silently skipped.
-/// Its other two hook systems — Python plugins and the gateway-only `HOOK.yaml` — don't fit.
+/// payload to the command's **stdin**. The command must be allowlisted (first-use consent), matched
+/// by exact (event, command); without it the hooks are silently skipped. Its other two hook systems
+/// — Python plugins and the gateway-only `HOOK.yaml` — don't fit.
+///
+/// Hermes is a 24/7 **gateway**: one shared process multiplexes every session, and its session hooks
+/// are asymmetric — `on_session_start` fires once per new conversation (not on continuation) while
+/// `on_session_end` fires at the end of *every* turn. So the naive start→acquire / end→release pair
+/// under-protects multi-turn sessions (only the first turn gets a hold). We instead treat the gateway
+/// as a single activity unit (`AgentKind.isGatewayScoped`): acquire on both `on_session_start` *and*
+/// `pre_gateway_dispatch` (the latter fires once per incoming message, so a turn arriving after the
+/// hold was released is re-protected), coalesced onto a fixed `hermes:gateway` hold carrying the
+/// gateway PID. Release on `on_session_end` is the fast path back to sleep; the daemon's CPU-idle and
+/// dead-process nets on the gateway tree are what actually make a missed/asymmetric end hook safe.
 struct HermesIntegration: AgentIntegration {
     let agent = AgentKind.hermes
 
@@ -30,12 +39,16 @@ struct HermesIntegration: AgentIntegration {
         return "\(cli) \(op) --tool hermes"
     }
 
-    /// The `hooks:` block we manage, bracketed by comment markers for clean removal.
+    /// The `hooks:` block we manage, bracketed by comment markers for clean removal. Acquire is wired
+    /// on both `on_session_start` (new conversation) and `pre_gateway_dispatch` (every incoming
+    /// gateway message), so a multi-turn session stays protected; release on `on_session_end`.
     private func hookBlock(cliPath: String) -> String {
         """
         hooks:
         \(Self.markerStart)
           on_session_start:
+            - command: "\(command("acquire", cliPath: cliPath))"
+          pre_gateway_dispatch:
             - command: "\(command("acquire", cliPath: cliPath))"
           on_session_end:
             - command: "\(command("release", cliPath: cliPath))"
@@ -98,9 +111,9 @@ struct HermesIntegration: AgentIntegration {
         let hasAcquire = text.contains(command("acquire", cliPath: ctx.cliPath))
         let hasRelease = text.contains(command("release", cliPath: ctx.cliPath))
         guard hasAcquire || hasRelease else { return .notInstalled }
-        // Installed iff both commands are present AND both are allowlisted (else the hooks are skipped).
-        let allowed = isAllowlisted(command("acquire", cliPath: ctx.cliPath), event: "on_session_start", ctx)
-                   && isAllowlisted(command("release", cliPath: ctx.cliPath), event: "on_session_end", ctx)
+        // Installed iff the commands are present AND every (event, command) pair is allowlisted
+        // (else that hook is silently skipped).
+        let allowed = approvals(ctx).allSatisfy { isAllowlisted($0.command, event: $0.event, ctx) }
         return (hasAcquire && hasRelease && allowed) ? .installed : .modifiedExternally
     }
 
@@ -108,6 +121,7 @@ struct HermesIntegration: AgentIntegration {
 
     private func approvals(_ ctx: HookContext) -> [(event: String, command: String)] {
         [("on_session_start", command("acquire", cliPath: ctx.cliPath)),
+         ("pre_gateway_dispatch", command("acquire", cliPath: ctx.cliPath)),
          ("on_session_end", command("release", cliPath: ctx.cliPath))]
     }
 

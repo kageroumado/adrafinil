@@ -69,6 +69,27 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         return nil
     }
 
+    /// For an agent that runs as a single long-lived **shared process** (a gateway/daemon)
+    /// multiplexing many logical sessions — rather than one process per session — this is the path,
+    /// relative to the user's home, of the pid-file that process writes. `nil` for the normal
+    /// one-process-per-session agents.
+    ///
+    /// Such agents need different hold bookkeeping: (1) their per-session start/end hooks don't
+    /// bracket process lifetime, so a hold is keyed to a single fixed gateway scope rather than per
+    /// session, and (2) the executable is a generic interpreter (Hermes runs as
+    /// `python -m hermes_cli.main gateway run`), so `ProcessResolver.owningAgentPID`'s parent-walk
+    /// can't identify it — the watched PID is read from this file instead. With a real PID attached,
+    /// the daemon's CPU-idle and dead-process release nets apply to the gateway tree.
+    public var gatewayPIDFileRelativePath: String? {
+        switch self {
+        case .hermes: ".hermes/gateway.pid"
+        default:      nil
+        }
+    }
+
+    /// Whether this agent runs as a shared gateway/daemon process (see `gatewayPIDFileRelativePath`).
+    public var isGatewayScoped: Bool { gatewayPIDFileRelativePath != nil }
+
     /// Integration tier: 1 = full hooks, 2 = partial/wrapper/plugin needed.
     public var tier: Int {
         switch self {

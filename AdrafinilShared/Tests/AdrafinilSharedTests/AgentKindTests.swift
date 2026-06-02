@@ -84,4 +84,12 @@ struct AgentKindTests {
     @Test func forRunningProcessReturnsNilForUnknown() {
         #expect(AgentKind.forRunningProcess(name: "python3", path: "/usr/bin/python3") == nil)
     }
+
+    @Test func onlyHermesIsGatewayScoped() {
+        // Hermes runs as one shared 24/7 gateway process; everything else is one process per session.
+        for k in AgentKind.allCases {
+            #expect(k.isGatewayScoped == (k == .hermes), "\(k) gateway-scoping is wrong")
+        }
+        #expect(AgentKind.hermes.gatewayPIDFileRelativePath == ".hermes/gateway.pid")
+    }
 }

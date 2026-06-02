@@ -61,6 +61,27 @@ public enum ProcessResolver {
         return result
     }
 
+    /// Resolves the live PID of a gateway/daemon-style agent from its pid-file (see
+    /// `AgentKind.gatewayPIDFileRelativePath`). Accepts either a bare integer or a JSON object with a
+    /// `"pid"` field — Hermes writes `{"pid": 1006, "kind": "hermes-gateway", …}`. Returns the PID
+    /// only if it parses *and* the process is currently alive; otherwise `-1` (the caller then asks
+    /// the daemon not to process-watch, exactly as with an unresolved agent). Guarding on liveness
+    /// keeps a stale pid-file (gateway exited without cleaning up) from binding a hold to a dead or,
+    /// worse, recycled PID.
+    public static func gatewayPID(pidFilePath: String) -> pid_t {
+        guard let data = FileManager.default.contents(atPath: pidFilePath) else { return -1 }
+        var pid: pid_t = -1
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let n = obj["pid"] as? Int {
+            pid = pid_t(n)
+        } else if let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let n = Int32(text) {
+            pid = n
+        }
+        guard pid > 0, kill(pid, 0) == 0 || errno == EPERM else { return -1 }
+        return pid
+    }
+
     /// `PROC_PIDPATHINFO_MAXSIZE` (4 * MAXPATHLEN); the macro isn't visible to Swift.
     private static let maxPathSize = 4 * 1024
 

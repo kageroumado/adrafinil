@@ -222,16 +222,19 @@ struct HookInstallerTests {
         // Shell hook lives in config.yaml's hooks: map — NOT a Python plugin.
         let cfg = try String(contentsOfFile: home.path + "/.hermes/config.yaml", encoding: .utf8)
         #expect(cfg.contains("on_session_start"))
+        #expect(cfg.contains("pre_gateway_dispatch"))
         #expect(cfg.contains("on_session_end"))
         #expect(cfg.contains("acquire --tool hermes"))
         #expect(!cfg.contains("HERMES_SESSION_ID"))
         #expect(!cfg.contains("hooks: {}"), "empty hooks map should have been replaced")
 
-        // Both commands must be allowlisted or Hermes skips them.
+        // Every (event, command) pair must be allowlisted or Hermes skips that hook.
         let allow = try Data(contentsOf: URL(fileURLWithPath: home.path + "/.hermes/shell-hooks-allowlist.json"))
         let approvals = try #require((try JSONSerialization.jsonObject(with: allow) as? [String: Any])?["approvals"] as? [[String: Any]])
-        #expect(approvals.count == 2)
+        #expect(approvals.count == 3)
         #expect(approvals.contains { ($0["event"] as? String) == "on_session_start" })
+        #expect(approvals.contains { ($0["event"] as? String) == "pre_gateway_dispatch" })
+        #expect(approvals.contains { ($0["event"] as? String) == "on_session_end" })
 
         #expect(installer.installState(for: .hermes) == .installed)
     }

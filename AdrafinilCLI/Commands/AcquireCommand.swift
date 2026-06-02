@@ -7,30 +7,49 @@ private let cliLog = Logger(subsystem: AdrafinilConstants.appBundleID, category:
 enum AcquireCommand {
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
-        // Prefer the session id from the hook's stdin JSON over the positional arg (which is a
-        // shell env-var expansion in the hook command, fragile across agents). Falls back to the
-        // positional when stdin has none (manual invocation, or an agent that doesn't pipe JSON).
-        guard let key = CLIStdin.sessionID() ?? parser.positional(0) else {
-            FileHandle.standardError.write(Data("acquire: requires <session-key>\n".utf8))
-            exit(2)
-        }
         let tool = parser.option("--tool") ?? "unknown"
         let reason = parser.option("--reason")
         let ttl = parser.option("--ttl").flatMap { Double($0) }
 
-        // Walk up the process tree to find the real agent PID.
-        // getppid() is the shell (/bin/sh) that runs the hook command — it exits as soon as
-        // adrafinil returns, which would cause the daemon to force-release the assertion while
-        // the agent is still working. ProcessResolver walks to the first ancestor whose binary
-        // name matches a known agent. If no agent is found, we pass nil so the daemon skips
-        // process-watching entirely (safer than watching the wrong PID).
-        let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
-        let watchedPID: pid_t? = agentPID == -1 ? nil : agentPID
-        cliLog.notice("acquire \(tool, privacy: .public):\(key, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
+        let fullKey: String
+        let watchedPID: pid_t?
+
+        if let kind = AgentKind(rawValue: tool), let pidRel = kind.gatewayPIDFileRelativePath {
+            // Gateway/daemon-style agent (e.g. Hermes): one shared long-lived process multiplexes
+            // every session, so its per-session start/end hooks don't bracket process lifetime and
+            // the session id is irrelevant. Coalesce all sessions onto a single fixed `<tool>:gateway`
+            // hold and watch the gateway process read from its pid-file — the parent-walk can't find
+            // it (the executable is a generic interpreter). With the gateway PID attached, the daemon's
+            // CPU-idle and dead-process nets release the hold when the whole gateway goes quiet or dies,
+            // which is what makes a missed/asymmetric end hook safe.
+            fullKey = "\(tool):gateway"
+            let pidPath = "\(NSHomeDirectory())/\(pidRel)"
+            let gwPID = ProcessResolver.gatewayPID(pidFilePath: pidPath)
+            watchedPID = gwPID > 0 ? gwPID : nil
+            cliLog.notice("acquire \(tool, privacy: .public) gateway-scoped key=\(fullKey, privacy: .public) — gateway pid=\(gwPID, privacy: .public)\(watchedPID == nil ? " (no live gateway; daemon will not process-watch)" : "", privacy: .public)")
+        } else {
+            // Prefer the session id from the hook's stdin JSON over the positional arg (which is a
+            // shell env-var expansion in the hook command, fragile across agents). Falls back to the
+            // positional when stdin has none (manual invocation, or an agent that doesn't pipe JSON).
+            guard let key = CLIStdin.sessionID() ?? parser.positional(0) else {
+                FileHandle.standardError.write(Data("acquire: requires <session-key>\n".utf8))
+                exit(2)
+            }
+            fullKey = "\(tool):\(key)"
+            // Walk up the process tree to find the real agent PID.
+            // getppid() is the shell (/bin/sh) that runs the hook command — it exits as soon as
+            // adrafinil returns, which would cause the daemon to force-release the assertion while
+            // the agent is still working. ProcessResolver walks to the first ancestor whose binary
+            // name matches a known agent. If no agent is found, we pass nil so the daemon skips
+            // process-watching entirely (safer than watching the wrong PID).
+            let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
+            watchedPID = agentPID == -1 ? nil : agentPID
+            cliLog.notice("acquire \(tool, privacy: .public):\(key, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
+        }
 
         let req = CLIRequest(
             op: .acquire,
-            key: "\(tool):\(key)",
+            key: fullKey,
             tool: tool,
             reason: reason,
             pid: watchedPID,
