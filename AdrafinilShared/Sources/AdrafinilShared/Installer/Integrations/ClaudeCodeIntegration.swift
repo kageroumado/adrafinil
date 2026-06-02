@@ -9,12 +9,13 @@ import Foundation
 /// (`reason: 'completed'` in the query loop). Acquiring/releasing on those means the Mac is only
 /// kept awake while the agent is actually working, and an open-but-idle session lets it sleep.
 ///
-/// An Esc-interrupt is the one turn-end that fires no `Stop` (the abort short-circuits it). Claude
-/// fires a `Notification` of type `idle_prompt` ~60s after the agent goes idle — and the
-/// query-completion timestamp that arms it is recorded in a `finally`, so it arms on interrupt too —
-/// so a third hook, `Notification` matched to `idle_prompt` → release, frees the Mac shortly after an
-/// interrupted turn. The daemon's CPU-idle sweep and process-exit watcher remain as final backstops
-/// (e.g. the terminal closed mid-turn), so no explicit session-end hook is needed.
+/// An Esc-interrupt is the one turn-end that fires no `Stop` (the abort short-circuits it), and Claude
+/// Code has no interrupt hook. The reliable catch is the daemon's CPU-idle sweep — an interrupted
+/// session's process tree drops to ~idle, and the sweep releases it after the idle window. The third
+/// hook here, `Notification` matched to `idle_prompt`, is a *best-effort fast-path*: when Claude does
+/// emit its "waiting for your input" notification it releases sooner, but that notification is gated
+/// by version/focus/notification-channel and often doesn't fire, so it is not relied upon. The
+/// process-exit watcher covers a terminal closed mid-turn. None of these need a session-end hook.
 ///
 /// Claude Code is the only agent that also exposes a real session-id env var to hooks —
 /// `CLAUDE_CODE_SESSION_ID` (verified against 2.1.158; *not* `CLAUDE_SESSION_ID`, which expands

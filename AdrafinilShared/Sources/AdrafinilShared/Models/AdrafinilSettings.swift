@@ -19,7 +19,9 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var lowBatteryThresholdPercent: Int = 20
 
     public var idleReleaseEnabled: Bool = true
-    public var idleReleaseMinutes: Int = 5
+    /// Release a hook/sniffed hold once the agent's process tree has been CPU-idle this long. This is
+    /// what catches an Esc-interrupt (no `Stop` hook fires), so it's tens of seconds, not minutes.
+    public var idleReleaseSeconds: Int = 90
 
     public var processSniffingEnabled: Bool = true
     public var autoAcquireForKnownAgents: Bool = false
@@ -41,10 +43,15 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case soundOnLidClose, soundVolume, chimeName, lockOnLidClose
         case thermalCutoutEnabled, thermalThresholdCelsius
         case lowBatteryCutoutEnabled, lowBatteryThresholdPercent
-        case idleReleaseEnabled, idleReleaseMinutes
+        case idleReleaseEnabled, idleReleaseSeconds
         case processSniffingEnabled, autoAcquireForKnownAgents
         case agentHoldsEnabled, manualHoldMaxHours
         case launchAtLogin, showInMenuBar
+    }
+
+    /// Decode-only key for the retired `idleReleaseMinutes` field, migrated to `idleReleaseSeconds`.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case idleReleaseMinutes
     }
 
     /// Resilient decoding: a missing key falls back to its default rather than throwing.
@@ -63,7 +70,16 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         lowBatteryCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .lowBatteryCutoutEnabled) ?? d.lowBatteryCutoutEnabled
         lowBatteryThresholdPercent = try c.decodeIfPresent(Int.self, forKey: .lowBatteryThresholdPercent) ?? d.lowBatteryThresholdPercent
         idleReleaseEnabled = try c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled) ?? d.idleReleaseEnabled
-        idleReleaseMinutes = try c.decodeIfPresent(Int.self, forKey: .idleReleaseMinutes) ?? d.idleReleaseMinutes
+        // Prefer the seconds field; migrate a legacy `idleReleaseMinutes` (×60) if that's all that's
+        // present; otherwise fall back to the default.
+        if let secs = try c.decodeIfPresent(Int.self, forKey: .idleReleaseSeconds) {
+            idleReleaseSeconds = secs
+        } else if let legacy = try? decoder.container(keyedBy: LegacyCodingKeys.self),
+                  let mins = try? legacy.decodeIfPresent(Int.self, forKey: .idleReleaseMinutes) {
+            idleReleaseSeconds = mins * 60
+        } else {
+            idleReleaseSeconds = d.idleReleaseSeconds
+        }
         processSniffingEnabled = try c.decodeIfPresent(Bool.self, forKey: .processSniffingEnabled) ?? d.processSniffingEnabled
         autoAcquireForKnownAgents = try c.decodeIfPresent(Bool.self, forKey: .autoAcquireForKnownAgents) ?? d.autoAcquireForKnownAgents
         agentHoldsEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentHoldsEnabled) ?? d.agentHoldsEnabled

@@ -11,7 +11,7 @@ struct AdrafinilSettingsTests {
         #expect(s.thermalCutoutEnabled == true)
         #expect(s.thermalThresholdCelsius == 80.0)
         #expect(s.idleReleaseEnabled == true)
-        #expect(s.idleReleaseMinutes == 5)
+        #expect(s.idleReleaseSeconds == 90)
         #expect(s.processSniffingEnabled == true)
         #expect(s.autoAcquireForKnownAgents == false)
         #expect(s.launchAtLogin == true)
@@ -23,7 +23,7 @@ struct AdrafinilSettingsTests {
         original.soundOnLidClose = false
         original.soundVolume = 0.25
         original.thermalThresholdCelsius = 72.5
-        original.idleReleaseMinutes = 15
+        original.idleReleaseSeconds = 120
         original.autoAcquireForKnownAgents = true
         original.chimeName = "doot"
 
@@ -38,7 +38,7 @@ struct AdrafinilSettingsTests {
 
         var settings = AdrafinilSettings()
         settings.thermalThresholdCelsius = 85
-        settings.idleReleaseMinutes = 10
+        settings.idleReleaseSeconds = 120
 
         try settings.save(to: tempURL)
         let loaded = AdrafinilSettings.load(from: tempURL)
@@ -58,12 +58,12 @@ struct AdrafinilSettingsTests {
         let json = Data(#"""
         {"soundOnLidClose": false, "soundVolume": 0.25, "chimeName": "Tink",
          "thermalCutoutEnabled": false, "thermalThresholdCelsius": 72.5,
-         "idleReleaseEnabled": false, "idleReleaseMinutes": 15,
+         "idleReleaseEnabled": false, "idleReleaseSeconds": 150,
          "processSniffingEnabled": false, "autoAcquireForKnownAgents": true,
          "launchAtLogin": false}
         """#.utf8)
         let s = try JSONDecoder().decode(AdrafinilSettings.self, from: json)
-        #expect(s.idleReleaseMinutes == 15)
+        #expect(s.idleReleaseSeconds == 150)
         #expect(s.thermalThresholdCelsius == 72.5)
         #expect(s.launchAtLogin == false)
         #expect(s.chimeName == "Tink")
@@ -77,17 +77,28 @@ struct AdrafinilSettingsTests {
 
     @Test func unknownExtraKeysAreIgnored() throws {
         let s = try JSONDecoder().decode(AdrafinilSettings.self,
-                                         from: Data(#"{"idleReleaseMinutes": 7, "futureSetting": 123}"#.utf8))
-        #expect(s.idleReleaseMinutes == 7)
+                                         from: Data(#"{"idleReleaseSeconds": 70, "futureSetting": 123}"#.utf8))
+        #expect(s.idleReleaseSeconds == 70)
     }
 
     @Test func loadFromDiskMissingNewFieldPreservesUserValues() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
-        try Data(#"{"idleReleaseMinutes": 22, "thermalThresholdCelsius": 90}"#.utf8).write(to: url)
+        try Data(#"{"idleReleaseSeconds": 220, "thermalThresholdCelsius": 90}"#.utf8).write(to: url)
         let loaded = AdrafinilSettings.load(from: url)
-        #expect(loaded.idleReleaseMinutes == 22)
+        #expect(loaded.idleReleaseSeconds == 220)
         #expect(loaded.thermalThresholdCelsius == 90)
         #expect(loaded.showInMenuBar == true)
+    }
+
+    /// A config from a build that only knew `idleReleaseMinutes` migrates to the seconds field (×60).
+    @Test func legacyMinutesMigratesToSeconds() throws {
+        let s = try JSONDecoder().decode(AdrafinilSettings.self,
+                                         from: Data(#"{"idleReleaseMinutes": 3}"#.utf8))
+        #expect(s.idleReleaseSeconds == 180)
+        // An explicit seconds field wins over a stale minutes field if both somehow appear.
+        let both = try JSONDecoder().decode(AdrafinilSettings.self,
+                                            from: Data(#"{"idleReleaseMinutes": 3, "idleReleaseSeconds": 45}"#.utf8))
+        #expect(both.idleReleaseSeconds == 45)
     }
 }

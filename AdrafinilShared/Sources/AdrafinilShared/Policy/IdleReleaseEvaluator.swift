@@ -11,13 +11,22 @@ public final class IdleReleaseEvaluator {
         /// User-tunable CPU-idle policy. When false, only the safety rules (backstop, dead PID,
         /// TTL) apply — those are correctness, not preference, so nothing can pin sleep forever.
         public var enabled: Bool
-        public var idleThresholdMinutes: Int
+        /// Release once the owning process tree has stayed below `cpuRateThreshold` for this long.
+        public var idleThresholdSeconds: TimeInterval
+        /// CPU usage rate (fraction of one core; 0.03 = 3%) below which the process tree counts as
+        /// idle. An interrupted `claude` session idles around 1% (TUI + MCP heartbeats), while real
+        /// work — model streaming, per-token re-render, or a busy tool child — runs far higher, so a
+        /// few-percent line separates the two. Measured against the *tree* so a long tool call (a busy
+        /// build child) keeps it above the line even while the agent process itself waits.
+        public var cpuRateThreshold: Double
         /// Hard backstop: any assertion older than this is released regardless of PID or `enabled`.
         public var maxAssertionAgeHours: Double
 
-        public init(enabled: Bool = true, idleThresholdMinutes: Int = 5, maxAssertionAgeHours: Double = 24) {
+        public init(enabled: Bool = true, idleThresholdSeconds: TimeInterval = 90,
+                    cpuRateThreshold: Double = 0.03, maxAssertionAgeHours: Double = 24) {
             self.enabled = enabled
-            self.idleThresholdMinutes = idleThresholdMinutes
+            self.idleThresholdSeconds = idleThresholdSeconds
+            self.cpuRateThreshold = cpuRateThreshold
             self.maxAssertionAgeHours = maxAssertionAgeHours
         }
     }
@@ -42,8 +51,12 @@ public final class IdleReleaseEvaluator {
         }
     }
 
+    /// Cross-sweep CPU bookkeeping, per PID: the last cumulative CPU reading, when it was sampled
+    /// (to turn two readings into a rate), and the last time the tree was observed *active* (rate at
+    /// or above the threshold). Idle duration is measured from `lastActive`.
     private var lastCpuTime: [pid_t: TimeInterval] = [:]
-    private var lastCpuChange: [pid_t: Date] = [:]
+    private var lastSampleAt: [pid_t: Date] = [:]
+    private var lastActiveAt: [pid_t: Date] = [:]
 
     public init() {}
 
@@ -53,7 +66,9 @@ public final class IdleReleaseEvaluator {
     ///
     /// - Parameters:
     ///   - pidAlive: liveness probe (`kill(pid, 0) == 0 || errno == EPERM` in production).
-    ///   - cpuTime: cumulative user+system CPU seconds for a PID, or nil if unavailable.
+    ///   - cpuTime: cumulative user+system CPU seconds for the PID's whole process *tree*, or nil if
+    ///     unavailable. Tree (not just the agent process) so a long tool call — where the agent waits
+    ///     while a busy child does the work — still reads as active.
     public func evaluate(
         assertions: [Assertion],
         now: Date,
@@ -62,7 +77,6 @@ public final class IdleReleaseEvaluator {
         cpuTime: (pid_t) -> TimeInterval?
     ) -> [Release] {
         var releases: [Release] = []
-        let threshold = TimeInterval(config.idleThresholdMinutes * 60)
         let maxAge = config.maxAssertionAgeHours * 3600
 
         for a in assertions {
@@ -76,26 +90,33 @@ public final class IdleReleaseEvaluator {
                 releases.append(Release(key: a.key, reason: .deadProcess))
                 continue
             }
-            // CPU-idle check (user-tunable policy — only when enabled). Manual holds are exempt: an
-            // explicit `adrafinil hold` for a background job has no user activity to measure and is
+            // CPU-rate idle check (user-tunable policy — only when enabled). Manual holds are exempt:
+            // an explicit `adrafinil hold` for a background job has no user activity to measure and is
             // governed by its TTL instead. Dead-process release (above) still applies to a pid-bound
-            // hold, so it releases the moment the watched job exits. The first observation of a
-            // PID seeds the baseline (and never releases); subsequent sweeps reset the idle clock
-            // when CPU advances and release only once it has been flat past the threshold. Seeding
-            // on first sight is essential — defaulting `prev` to the current reading would make the
-            // change check trivially false forever, collapsing the rule into "release any pid>0
-            // assertion `threshold` after *acquisition*" regardless of activity.
+            // hold, so it releases the moment the watched job exits.
+            //
+            // Two readings make a rate (Δcpu / Δt). The first sighting of a PID only seeds the
+            // baseline (and marks it active, so a freshly-seen process is never released on the same
+            // sweep). On each later sweep we recompute the rate: at or above `cpuRateThreshold` the
+            // tree is working, so we stamp `lastActiveAt`; below it, we release once the tree has been
+            // continuously idle (no active stamp) for `idleThresholdSeconds`. Rate, not absolute
+            // change, because an idle `claude` TUI still burns ~1% CPU — an absolute-delta rule treats
+            // that as "active" forever and never releases.
             if config.enabled, a.origin != .manual, a.pid > 0, let cpu = cpuTime(a.pid) {
-                if let prev = lastCpuTime[a.pid] {
-                    if abs(cpu - prev) > 0.01 {
-                        lastCpuChange[a.pid] = now
-                        lastCpuTime[a.pid] = cpu
-                    } else if now.timeIntervalSince(lastCpuChange[a.pid] ?? a.acquiredAt) > threshold {
+                if let prev = lastCpuTime[a.pid], let prevAt = lastSampleAt[a.pid] {
+                    let dt = now.timeIntervalSince(prevAt)
+                    let rate = dt > 0 ? (cpu - prev) / dt : 0
+                    lastCpuTime[a.pid] = cpu
+                    lastSampleAt[a.pid] = now
+                    if rate >= config.cpuRateThreshold {
+                        lastActiveAt[a.pid] = now
+                    } else if now.timeIntervalSince(lastActiveAt[a.pid] ?? a.acquiredAt) > config.idleThresholdSeconds {
                         releases.append(Release(key: a.key, reason: .cpuIdle))
                     }
                 } else {
                     lastCpuTime[a.pid] = cpu
-                    lastCpuChange[a.pid] = now
+                    lastSampleAt[a.pid] = now
+                    lastActiveAt[a.pid] = now
                 }
             }
             // TTL check.

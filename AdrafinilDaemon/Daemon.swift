@@ -207,7 +207,7 @@ final class Daemon {
 
     func reloadSettings() {
         settings = AdrafinilSettings.load()
-        idleMonitor.idleThresholdMinutes = settings.idleReleaseMinutes
+        idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
         thermalMonitor.thresholdCelsius = settings.thermalThresholdCelsius
         thermalMonitor.enabled = settings.thermalCutoutEnabled
@@ -297,7 +297,7 @@ final class Daemon {
         idleMonitor.assertionSource = { [weak self] in
             await self?.registry.snapshot() ?? []
         }
-        idleMonitor.idleThresholdMinutes = settings.idleReleaseMinutes
+        idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
         idleMonitor.start()
 

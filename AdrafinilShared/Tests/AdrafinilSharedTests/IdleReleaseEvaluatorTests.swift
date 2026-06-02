@@ -22,7 +22,7 @@ struct IdleReleaseEvaluatorTests {
         let out = e.evaluate(
             assertions: [old],
             now: t0,
-            config: .init(enabled: false, idleThresholdMinutes: 5, maxAssertionAgeHours: 24),
+            config: .init(enabled: false, idleThresholdSeconds: 90, maxAssertionAgeHours: 24),
             pidAlive: { _ in true },
             cpuTime: { _ in 1.0 }
         )
@@ -55,35 +55,70 @@ struct IdleReleaseEvaluatorTests {
         #expect(reasons(out) == [.deadProcess])
     }
 
-    // MARK: CPU-idle (the fixed seed-on-first-observation logic)
+    // MARK: CPU-rate idle (idle = tree CPU rate below the threshold, sustained)
 
-    @Test("first sweep seeds and never releases; flat CPU past the threshold then releases")
+    /// Default config: 90s idle window, 3% rate threshold. CPU values are cumulative seconds, so a
+    /// rate is the per-second slope between two samples (30s apart ≈ a real sweep).
+    private func cfg(idle: TimeInterval = 90, rate: Double = 0.03) -> IdleReleaseEvaluator.Config {
+        .init(enabled: true, idleThresholdSeconds: idle, cpuRateThreshold: rate, maxAssertionAgeHours: 1000)
+    }
+
+    @Test("first sweep seeds and never releases; idle tree past the window then releases")
     func cpuIdleReleasesAfterThreshold() {
         let e = IdleReleaseEvaluator()
         let a = assertion(acquiredAt: t0, pid: 100)
-        let cfg = IdleReleaseEvaluator.Config(enabled: true, idleThresholdMinutes: 5, maxAssertionAgeHours: 1000)
 
-        let sweep1 = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        let sweep1 = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
         #expect(sweep1.isEmpty)   // seeded, not released
 
-        let sweep2 = e.evaluate(assertions: [a], now: t0.addingTimeInterval(301), config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        // Flat CPU (rate 0) for >90s → released.
+        let sweep2 = e.evaluate(assertions: [a], now: t0.addingTimeInterval(91), config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
         #expect(reasons(sweep2) == [.cpuIdle])
     }
 
-    @Test("CPU activity resets the idle clock (the regression the bug fix addresses)")
-    func cpuActivityResetsClock() {
+    /// The core of the fix: an idle `claude` TUI still burns ~1% CPU. A slow, steady drift well below
+    /// the 3% rate line must read as idle and release — the old absolute-change rule never did.
+    @Test("slow sub-threshold CPU drift still counts as idle and releases")
+    func slowDriftIsIdle() {
         let e = IdleReleaseEvaluator()
         let a = assertion(acquiredAt: t0, pid: 100)
-        let cfg = IdleReleaseEvaluator.Config(enabled: true, idleThresholdMinutes: 5, maxAssertionAgeHours: 1000)
+        // ~1% rate: +0.3 CPU-seconds every 30s = 0.01/s, well under 0.03.
+        var cpu = 1.0
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in cpu })
+        var out: [IdleReleaseEvaluator.Release] = []
+        for step in 1...4 {                       // 30, 60, 90, 120s
+            cpu += 0.3
+            out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(Double(step) * 30), config: cfg(),
+                             pidAlive: { _ in true }, cpuTime: { _ in cpu })
+        }
+        #expect(reasons(out) == [.cpuIdle])       // by 120s the drift never cleared the rate line
+    }
 
-        _ = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })   // seed @ t0
+    @Test("a busy tree (rate above threshold) stamps activity and is never released")
+    func busyTreeStaysAwake() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100)
+        // +2.0 CPU-seconds every 30s = 0.067/s, above the 3% line (e.g. a busy build child).
+        var cpu = 1.0
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in cpu })
+        for step in 1...10 {                       // 300s of sustained work
+            cpu += 2.0
+            let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(Double(step) * 30), config: cfg(),
+                                 pidAlive: { _ in true }, cpuTime: { _ in cpu })
+            #expect(out.isEmpty)
+        }
+    }
 
-        // Well past acquire+threshold, but CPU advanced → must NOT release (clock resets to now).
-        let active = e.evaluate(assertions: [a], now: t0.addingTimeInterval(400), config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 2.0 })
+    @Test("a burst of activity resets the idle clock")
+    func activityResetsClock() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100)
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })     // seed
+        // Active burst at +30s (rate 0.033) → resets lastActive to t0+30.
+        let active = e.evaluate(assertions: [a], now: t0.addingTimeInterval(30), config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 2.0 })
         #expect(active.isEmpty)
-
-        // Now flat for >threshold since the reset → releases.
-        let idle = e.evaluate(assertions: [a], now: t0.addingTimeInterval(400 + 301), config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 2.0 })
+        // Flat for >90s since the reset → releases.
+        let idle = e.evaluate(assertions: [a], now: t0.addingTimeInterval(30 + 91), config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 2.0 })
         #expect(reasons(idle) == [.cpuIdle])
     }
 
@@ -91,15 +126,15 @@ struct IdleReleaseEvaluatorTests {
     func enabledFalseSuppressesCpuIdleOnly() {
         let e = IdleReleaseEvaluator()
         let a = assertion(acquiredAt: t0, pid: 100)
-        let cfg = IdleReleaseEvaluator.Config(enabled: false, idleThresholdMinutes: 5, maxAssertionAgeHours: 1000)
+        let disabled = IdleReleaseEvaluator.Config(enabled: false, idleThresholdSeconds: 90, maxAssertionAgeHours: 1000)
 
-        // Flat CPU long past threshold, but disabled → no CPU-idle release.
-        _ = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
-        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(10_000), config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        // Flat CPU long past the window, but disabled → no CPU-idle release.
+        _ = e.evaluate(assertions: [a], now: t0, config: disabled, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(10_000), config: disabled, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
         #expect(out.isEmpty)
 
         // Same disabled config, but a dead PID still releases (safety, not preference).
-        let dead = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in false }, cpuTime: { _ in 1.0 })
+        let dead = e.evaluate(assertions: [a], now: t0, config: disabled, pidAlive: { _ in false }, cpuTime: { _ in 1.0 })
         #expect(reasons(dead) == [.deadProcess])
     }
 
@@ -109,11 +144,10 @@ struct IdleReleaseEvaluatorTests {
     func manualHoldExemptFromCpuIdle() {
         let e = IdleReleaseEvaluator()
         let a = assertion(acquiredAt: t0, pid: 100, origin: .manual)
-        let cfg = IdleReleaseEvaluator.Config(enabled: true, idleThresholdMinutes: 5, maxAssertionAgeHours: 1000)
 
-        _ = e.evaluate(assertions: [a], now: t0, config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
-        // Flat CPU well past the threshold — a hook assertion would be CPU-idle released here.
-        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(10_000), config: cfg, pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        // Flat CPU well past the window — a hook assertion would be CPU-idle released here.
+        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(10_000), config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
         #expect(out.isEmpty)
     }
 
@@ -142,7 +176,7 @@ struct IdleReleaseEvaluatorTests {
         let out = e.evaluate(
             assertions: [a],
             now: t0,
-            config: .init(enabled: false, idleThresholdMinutes: 5, maxAssertionAgeHours: 1000),
+            config: .init(enabled: false, idleThresholdSeconds: 90, maxAssertionAgeHours: 1000),
             pidAlive: { _ in true },
             cpuTime: { _ in nil }
         )

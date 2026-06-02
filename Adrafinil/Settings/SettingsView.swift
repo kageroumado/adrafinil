@@ -340,8 +340,8 @@ struct SafetySettingsTab: View {
             Section {
                 Toggle("Stop waiting on agents that go quiet",
                        isOn: $settings.idleReleaseEnabled)
-                Stepper(value: $settings.idleReleaseMinutes, in: 1...60) {
-                    LabeledContent("Consider quiet after", value: "\(settings.idleReleaseMinutes) min")
+                Stepper(value: $settings.idleReleaseSeconds, in: 30...600, step: 30) {
+                    LabeledContent("Consider quiet after", value: "\(settings.idleReleaseSeconds)s")
                 }
                 .disabled(!settings.idleReleaseEnabled)
             } header: {

@@ -102,11 +102,12 @@ Claude Code, Codex, and Gemini CLI share a nested JSON shape (`{"hooks": {event:
 `UserPromptSubmit` (a turn begins) and releases on `Stop` (the agent finishes responding,
 `reason: 'completed'` in the query loop), so an open-but-idle session at the prompt holds nothing
 and the Mac can sleep — only an actively-working turn keeps it awake. An **Esc-interrupt** is the one
-turn-end that fires no `Stop` (the abort short-circuits it); Claude instead fires a `Notification` of
-type `idle_prompt` ~60s after the agent goes idle (the query-completion timestamp that arms it is
-recorded in a `finally`, so it arms on interrupt too), and a `Notification`-matched-`idle_prompt`
-release hook frees the Mac shortly after. The CPU-idle sweep (§4) and process-exit watcher (§3.4)
-remain as final backstops (e.g. the terminal closed mid-turn), so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
+turn-end that fires no `Stop` (the abort short-circuits it), and Claude Code has no interrupt hook.
+The reliable catch is the daemon's **CPU-idle sweep** (§4): an interrupted session's process tree
+drops to ~idle and the sweep releases it after the idle window. The `Notification`-matched-`idle_prompt`
+release hook is a best-effort fast-path (Claude's "waiting for input" notification is gated by
+version/focus/channel and often doesn't fire, so it isn't relied upon). The process-exit watcher
+(§3.4) covers a terminal closed mid-turn, so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
 entries (the shape's `obsoleteEvents`) so a stale `SessionStart` → acquire can't re-pin the whole
 session. Codex/Cursor/Gemini per-turn event names aren't device-verified yet, so they stay
 session-scoped with the CPU-idle sweep as their idle backstop.
@@ -161,7 +162,7 @@ struct Assertion {
 
 ### 4.2 Idle release
 
-A periodic check releases an assertion when: its owning PID is gone; its PID's CPU usage has stayed below threshold for ≥ `idleReleaseMinutes` (default 5, configurable); or its `--ttl` deadline has passed. CPU is sampled with `proc_pidinfo(PROC_PIDTASKINFO)`, comparing accumulated user+system time between ticks. A max-age backstop releases assertions with an unresolved PID and a missed end hook so a leak can't pin sleep forever.
+A periodic check (every 30s) releases an assertion when: its owning PID is gone; its process *tree* has stayed below a CPU-rate threshold (default 3% of a core) for ≥ `idleReleaseSeconds` (default 90, configurable); or its `--ttl` deadline has passed. This is the reliable Esc-interrupt catch. CPU is sampled with `proc_pidinfo(PROC_PIDTASKINFO)` summed over the agent process and all descendants (so a long tool call with a busy child still reads as active), and turned into a *rate* between ticks — an absolute-change rule would never fire, because an idle `claude` TUI still burns ~1% CPU. A max-age backstop releases assertions with an unresolved PID and a missed end hook so a leak can't pin sleep forever.
 
 ### 4.3 Thermal cutout
 
