@@ -97,25 +97,25 @@ struct MenuPopover: View {
         case .awake:
             heroCard(
                 icon: "sun.max.fill", tint: Theme.awake,
-                title: "Staying awake",
+                title: "Keeping your Mac awake",
                 subtitle: awakeSubtitle(s), dimmed: false)
         case .cutout:
             heroCard(
                 icon: cutoutIcon(s), tint: Theme.cutout,
                 title: cutoutTitle(s),
-                subtitle: "Sleep is back to normal", dimmed: false)
+                subtitle: "Your Mac can sleep again", dimmed: false)
         case .idle:
             heroCard(
                 icon: "moon.zzz.fill", tint: .secondary,
                 title: "Sleeping normally",
                 subtitle: device.hasLid
-                    ? "No agents active — close the lid and it sleeps"
-                    : "No agents active — it sleeps when idle", dimmed: true)
+                    ? "No agents active — close the lid and your Mac sleeps"
+                    : "No agents active — your Mac sleeps when idle", dimmed: true)
         case .paused:
             heroCard(
-                icon: "pause.circle.fill", tint: .secondary,
+                icon: "moon.fill", tint: .secondary,
                 title: "Paused",
-                subtitle: "Agents won't keep your Mac awake until you resume", dimmed: false)
+                subtitle: "Agents can't keep your Mac awake until you resume", dimmed: false)
         }
     }
 
@@ -127,7 +127,7 @@ struct MenuPopover: View {
         var parts: [String] = []
         if agents > 0 { parts.append("\(agents) \(agents == 1 ? "agent" : "agents") working") }
         if holds > 0 { parts.append("\(holds) \(holds == 1 ? "hold" : "holds")") }
-        return parts.isEmpty ? "Keeping your Mac awake" : parts.joined(separator: " · ")
+        return parts.isEmpty ? "Your Mac will stay awake" : parts.joined(separator: " · ")
     }
 
     private func heroCard(icon: String, tint: Color, title: String, subtitle: String, dimmed: Bool) -> some View {
@@ -145,8 +145,14 @@ struct MenuPopover: View {
                 // states instead of jumping.
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(2, reservesSpace: true)
+                    // Accept the proposed (bounded) width and grow vertically to fit, so a long
+                    // subtitle wraps into its reserved second line instead of being measured at its
+                    // single-line ideal width and truncated ("…until you…").
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            // Claim all remaining width so the subtitle has the full card width to wrap into rather
+            // than competing with a trailing Spacer for horizontal space.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(Theme.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -189,14 +195,14 @@ struct MenuPopover: View {
     // MARK: - Primary action (pause / resume)
 
     /// Shown directly under the hero so the action reads as part of it. When awake it pauses
-    /// Adrafinil ("Let it sleep"); when paused it resumes ("Resume"). Pausing releases every
-    /// hold and ignores agents until resumed.
+    /// Adrafinil ("Let your Mac sleep"); when paused it resumes ("Keep your Mac awake"). Pausing
+    /// releases every hold and ignores agents until resumed.
     private func pauseToggleButton(state: HeroState) -> some View {
         let pausing = state == .awake
         return Button {
             Task { await status.setPaused(pausing) }
         } label: {
-            Label(pausing ? "Let it sleep" : "Resume",
+            Label(pausing ? "Let your Mac sleep" : "Keep your Mac awake",
                   systemImage: pausing ? "moon.fill" : "sun.max.fill")
                 .frame(maxWidth: .infinity)
                 .foregroundStyle(Theme.onAwake)
