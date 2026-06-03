@@ -138,6 +138,54 @@ struct IdleReleaseEvaluatorTests {
         #expect(reasons(dead) == [.deadProcess])
     }
 
+    // MARK: Wake-assertion signal (the thinking-gap fix)
+
+    @Test("an idle tree that still holds a wake assertion is NOT released (thinking)")
+    func wakeAssertionKeepsIdleTreeAlive() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100)
+        // Flat CPU (a thinking agent: server-side compute, near-idle client) but the tree holds a
+        // wake assertion (its caffeinate child) the whole time → must never release.
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true },
+                       cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in true })
+        for step in 1...8 {                        // 240s of idle CPU but asserting
+            let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(Double(step) * 30), config: cfg(),
+                                 pidAlive: { _ in true }, cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in true })
+            #expect(out.isEmpty)
+        }
+    }
+
+    @Test("once the wake assertion drops, an idle tree releases after the window")
+    func releasesAfterWakeAssertionDrops() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100)
+        // Asserting + idle CPU for a while → held.
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true },
+                       cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in true })
+        let held = e.evaluate(assertions: [a], now: t0.addingTimeInterval(120), config: cfg(), pidAlive: { _ in true },
+                              cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in true })
+        #expect(held.isEmpty)
+        // Turn ends / interrupt → caffeinate gone (no assertion), CPU still idle. The idle clock
+        // restarts from the last active stamp (t0+120); >90s later → released.
+        _ = e.evaluate(assertions: [a], now: t0.addingTimeInterval(150), config: cfg(), pidAlive: { _ in true },
+                       cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in false })
+        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(120 + 91), config: cfg(), pidAlive: { _ in true },
+                             cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in false })
+        #expect(reasons(out) == [.cpuIdle])
+    }
+
+    @Test("a manual hold ignores the wake-assertion signal (TTL still governs)")
+    func manualHoldIgnoresWakeAssertion() {
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, pid: 100, origin: .manual)
+        // Manual holds skip the whole CPU/assertion branch — asserting or not, only TTL/dead-pid apply.
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true },
+                       cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in true })
+        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(10_000), config: cfg(), pidAlive: { _ in true },
+                             cpuTime: { _ in 1.0 }, treeHoldsWakeAssertion: { _ in true })
+        #expect(out.isEmpty)
+    }
+
     // MARK: Manual-hold idle exemption
 
     @Test("a manual hold is exempt from CPU-idle release")

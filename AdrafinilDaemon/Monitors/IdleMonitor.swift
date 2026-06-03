@@ -25,6 +25,10 @@ final class IdleMonitor {
 
     private var timer: Timer?
 
+    /// Process parent→children map captured once at the start of each sweep and read by the tree
+    /// walks (`cpuTimeTree`, `treeContains`). Sweep-scoped: rebuilt every sweep, never read between.
+    private var sweepChildMap: [pid_t: [pid_t]] = [:]
+
     /// The release decision (backstop / dead-PID / CPU-idle / TTL) lives in AdrafinilShared, where
     /// it is unit-tested with simulated process probes. The evaluator holds the cross-sweep CPU
     /// bookkeeping; this monitor supplies the real `kill`/`proc_pidinfo` probes and the timer.
@@ -45,12 +49,19 @@ final class IdleMonitor {
             idleThresholdSeconds: idleThresholdSeconds,
             maxAssertionAgeHours: maxAssertionAgeHours
         )
+        // One process-table snapshot per sweep, shared by every tree walk below (CPU sum + wake
+        // assertion). Built from KERN_PROC_ALL because proc_listchildpids is unreliable here.
+        sweepChildMap = ProcessResolver.childMap()
+        // One system-wide read per sweep: the PIDs currently asserting "keep the system awake".
+        // Scoped per-assertion to the owning agent's tree below (a global check would always be true).
+        let wakePIDs = PowerAssertionReader.pidsPreventingSystemSleep()
         let releases = evaluator.evaluate(
             assertions: assertions,
             now: Date(),
             config: config,
             pidAlive: { self.pidExists($0) },
-            cpuTime: { self.cpuTimeTree(rootPID: $0) }
+            cpuTime: { self.cpuTimeTree(rootPID: $0) },
+            treeHoldsWakeAssertion: { self.treeContains(rootPID: $0, anyOf: wakePIDs) }
         )
         guard !releases.isEmpty else { return }
 
@@ -84,17 +95,29 @@ final class IdleMonitor {
         return total
     }
 
-    private func childPIDs(of pid: pid_t) -> [pid_t] {
-        let needed = proc_listchildpids(pid, nil, 0)
-        guard needed > 0 else { return [] }
-        // Over-allocate: children can spawn between the sizing call and the read.
-        var buf = [pid_t](repeating: 0, count: Int(needed) + 16)
-        let bytes = buf.withUnsafeMutableBytes {
-            proc_listchildpids(pid, $0.baseAddress, Int32($0.count))
+    /// Whether `rootPID` or any descendant is in `pids`. Walks the same tree as the CPU sum, so a wake
+    /// assertion held by a *child* counts for the agent — Claude Code's `caffeinate` is a child of
+    /// `claude`, not `claude` itself. Short-circuits to false when nothing is asserting (the common
+    /// case), avoiding the process walk entirely.
+    private func treeContains(rootPID: pid_t, anyOf pids: Set<pid_t>) -> Bool {
+        guard !pids.isEmpty else { return false }
+        if pids.contains(rootPID) { return true }
+        var seen: Set<pid_t> = [rootPID]
+        var stack = childPIDs(of: rootPID)
+        while let pid = stack.popLast() {
+            guard !seen.contains(pid) else { continue }
+            seen.insert(pid)
+            if pids.contains(pid) { return true }
+            stack.append(contentsOf: childPIDs(of: pid))
         }
-        guard bytes > 0 else { return [] }
-        let count = Int(bytes) / MemoryLayout<pid_t>.size
-        return Array(buf.prefix(count)).filter { $0 > 0 }
+        return false
+    }
+
+    /// Direct children of `pid` from this sweep's `KERN_PROC_ALL` snapshot. (Was `proc_listchildpids`,
+    /// which returns garbage counts on current macOS — the bug that left the tree walk seeing no
+    /// children, so a busy child's CPU and a child's wake assertion both went unnoticed.)
+    private func childPIDs(of pid: pid_t) -> [pid_t] {
+        sweepChildMap[pid] ?? []
     }
 
     private func cpuTime(pid: pid_t) -> TimeInterval? {

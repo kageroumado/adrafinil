@@ -69,12 +69,18 @@ public final class IdleReleaseEvaluator {
     ///   - cpuTime: cumulative user+system CPU seconds for the PID's whole process *tree*, or nil if
     ///     unavailable. Tree (not just the agent process) so a long tool call — where the agent waits
     ///     while a busy child does the work — still reads as active.
+    ///   - treeHoldsWakeAssertion: whether the PID's process tree currently holds a system-sleep
+    ///     assertion (e.g. Claude Code's `caffeinate` child). When true the tree counts as active even
+    ///     with idle CPU — this is what keeps a hold alive through server-side *thinking*, where the
+    ///     local process is near-idle but the agent has declared it's working. Defaults to always-false
+    ///     so callers that don't probe assertions (and the unit tests) keep the pure CPU-rate behavior.
     public func evaluate(
         assertions: [Assertion],
         now: Date,
         config: Config,
         pidAlive: (pid_t) -> Bool,
-        cpuTime: (pid_t) -> TimeInterval?
+        cpuTime: (pid_t) -> TimeInterval?,
+        treeHoldsWakeAssertion: (pid_t) -> Bool = { _ in false }
     ) -> [Release] {
         var releases: [Release] = []
         let maxAge = config.maxAssertionAgeHours * 3600
@@ -108,7 +114,11 @@ public final class IdleReleaseEvaluator {
                     let rate = dt > 0 ? (cpu - prev) / dt : 0
                     lastCpuTime[a.pid] = cpu
                     lastSampleAt[a.pid] = now
-                    if rate >= config.cpuRateThreshold {
+                    // Active if the tree is burning CPU OR it still holds a wake assertion. The
+                    // assertion is the authoritative "I'm working" signal an agent declares (Claude
+                    // Code's `caffeinate` during server-side thinking, when local CPU is near-idle);
+                    // CPU rate covers agents that don't self-assert. Either keeps the hold alive.
+                    if rate >= config.cpuRateThreshold || treeHoldsWakeAssertion(a.pid) {
                         lastActiveAt[a.pid] = now
                     } else if now.timeIntervalSince(lastActiveAt[a.pid] ?? a.acquiredAt) > config.idleThresholdSeconds {
                         releases.append(Release(key: a.key, reason: .cpuIdle))

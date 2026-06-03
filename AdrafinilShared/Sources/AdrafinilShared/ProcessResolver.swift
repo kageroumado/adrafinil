@@ -100,6 +100,29 @@ public enum ProcessResolver {
         return (p as NSString).lastPathComponent
     }
 
+    /// Maps each parent PID to its direct child PIDs, from a single `KERN_PROC_ALL` kernel snapshot —
+    /// the same source `ps`/`pgrep -P` use. Process-tree walks build on this because
+    /// `proc_listchildpids` is unreliable on current macOS (verified on 26.5: returns truncated/garbage
+    /// byte counts, so children are missed). Best-effort: a process spawned between the size and fetch
+    /// calls may be absent until the next snapshot — fine for a periodic sweep.
+    public static func childMap() -> [pid_t: [pid_t]] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [:] }
+        // Slack: KERN_PROC_ALL is racy, so allow for processes appearing after the size probe.
+        size += size / 8 + MemoryLayout<kinfo_proc>.stride * 32
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride)
+        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [:] }
+        let count = min(size / MemoryLayout<kinfo_proc>.stride, procs.count)
+        var map: [pid_t: [pid_t]] = [:]
+        for i in 0..<count {
+            let pid = procs[i].kp_proc.p_pid
+            let ppid = procs[i].kp_eproc.e_ppid
+            if pid > 0 { map[ppid, default: []].append(pid) }
+        }
+        return map
+    }
+
     /// Parent PID via `sysctl(KERN_PROC_PID)`. Returns `-1` on failure.
     public static func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
