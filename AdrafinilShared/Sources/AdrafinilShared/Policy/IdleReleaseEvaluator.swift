@@ -7,6 +7,12 @@ import Foundation
 /// closures, so the whole policy — including the safety backstop and the `enabled` gating — is
 /// testable without live processes or wall-clock waits.
 public final class IdleReleaseEvaluator {
+    /// CPU usage rate (fraction of one core) below which a process tree counts as idle. Shared by the
+    /// idle-release policy (below) and the sniffer's acquire gate (`ProcessActivityGate`), so a tree
+    /// is acquired and released on the same line. An interrupted `claude` TUI idles ~1%; real work
+    /// (model streaming, a busy tool child) runs far higher, so 3% cleanly separates the two.
+    public static let defaultCPURateThreshold = 0.03
+
     public struct Config: Equatable, Sendable {
         /// User-tunable CPU-idle policy. When false, only the safety rules (backstop, dead PID,
         /// TTL) apply — those are correctness, not preference, so nothing can pin sleep forever.
@@ -23,7 +29,8 @@ public final class IdleReleaseEvaluator {
         public var maxAssertionAgeHours: Double
 
         public init(enabled: Bool = true, idleThresholdSeconds: TimeInterval = 90,
-                    cpuRateThreshold: Double = 0.03, maxAssertionAgeHours: Double = 24) {
+                    cpuRateThreshold: Double = IdleReleaseEvaluator.defaultCPURateThreshold,
+                    maxAssertionAgeHours: Double = 24) {
             self.enabled = enabled
             self.idleThresholdSeconds = idleThresholdSeconds
             self.cpuRateThreshold = cpuRateThreshold

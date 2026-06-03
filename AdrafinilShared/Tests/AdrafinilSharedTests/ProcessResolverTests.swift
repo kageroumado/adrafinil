@@ -49,6 +49,61 @@ struct ProcessResolverTests {
         #expect(procs.contains { $0.pid == getpid() })
     }
 
+    @Test func argumentsOfSelfIncludesExecutableArg() {
+        // KERN_PROCARGS2 for our own process must parse to a non-empty argv whose first element is
+        // the test runner's path (the program name), proving the exec-path/padding skip is correct.
+        let argv = ProcessResolver.arguments(of: getpid())
+        let unwrapped = try! #require(argv)
+        #expect(!unwrapped.isEmpty)
+        #expect(unwrapped[0].contains("/") || !unwrapped[0].isEmpty)
+    }
+
+    @Test func argumentsOfInvalidPidIsNil() {
+        #expect(ProcessResolver.arguments(of: -1) == nil)
+    }
+
+    @Test func cpuTimeOfSelfIsNonNegative() {
+        let t = try! #require(ProcessResolver.cpuTime(of: getpid()))
+        #expect(t >= 0)
+    }
+
+    @Test func cpuTimeOfInvalidPidIsNil() {
+        #expect(ProcessResolver.cpuTime(of: -1) == nil)
+    }
+
+    @Test func cpuTimeTracksWallClockUnderLoad() {
+        // Regression guard for the mach-timebase conversion: `pti_total_*` are mach ticks, not
+        // nanoseconds, so a naïve /1e9 under-reports CPU by ~41.7× on Apple Silicon (a pinned core
+        // reads ~2.4%). Busy-spin ~300ms of wall time on this thread and require the measured CPU
+        // delta to be at least 150ms — comfortably impossible under the bug (~7ms), comfortably true
+        // once the timebase is applied.
+        let me = getpid()
+        let before = try! #require(ProcessResolver.cpuTime(of: me))
+        let deadline = Date().addingTimeInterval(0.3)
+        var spin = 0
+        while Date() < deadline { spin &+= 1 }
+        #expect(spin > 0)  // keep the loop from being optimized away
+        let after = try! #require(ProcessResolver.cpuTime(of: me))
+        #expect(after - before >= 0.15, "cpuTime advanced only \(after - before)s over ~0.3s of busy CPU")
+    }
+
+    @Test func treeCPUTimeSumsRootAndChildrenFromMap() {
+        // Synthetic map: self → [childA → [grandchild], childB]. cpuTime is unreadable for the fake
+        // PIDs, so they contribute 0, but the walk must terminate (no infinite loop on cycles) and
+        // return at least the root's own CPU.
+        let me = getpid()
+        let map: [pid_t: [pid_t]] = [me: [990001, 990002], 990001: [990003], 990003: [me]]
+        // Walk must terminate despite the me→…→me cycle and return the root's (positive) CPU; the
+        // fake descendant PIDs are unreadable, so they contribute 0. (A direct == on two independent
+        // cpuTime samples would be racy — the process accrues CPU between reads.)
+        let total = try! #require(ProcessResolver.treeCPUTime(rootPID: me, childMap: map))
+        #expect(total > 0)
+    }
+
+    @Test func treeCPUTimeNilWhenRootUnreadable() {
+        #expect(ProcessResolver.treeCPUTime(rootPID: -1, childMap: [:]) == nil)
+    }
+
     // MARK: - gatewayPID
 
     @Test func gatewayPIDMissingFileIsNegative() {

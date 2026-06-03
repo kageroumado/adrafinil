@@ -78,21 +78,11 @@ final class IdleMonitor {
         return kill(pid, 0) == 0 || errno == EPERM
     }
 
-    /// Cumulative CPU seconds for `rootPID` plus every descendant. Summing the tree (not just the
-    /// agent process) is what keeps a long tool call — where `claude` waits while a busy child does
-    /// the work — reading as active. Returns nil only if the root itself can't be read (gone).
+    /// Cumulative CPU seconds for `rootPID` plus every descendant, over this sweep's process snapshot.
+    /// Delegates to `ProcessResolver.treeCPUTime` so the sniffer's activity gate and this idle check
+    /// sum the tree identically.
     private func cpuTimeTree(rootPID: pid_t) -> TimeInterval? {
-        guard let rootCPU = cpuTime(pid: rootPID) else { return nil }
-        var total = rootCPU
-        var seen: Set<pid_t> = [rootPID]
-        var stack = childPIDs(of: rootPID)
-        while let pid = stack.popLast() {
-            guard !seen.contains(pid) else { continue }
-            seen.insert(pid)
-            if let t = cpuTime(pid: pid) { total += t }
-            stack.append(contentsOf: childPIDs(of: pid))
-        }
-        return total
+        ProcessResolver.treeCPUTime(rootPID: rootPID, childMap: sweepChildMap)
     }
 
     /// Whether `rootPID` or any descendant is in `pids`. Walks the same tree as the CPU sum, so a wake
@@ -118,15 +108,5 @@ final class IdleMonitor {
     /// children, so a busy child's CPU and a child's wake assertion both went unnoticed.)
     private func childPIDs(of pid: pid_t) -> [pid_t] {
         sweepChildMap[pid] ?? []
-    }
-
-    private func cpuTime(pid: pid_t) -> TimeInterval? {
-        var info = proc_taskinfo()
-        let size = Int32(MemoryLayout<proc_taskinfo>.size)
-        let result = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size)
-        guard result == size else { return nil }
-        let user = TimeInterval(info.pti_total_user) / 1_000_000_000
-        let sys = TimeInterval(info.pti_total_system) / 1_000_000_000
-        return user + sys
     }
 }

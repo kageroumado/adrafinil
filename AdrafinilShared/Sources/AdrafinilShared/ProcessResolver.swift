@@ -151,6 +151,85 @@ public enum ProcessResolver {
         return map
     }
 
+    /// The argument vector of a process via `sysctl(KERN_PROCARGS2)`, or nil if it can't be read
+    /// (permission, or the process exited). This is how interpreter-hosted agents are identified: a
+    /// Hermes backend runs as a generic `python -m hermes_cli.main gateway run`, so its *executable*
+    /// path is `python` — only the argv reveals what it is.
+    ///
+    /// `KERN_PROCARGS2` returns a packed blob: a leading `int argc`, the NUL-terminated executable
+    /// path, alignment padding NULs, then `argc` NUL-terminated argument strings, then the
+    /// environment. We parse out exactly the `argc` argv strings (stopping before the environment, so
+    /// an env var that happens to contain a marker can't cause a false match).
+    public static func arguments(of pid: pid_t) -> [String]? {
+        var argmaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+        var argmax: Int32 = 0
+        var argmaxSize = MemoryLayout<Int32>.size
+        guard sysctl(&argmaxMib, 2, &argmax, &argmaxSize, nil, 0) == 0, argmax > 0 else { return nil }
+
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = Int(argmax)
+        var buf = [UInt8](repeating: 0, count: size)
+        let rc = buf.withUnsafeMutableBufferPointer { sysctl(&mib, 3, $0.baseAddress, &size, nil, 0) }
+        guard rc == 0, size > MemoryLayout<Int32>.size else { return nil }
+
+        let argc = buf.withUnsafeBytes { $0.load(as: Int32.self) }
+        guard argc > 0 else { return nil }
+
+        var i = MemoryLayout<Int32>.size
+        // Skip the executable path and the alignment NULs that follow it.
+        while i < size && buf[i] != 0 { i += 1 }
+        while i < size && buf[i] == 0 { i += 1 }
+
+        var args: [String] = []
+        args.reserveCapacity(Int(argc))
+        var tokenStart = i
+        while i < size && args.count < Int(argc) {
+            if buf[i] == 0 {
+                args.append(String(decoding: buf[tokenStart..<i], as: UTF8.self))
+                tokenStart = i + 1
+            }
+            i += 1
+        }
+        return args.isEmpty ? nil : args
+    }
+
+    /// Cumulative user+system CPU seconds for a single PID, or nil if it can't be read (gone).
+    public static func cpuTime(of pid: pid_t) -> TimeInterval? {
+        var info = proc_taskinfo()
+        let size = Int32(MemoryLayout<proc_taskinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size else { return nil }
+        return TimeInterval(info.pti_total_user + info.pti_total_system) * machTickSeconds
+    }
+
+    /// Seconds per unit of `proc_taskinfo`'s `pti_total_user`/`pti_total_system`. Those fields are in
+    /// **mach absolute-time ticks**, not nanoseconds — on Apple Silicon one tick is ~41.7 ns (a 24 MHz
+    /// timebase), so a naïve `/1e9` under-reports CPU by ~41.7×, dragging a pinned core down to ~2.4%
+    /// and below any sane idle threshold. Convert through `mach_timebase_info`: on Intel numer==denom==1
+    /// (this collapses to the 1e-9 the old code assumed); on arm64 numer/denom ≈ 125/3 supplies the
+    /// real scale. Cached: the timebase is fixed for the life of the process.
+    private static let machTickSeconds: Double = {
+        var tb = mach_timebase_info_data_t()
+        guard mach_timebase_info(&tb) == KERN_SUCCESS, tb.numer != 0, tb.denom != 0 else { return 1e-9 }
+        return Double(tb.numer) / Double(tb.denom) / 1_000_000_000
+    }()
+
+    /// Cumulative CPU seconds for `rootPID` plus every descendant, walking `childMap` (a single
+    /// `KERN_PROC_ALL` snapshot from `childMap()`). Summing the tree — not just the root — is what
+    /// keeps a long tool call active in the reading: the agent process waits while a busy child does
+    /// the work. Returns nil only if the root itself is unreadable (gone).
+    public static func treeCPUTime(rootPID: pid_t, childMap: [pid_t: [pid_t]]) -> TimeInterval? {
+        guard let rootCPU = cpuTime(of: rootPID) else { return nil }
+        var total = rootCPU
+        var seen: Set<pid_t> = [rootPID]
+        var stack = childMap[rootPID] ?? []
+        while let pid = stack.popLast() {
+            guard seen.insert(pid).inserted else { continue }
+            if let t = cpuTime(of: pid) { total += t }
+            stack.append(contentsOf: childMap[pid] ?? [])
+        }
+        return total
+    }
+
     /// Parent PID via `sysctl(KERN_PROC_PID)`. Returns `-1` on failure.
     public static func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
