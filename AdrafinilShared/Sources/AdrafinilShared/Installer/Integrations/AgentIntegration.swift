@@ -8,7 +8,9 @@ struct HookContext {
     let homeRoot: String
 
     /// The CLI path, shell-quoted if it contains spaces (it lives inside the `.app` bundle).
-    var quotedCLI: String { cliPath.contains(" ") ? "\"\(cliPath)\"" : cliPath }
+    var quotedCLI: String {
+        cliPath.contains(" ") ? "\"\(cliPath)\"" : cliPath
+    }
 
     /// Builds an `acquire`/`release` hook command. When `sessionVar` is nil the positional session
     /// key is omitted and the CLI sources the session id from the hook's stdin (`session_id`).
@@ -61,7 +63,9 @@ protocol AgentIntegration {
 
 extension AgentIntegration {
     /// Default: no MCP support. Agents override this once their config format is device-verified.
-    func mcpShape(_ ctx: HookContext) -> MCPServerShape? { nil }
+    func mcpShape(_: HookContext) -> MCPServerShape? {
+        nil
+    }
 }
 
 /// The registry mapping every `AgentKind` to its integration. This single exhaustive switch is the
@@ -70,15 +74,14 @@ enum AgentIntegrations {
     static func integration(for agent: AgentKind) -> AgentIntegration {
         switch agent {
         case .claudeCode: ClaudeCodeIntegration()
-        case .codex:      CodexIntegration()
-        case .cursor:     CursorIntegration()
-        case .geminiCLI:  GeminiCLIIntegration()
-        case .crush:      CrushIntegration()
-        case .aider:      AiderIntegration()
-        case .cline:      ClineIntegration()
-        case .hermes:     HermesIntegration()
-        case .openCode:   OpenCodeIntegration()
-        case .pi:         PiIntegration()
+        case .codex: CodexIntegration()
+        case .cursor: CursorIntegration()
+        case .geminiCLI: GeminiCLIIntegration()
+        case .aider: AiderIntegration()
+        case .cline: ClineIntegration()
+        case .hermes: HermesIntegration()
+        case .openCode: OpenCodeIntegration()
+        case .pi: PiIntegration()
         }
     }
 }

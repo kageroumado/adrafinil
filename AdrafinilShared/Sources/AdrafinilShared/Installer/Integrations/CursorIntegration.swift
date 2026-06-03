@@ -9,7 +9,7 @@ struct CursorIntegration: AgentIntegration {
 
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.cursor") ||
-        FileManager.default.fileExists(atPath: "/Applications/Cursor.app")
+            FileManager.default.fileExists(atPath: "/Applications/Cursor.app")
     }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
@@ -29,21 +29,24 @@ struct CursorIntegration: AgentIntegration {
             configPath: "\(ctx.homeRoot)/.cursor/hooks.json",
             entries: [
                 (event: "sessionStart", command: ctx.hookCommand("acquire", tool: agent.rawValue)),
-                (event: "sessionEnd",   command: ctx.hookCommand("release", tool: agent.rawValue))
+                (event: "sessionEnd", command: ctx.hookCommand("release", tool: agent.rawValue)),
             ],
             baseDocument: ["version": 1],
             installSummary: "wired sessionStart/sessionEnd hooks",
-            uninstallSummary: "removed Cursor hook entries"
+            uninstallSummary: "removed Cursor hook entries",
         )
     }
 
-    /// Cursor reads MCP servers from `~/.cursor/mcp.json` under `mcpServers`, same entry shape as
-    /// Claude Code. NEEDS ON-DEVICE VERIFICATION (path + key) on the MacBook before release.
-    func mcpShape(_ ctx: HookContext) -> MCPServerShape? {
-        MCPServerShape(
-            configPath: "\(ctx.homeRoot)/.cursor/mcp.json",
-            serverName: HookContext.mcpServerName,
-            entry: ctx.mcpEntry(tool: agent.rawValue)
-        )
+    /// MCP is gated off until device-verified, per the project rule that only agents whose MCP
+    /// config format we've confirmed return a shape. Cursor *is believed* to read MCP servers from
+    /// `~/.cursor/mcp.json` under `mcpServers` (same entry shape as Claude Code) — restore the shape
+    /// below once that path + key are verified on a real install:
+    ///
+    /// ```
+    /// MCPServerShape(configPath: "\(ctx.homeRoot)/.cursor/mcp.json",
+    ///                serverName: HookContext.mcpServerName, entry: ctx.mcpEntry(tool: agent.rawValue))
+    /// ```
+    func mcpShape(_: HookContext) -> MCPServerShape? {
+        nil
     }
 }

@@ -4,7 +4,6 @@ import Foundation
 /// creation, a human-readable before/after diff, and a PATH binary lookup. Every integration
 /// reads → mutates → writes a copy, preserving any non-Adrafinil content the user already has.
 enum ConfigFileIO {
-
     /// Reads a JSON object from `path`, or nil if it's missing or not a JSON dictionary.
     static func readJSON(_ path: String) -> [String: Any]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
@@ -39,7 +38,7 @@ enum ConfigFileIO {
 }
 
 /// True if an executable named `name` exists on the current `PATH`. Used by binary-based detection
-/// (Crush, Aider, Cline, OpenCode) where there's no well-known config directory to probe.
+/// (Aider, Cline, OpenCode) where there's no well-known config directory to probe.
 func binaryOnPath(_ name: String) -> Bool {
     let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
     for dir in path.split(separator: ":") {

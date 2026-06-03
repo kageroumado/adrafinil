@@ -2,29 +2,27 @@ import Foundation
 
 /// All agentic tools Adrafinil knows about.
 public enum AgentKind: String, Codable, CaseIterable, Sendable {
-    case claudeCode  = "claude-code"
-    case codex       = "codex"
-    case cursor      = "cursor"
-    case geminiCLI   = "gemini-cli"
-    case crush       = "crush"
-    case aider       = "aider"
-    case hermes      = "hermes"
-    case openCode    = "opencode"
-    case cline       = "cline"
-    case pi          = "pi"
+    case claudeCode = "claude-code"
+    case codex
+    case cursor
+    case geminiCLI = "gemini-cli"
+    case aider
+    case hermes
+    case openCode = "opencode"
+    case cline
+    case pi
 
     public var displayName: String {
         switch self {
         case .claudeCode: "Claude Code"
-        case .codex:      "Codex"
-        case .cursor:     "Cursor"
-        case .geminiCLI:  "Gemini CLI"
-        case .crush:      "Crush"
-        case .aider:      "Aider"
-        case .hermes:     "Hermes"
-        case .openCode:   "OpenCode"
-        case .cline:      "Cline"
-        case .pi:         "Pi"
+        case .codex: "Codex"
+        case .cursor: "Cursor"
+        case .geminiCLI: "Gemini CLI"
+        case .aider: "Aider"
+        case .hermes: "Hermes"
+        case .openCode: "OpenCode"
+        case .cline: "Cline"
+        case .pi: "Pi"
         }
     }
 
@@ -32,17 +30,16 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     public var binaryNames: [String] {
         switch self {
         case .claudeCode: ["claude"]
-        case .codex:      ["codex"]
-        case .cursor:     ["cursor", "Cursor"]
-        case .geminiCLI:  ["gemini"]
-        case .crush:      ["crush"]
-        case .aider:      ["aider"]
-        case .hermes:     ["hermes"]
-        case .openCode:   ["opencode"]
-        case .cline:      ["cline"]
+        case .codex: ["codex"]
+        case .cursor: ["cursor", "Cursor"]
+        case .geminiCLI: ["gemini"]
+        case .aider: ["aider"]
+        case .hermes: ["hermes"]
+        case .openCode: ["opencode"]
+        case .cline: ["cline"]
         // `pi` runs as a Node process (argv0 often "node"), so the sniffer rarely matches it —
         // the TS extension hook is the real integration; this is a weak best-effort fallback.
-        case .pi:         ["pi"]
+        case .pi: ["pi"]
         }
     }
 
@@ -53,7 +50,9 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     public static let byBinaryName: [String: AgentKind] = {
         var map: [String: AgentKind] = [:]
         for kind in allCases {
-            for name in kind.binaryNames { map[name] = kind }
+            for name in kind.binaryNames {
+                map[name] = kind
+            }
         }
         return map
     }()
@@ -77,7 +76,7 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     public var argvMarkers: [[String]]? {
         switch self {
         case .hermes: [["hermes_cli.main", "gateway"], ["hermes_cli.main", "dashboard"]]
-        default:      nil
+        default: nil
         }
     }
 
@@ -112,18 +111,20 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     public var gatewayPIDFileRelativePath: String? {
         switch self {
         case .hermes: ".hermes/gateway.pid"
-        default:      nil
+        default: nil
         }
     }
 
     /// Whether this agent runs as a shared gateway/daemon process (see `gatewayPIDFileRelativePath`).
-    public var isGatewayScoped: Bool { gatewayPIDFileRelativePath != nil }
+    public var isGatewayScoped: Bool {
+        gatewayPIDFileRelativePath != nil
+    }
 
     /// Integration tier: 1 = full hooks, 2 = partial/wrapper/plugin needed.
     public var tier: Int {
         switch self {
         case .claudeCode, .codex, .cursor, .geminiCLI: 1
-        case .crush, .aider, .hermes, .openCode, .cline, .pi: 2
+        case .aider, .hermes, .openCode, .cline, .pi: 2
         }
     }
 }

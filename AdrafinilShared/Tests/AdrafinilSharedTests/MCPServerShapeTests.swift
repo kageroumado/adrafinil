@@ -1,14 +1,13 @@
-import Testing
 import Foundation
+import Testing
 @testable import AdrafinilShared
 
 /// Covers the agent-facing MCP server registration (`adrafinil mcp`) — the upsert/remove/state
-/// machinery shared by the verified agents (Claude Code, Cursor, Gemini CLI), driven through the
-/// `HookInstaller` MCP API. MCP registration is gated on `mcpShape != nil`, not `isDetected`, so a
-/// bare temp home suffices.
+/// machinery, driven through the `HookInstaller` MCP API. Claude Code is the only device-verified
+/// MCP agent (Cursor/Gemini are gated off until verified). MCP registration is gated on
+/// `mcpShape != nil`, not `isDetected`, so a bare temp home suffices.
 @Suite("MCP server registration")
 struct MCPServerShapeTests {
-
     private func makeHome() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("adrafinil-mcp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -24,24 +23,27 @@ struct MCPServerShapeTests {
         HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
     }
 
-    private func claudeConfig(_ home: URL) -> String { home.path + "/.claude.json" }
+    private func claudeConfig(_ home: URL) -> String {
+        home.path + "/.claude.json"
+    }
 
     // MARK: - Capability gating
 
-    @Test func supportsMCPOnlyForVerifiedAgents() throws {
+    @Test
+    func `supports MCP only for verified agents`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
+        // Only Claude Code's MCP format is device-verified, so it's the only agent that advertises
+        // MCP support. Cursor and Gemini are believed-correct but gated off until verified.
         #expect(inst.supportsMCP(for: .claudeCode))
-        #expect(inst.supportsMCP(for: .cursor))
-        #expect(inst.supportsMCP(for: .geminiCLI))
-        // Unverified / no-MCP agents must not advertise support yet.
-        for agent in [AgentKind.codex, .crush, .aider, .cline, .hermes, .openCode, .pi] {
+        for agent in [AgentKind.codex, .cursor, .geminiCLI, .aider, .cline, .hermes, .openCode, .pi] {
             #expect(!inst.supportsMCP(for: agent), "\(agent.rawValue) should be gated until device-verified")
         }
     }
 
-    @Test func installMCPThrowsForUnsupportedAgent() throws {
+    @Test
+    func `install MCP throws for unsupported agent`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         #expect(throws: HookInstaller.SkipReason.self) {
@@ -51,7 +53,8 @@ struct MCPServerShapeTests {
 
     // MARK: - Install
 
-    @Test func installRegistersStdioServerWithToolFlag() throws {
+    @Test
+    func `install registers stdio server with tool flag`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         _ = try installer(home).installMCP(for: .claudeCode)
@@ -65,13 +68,14 @@ struct MCPServerShapeTests {
         #expect(args == ["mcp", "--tool", "claude-code"])
     }
 
-    @Test func installPreservesExistingServers() throws {
+    @Test
+    func `install preserves existing servers`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         // Seed a realistic ~/.claude.json with a user MCP server and unrelated top-level state.
         let existing: [String: Any] = [
             "anonymousId": "abc-123",
-            "mcpServers": ["voicemode": ["type": "stdio", "command": "uvx", "args": ["voice-mode"]]]
+            "mcpServers": ["voicemode": ["type": "stdio", "command": "uvx", "args": ["voice-mode"]]],
         ]
         try JSONSerialization.data(withJSONObject: existing)
             .write(to: URL(fileURLWithPath: claudeConfig(home)))
@@ -85,7 +89,8 @@ struct MCPServerShapeTests {
         #expect(servers["adrafinil"] != nil)
     }
 
-    @Test func installIsIdempotent() throws {
+    @Test
+    func `install is idempotent`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
@@ -93,11 +98,12 @@ struct MCPServerShapeTests {
         _ = try inst.installMCP(for: .claudeCode)
 
         let servers = try #require(try readJSON(claudeConfig(home))["mcpServers"] as? [String: Any])
-        #expect(servers.keys.filter { $0 == "adrafinil" }.count == 1)
+        #expect(servers.keys.count(where: { $0 == "adrafinil" }) == 1)
         #expect(inst.mcpState(for: .claudeCode) == .installed)
     }
 
-    @Test func dryRunDoesNotTouchDisk() throws {
+    @Test
+    func `dry run does not touch disk`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let result = try installer(home).installMCP(for: .claudeCode, dryRun: true)
@@ -105,28 +111,30 @@ struct MCPServerShapeTests {
         #expect(!FileManager.default.fileExists(atPath: claudeConfig(home)))
     }
 
-    @Test func eachAgentWritesItsOwnConfigPath() throws {
+    @Test
+    func `gated agents refuse MCP install and write nothing`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
-        _ = try inst.installMCP(for: .cursor)
-        _ = try inst.installMCP(for: .geminiCLI)
-
-        #expect(FileManager.default.fileExists(atPath: home.path + "/.cursor/mcp.json"))
-        #expect(FileManager.default.fileExists(atPath: home.path + "/.gemini/settings.json"))
-
-        let geminiArgs = try #require(((try readJSON(home.path + "/.gemini/settings.json")["mcpServers"]
-            as? [String: Any])?["adrafinil"] as? [String: Any])?["args"] as? [String])
-        #expect(geminiArgs == ["mcp", "--tool", "gemini-cli"])
+        // Cursor and Gemini MCP formats aren't device-verified yet, so installMCP must refuse — and
+        // crucially must not write a (possibly malformed) config to the user's agent.
+        for agent in [AgentKind.cursor, .geminiCLI] {
+            #expect(throws: HookInstaller.SkipReason.self) {
+                _ = try inst.installMCP(for: agent)
+            }
+        }
+        #expect(!FileManager.default.fileExists(atPath: home.path + "/.cursor/mcp.json"))
+        #expect(!FileManager.default.fileExists(atPath: home.path + "/.gemini/settings.json"))
     }
 
     // MARK: - Uninstall
 
-    @Test func uninstallRemovesOnlyOurServer() throws {
+    @Test
+    func `uninstall removes only our server`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let existing: [String: Any] = [
-            "mcpServers": ["voicemode": ["type": "stdio", "command": "uvx", "args": ["voice-mode"]]]
+            "mcpServers": ["voicemode": ["type": "stdio", "command": "uvx", "args": ["voice-mode"]]],
         ]
         try JSONSerialization.data(withJSONObject: existing)
             .write(to: URL(fileURLWithPath: claudeConfig(home)))
@@ -140,7 +148,8 @@ struct MCPServerShapeTests {
         #expect(servers["voicemode"] != nil, "the user's server must remain")
     }
 
-    @Test func uninstallIsNoOpWhenAbsent() throws {
+    @Test
+    func `uninstall is no op when absent`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let result = try installer(home).uninstallMCP(for: .claudeCode)
@@ -149,7 +158,8 @@ struct MCPServerShapeTests {
 
     // MARK: - State
 
-    @Test func stateTransitions() throws {
+    @Test
+    func `state transitions`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
@@ -160,14 +170,15 @@ struct MCPServerShapeTests {
         #expect(inst.mcpState(for: .claudeCode) == .notInstalled)
     }
 
-    @Test func stateIsModifiedWhenEntryTampered() throws {
+    @Test
+    func `state is modified when entry tampered`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
         _ = try inst.installMCP(for: .claudeCode)
 
         var dict = try readJSON(claudeConfig(home))
-        var servers = dict["mcpServers"] as! [String: Any]
+        var servers = try #require(dict["mcpServers"] as? [String: Any])
         servers["adrafinil"] = ["type": "stdio", "command": "/somewhere/else/adrafinil", "args": ["mcp"]]
         dict["mcpServers"] = servers
         try JSONSerialization.data(withJSONObject: dict)

@@ -7,9 +7,8 @@ import Foundation
 /// { "hooks": { "sessionStart": [ { "command": "adrafinil acquire …", "_adrafinil": true } ] } }
 /// ```
 ///
-/// Used by Cursor (`sessionStart`/`sessionEnd`) and Crush (`PreToolUse` only). The integration
-/// supplies the `(event, command)` pairs it manages and an optional base document (Cursor seeds
-/// `{"version": 1}` on a fresh file).
+/// Used by Cursor (`sessionStart`/`sessionEnd`). The integration supplies the `(event, command)`
+/// pairs it manages and an optional base document (Cursor seeds `{"version": 1}` on a fresh file).
 struct FlatJSONHookShape {
     let configPath: String
     /// The events and commands this integration owns, in write order.
@@ -24,7 +23,9 @@ struct FlatJSONHookShape {
         let before = ConfigFileIO.readJSON(configPath) ?? [:]
         var after = ConfigFileIO.readJSON(configPath) ?? baseDocument
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
-        for entry in entries { merge(into: &hooks, event: entry.event, command: entry.command) }
+        for entry in entries {
+            merge(into: &hooks, event: entry.event, command: entry.command)
+        }
         after["hooks"] = hooks
 
         let diff = ConfigFileIO.makeDiff(before: before, after: after)

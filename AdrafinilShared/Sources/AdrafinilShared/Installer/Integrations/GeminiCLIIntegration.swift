@@ -28,17 +28,20 @@ struct GeminiCLIIntegration: AgentIntegration {
             startEvent: "SessionStart",
             endEvent: "SessionEnd",
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue),
-            releaseCommand: ctx.hookCommand("release", tool: agent.rawValue)
+            releaseCommand: ctx.hookCommand("release", tool: agent.rawValue),
         )
     }
 
-    /// Gemini CLI reads MCP servers from `mcpServers` in the *same* `~/.gemini/settings.json` it
-    /// already holds hooks in. NEEDS ON-DEVICE VERIFICATION (key + entry shape) before release.
-    func mcpShape(_ ctx: HookContext) -> MCPServerShape? {
-        MCPServerShape(
-            configPath: "\(ctx.homeRoot)/.gemini/settings.json",
-            serverName: HookContext.mcpServerName,
-            entry: ctx.mcpEntry(tool: agent.rawValue)
-        )
+    /// MCP is gated off until device-verified, per the project rule that only agents whose MCP
+    /// config format we've confirmed return a shape. Gemini CLI *is believed* to read MCP servers
+    /// from `mcpServers` in the same `~/.gemini/settings.json` it already holds hooks in — restore
+    /// the shape below once that key + entry shape are verified on a real install:
+    ///
+    /// ```
+    /// MCPServerShape(configPath: "\(ctx.homeRoot)/.gemini/settings.json",
+    ///                serverName: HookContext.mcpServerName, entry: ctx.mcpEntry(tool: agent.rawValue))
+    /// ```
+    func mcpShape(_: HookContext) -> MCPServerShape? {
+        nil
     }
 }
