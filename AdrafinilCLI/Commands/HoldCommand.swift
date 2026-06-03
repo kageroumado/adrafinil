@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import OSLog
-import AdrafinilShared
 
 /// `adrafinil hold` — places an explicit, reasoned, time-boxed sleep block that outlives the
 /// agent's turn/session and the agent process itself. Prints the minted hold id on stdout so a
@@ -44,7 +44,7 @@ enum HoldCommand {
             reason: reason,
             pid: pid,
             processName: tool,
-            ttlSeconds: ttl
+            ttlSeconds: ttl,
         )
 
         do {
@@ -68,15 +68,18 @@ enum HoldCommand {
     private static func summary(key: String, ttl: TimeInterval?, pid: pid_t?) -> String {
         var parts = ["Keeping your Mac awake"]
         if let pid { parts.append("until process \(pid) exits") }
-        if let ttl { parts.append("for up to \(humanDuration(ttl))") }
-        else { parts.append("for up to 1h") }
+        if let ttl {
+            parts.append("for up to \(humanDuration(ttl))")
+        } else {
+            parts.append("for up to 1h")
+        }
         parts.append("· release with: adrafinil release \(key)")
         return parts.joined(separator: " ") + "\n"
     }
 
     private static func humanDuration(_ seconds: TimeInterval) -> String {
         let total = Int(seconds.rounded())
-        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        let h = total / 3_600, m = (total % 3_600) / 60, s = total % 60
         if h > 0 { return m > 0 ? "\(h)h\(m)m" : "\(h)h" }
         if m > 0 { return s > 0 ? "\(m)m\(s)s" : "\(m)m" }
         return "\(s)s"

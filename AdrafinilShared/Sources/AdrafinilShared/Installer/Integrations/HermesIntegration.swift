@@ -24,8 +24,12 @@ struct HermesIntegration: AgentIntegration {
     private static let markerStart = "  # >>> adrafinil (managed)"
     private static let markerEnd = "  # <<< adrafinil"
 
-    private func configPath(_ ctx: HookContext) -> String { "\(ctx.homeRoot)/.hermes/config.yaml" }
-    private func allowlistPath(_ ctx: HookContext) -> String { "\(ctx.homeRoot)/.hermes/shell-hooks-allowlist.json" }
+    private func configPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.hermes/config.yaml"
+    }
+    private func allowlistPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.hermes/shell-hooks-allowlist.json"
+    }
 
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.hermes")
@@ -69,7 +73,7 @@ struct HermesIntegration: AgentIntegration {
             let updated = existing.replacingOccurrences(of: "hooks: {}", with: hookBlock(cliPath: ctx.cliPath))
             if !dryRun { try updated.write(toFile: cfgPath, atomically: true, encoding: .utf8) }
             diff += "~ \(cfgPath): set hooks.on_session_start/on_session_end\n"
-        } else if !existing.contains("\nhooks:") && !existing.hasPrefix("hooks:") {
+        } else if !existing.contains("\nhooks:"), !existing.hasPrefix("hooks:") {
             // No hooks map yet: append one.
             let updated = (existing.isEmpty ? "" : existing + "\n") + hookBlock(cliPath: ctx.cliPath) + "\n"
             if !dryRun { try ConfigFileIO.ensureParentDir(of: cfgPath); try updated.write(toFile: cfgPath, atomically: true, encoding: .utf8) }
@@ -88,22 +92,36 @@ struct HermesIntegration: AgentIntegration {
     func uninstall(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         let cfgPath = configPath(ctx)
         var diff = ""
-        if let text = try? String(contentsOfFile: cfgPath, encoding: .utf8),
-           let sRange = text.range(of: Self.markerStart),
-           let eRange = text.range(of: Self.markerEnd) {
-            // Remove our marked block. If it leaves `hooks:` childless, normalise back to `hooks: {}`.
-            let lineStart = text.range(of: "\n", options: .backwards, range: text.startIndex..<sRange.lowerBound)?.upperBound ?? sRange.lowerBound
-            let lineEnd = text.range(of: "\n", range: eRange.upperBound..<text.endIndex)?.upperBound ?? text.endIndex
-            var updated = text
-            updated.removeSubrange(lineStart..<lineEnd)
-            updated = updated.replacingOccurrences(of: "hooks:\n", with: "hooks: {}\n")
+        if let text = try? String(contentsOfFile: cfgPath, encoding: .utf8), text.contains(Self.markerStart) {
+            // Line-based removal of our marked block, then normalise the now-childless `hooks:` line
+            // we owned back to `hooks: {}`. Line-scoped on purpose: a global string replace of
+            // "hooks:\n" risked rewriting any *other* `hooks:` occurrence in the user's YAML. We only
+            // ever take over an empty/absent hooks map (install bails on a populated one), so our
+            // block is its sole child and restoring the empty map is safe.
+            var lines = text.components(separatedBy: "\n")
+            var kept: [String] = []
+            var inBlock = false
+            for line in lines {
+                if line.contains(Self.markerStart) { inBlock = true; continue }
+                if line.contains(Self.markerEnd) { inBlock = false; continue }
+                if inBlock { continue }
+                kept.append(line)
+            }
+            // Restore `hooks: {}` only for a `hooks:` line left genuinely childless (next line is not
+            // indented), so a populated hooks map elsewhere is never touched.
+            for i in kept.indices where kept[i] == "hooks:" {
+                let next = i + 1 < kept.count ? kept[i + 1] : ""
+                if next.isEmpty || !next.hasPrefix(" ") { kept[i] = "hooks: {}" }
+            }
+            lines = kept
+            let updated = lines.joined(separator: "\n")
             if !dryRun { try updated.write(toFile: cfgPath, atomically: true, encoding: .utf8) }
             diff += "~ \(cfgPath): removed adrafinil hooks\n"
         }
         if !dryRun { try removeAllowlistApprovals(ctx) }
         diff += "~ \(allowlistPath(ctx)): revoke adrafinil approvals"
         return diff.isEmpty ? HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
-                            : HookInstaller.InstallResult(summary: "removed Hermes hooks", diff: diff)
+            : HookInstaller.InstallResult(summary: "removed Hermes hooks", diff: diff)
     }
 
     func installState(_ ctx: HookContext) -> HookInstallState {
@@ -120,9 +138,11 @@ struct HermesIntegration: AgentIntegration {
     // MARK: - Allowlist: {"approvals": [{"event": …, "command": …}, …]}
 
     private func approvals(_ ctx: HookContext) -> [(event: String, command: String)] {
-        [("on_session_start", command("acquire", cliPath: ctx.cliPath)),
-         ("pre_gateway_dispatch", command("acquire", cliPath: ctx.cliPath)),
-         ("on_session_end", command("release", cliPath: ctx.cliPath))]
+        [
+            ("on_session_start", command("acquire", cliPath: ctx.cliPath)),
+            ("pre_gateway_dispatch", command("acquire", cliPath: ctx.cliPath)),
+            ("on_session_end", command("release", cliPath: ctx.cliPath)),
+        ]
     }
 
     private func loadAllowlist(_ ctx: HookContext) -> [[String: Any]] {

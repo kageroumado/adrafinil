@@ -5,9 +5,13 @@ import Foundation
 struct OpenCodeIntegration: AgentIntegration {
     let agent = AgentKind.openCode
 
-    private func pluginRoot(_ ctx: HookContext) -> String { "\(ctx.homeRoot)/.config/opencode/plugins" }
+    private func pluginRoot(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.config/opencode/plugins"
+    }
 
-    func isDetected(_ ctx: HookContext) -> Bool { binaryOnPath("opencode") }
+    func isDetected(_: HookContext) -> Bool {
+        binaryOnPath("opencode")
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try plugin(ctx).install(dryRun: dryRun)
@@ -26,7 +30,7 @@ struct OpenCodeIntegration: AgentIntegration {
             pluginRoot: pluginRoot(ctx),
             fileName: "adrafinil.ts",
             content: { Self.pluginTS(cliPath: ctx.cliPath) },
-            installSummary: "wrote OpenCode plugin"
+            installSummary: "wrote OpenCode plugin",
         )
     }
 
@@ -44,7 +48,7 @@ struct OpenCodeIntegration: AgentIntegration {
         export const Adrafinil = async ({ $ }) => {
           return {
             event: async ({ event }) => {
-              if (event.type === "session.created") await $`\(cliPath) acquire ${event.properties.info.id} --tool opencode`
+              if (event.type === "session.created") await $`"\(cliPath)" acquire ${event.properties.info.id} --tool opencode`
             }
           }
         }

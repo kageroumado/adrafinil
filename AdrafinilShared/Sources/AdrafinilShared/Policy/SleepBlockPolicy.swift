@@ -43,6 +43,11 @@ public final class SleepBlockPolicy {
 
     public func set(blocked: Bool) throws {
         if blocked {
+            // Keep the idle assertion even if the clamshell block throws: partial protection (idle
+            // sleep still blocked) serves the app's purpose better than rolling back to none, and the
+            // daemon re-issues `set(true)` on its next reconcile — every step is idempotent, so the
+            // clamshell block is retried while the idle assertion stays continuously held. The error
+            // propagates so the daemon knows the block isn't yet complete.
             idle.acquire()
             try clamshell.setDisabled(true)
         } else {

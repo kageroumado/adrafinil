@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import OSLog
 
 /// XPC server the menu bar app connects to.
@@ -22,9 +22,11 @@ final class AppXPCServer {
 
     private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         let daemon: Daemon
-        init(daemon: Daemon) { self.daemon = daemon }
+        init(daemon: Daemon) {
+            self.daemon = daemon
+        }
 
-        func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+        func listener(_: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
             // Defense in depth: only accept connections from binaries we signed.
             guard CallerVerifier.isAuthorized(newConnection) else { return false }
             newConnection.exportedInterface = NSXPCInterface(with: DaemonXPCProtocol.self)
@@ -37,7 +39,7 @@ final class AppXPCServer {
             // private queue, so hop to the main actor (the broadcaster's isolation). `key` is a
             // Sendable value identity — it lets us deregister without capturing the connection.
             let key = ObjectIdentifier(newConnection)
-            let daemon = self.daemon
+            let daemon = daemon
             let drop: @Sendable () -> Void = { Task { @MainActor in daemon.statusBroadcaster.remove(key: key) } }
             newConnection.invalidationHandler = drop
             newConnection.interruptionHandler = drop
@@ -69,20 +71,24 @@ final class StatusBroadcaster {
         guard !subscribers.isEmpty, let data = try? JSONEncoder().encode(status) else { return }
         // A push to a dead connection is dropped silently by NSXPC; the subscriber re-subscribes on
         // reconnect, so there is nothing to handle here.
-        for proxy in subscribers.values { proxy.statusChanged(data) }
+        for proxy in subscribers.values {
+            proxy.statusChanged(data)
+        }
     }
 }
 
 final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
     let daemon: Daemon
-    init(daemon: Daemon) { self.daemon = daemon }
+    init(daemon: Daemon) {
+        self.daemon = daemon
+    }
 
     func status(reply: @escaping @Sendable (Data?, Error?) -> Void) {
         let r = SendableReply(reply)
         Task { @MainActor in
             do {
                 let s = await daemon.currentStatus()
-                r.call(try JSONEncoder().encode(s), nil)
+                try r.call(JSONEncoder().encode(s), nil)
             } catch {
                 r.call(nil, error)
             }
@@ -103,7 +109,7 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
             }
             do {
                 let s = await daemon.currentStatus()
-                r.call(try JSONEncoder().encode(s), nil)
+                try r.call(JSONEncoder().encode(s), nil)
             } catch {
                 r.call(nil, error)
             }
@@ -143,7 +149,7 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
     }
 
     func version(reply: @escaping @Sendable (String) -> Void) {
-        reply("0.1.0")
+        reply(AdrafinilConstants.marketingVersion)
     }
 
     func consumeAwaySummary(reply: @escaping @Sendable (Data?, Error?) -> Void) {
@@ -154,7 +160,7 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
                 return
             }
             do {
-                r.call(try JSONEncoder().encode(summary), nil)
+                try r.call(JSONEncoder().encode(summary), nil)
             } catch {
                 r.call(nil, error)
             }
@@ -166,13 +172,19 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
 /// Used for an NSXPC callback proxy — proxies are thread-safe to invoke, but `Any` isn't `Sendable`.
 private struct UncheckedSendableBox<T>: @unchecked Sendable {
     let value: T
-    init(_ value: T) { self.value = value }
+    init(_ value: T) {
+        self.value = value
+    }
 }
 
 /// Tiny wrapper that promises Sendable for an XPC reply block. Safe because XPC
 /// reply blocks are designed to be invoked exactly once from any queue.
 private final class SendableReply<each Arg>: @unchecked Sendable {
     private let block: (repeat each Arg) -> Void
-    init(_ block: @escaping (repeat each Arg) -> Void) { self.block = block }
-    func call(_ args: repeat each Arg) { block(repeat each args) }
+    init(_ block: @escaping (repeat each Arg) -> Void) {
+        self.block = block
+    }
+    func call(_ args: repeat each Arg) {
+        block(repeat each args)
+    }
 }

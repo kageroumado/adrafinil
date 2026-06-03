@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import OSLog
-import AdrafinilShared
 
 final class HelperXPCService: NSObject, HelperXPCProtocol, @unchecked Sendable {
     /// The process-wide blocker, shared across every connection (see `SleepBlocker`). Internally
@@ -35,5 +35,5 @@ final class HelperXPCService: NSObject, HelperXPCProtocol, @unchecked Sendable {
 }
 
 enum HelperVersion {
-    static let string = "0.1.0"
+    static let string = AdrafinilConstants.marketingVersion
 }

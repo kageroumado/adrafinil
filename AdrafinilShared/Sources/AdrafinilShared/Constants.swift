@@ -14,6 +14,11 @@ public enum AdrafinilConstants {
     public static let configFilename = "config.json"
     public static let eventLogFilename = "events.log"
 
+    /// Version the daemon, helper, and CLI report over their version endpoints. The app bundle reads
+    /// its own `CFBundleShortVersionString`; keep this in step with the project's `MARKETING_VERSION`
+    /// at release time so every component agrees on a single number.
+    public static let marketingVersion = "0.1.0"
+
     public static let cliBinaryName = "adrafinil"
     public static let cliInstallPath = "/usr/local/bin/adrafinil"
     public static let cliFallbackInstallPath = "\(NSHomeDirectory())/.local/bin/adrafinil"

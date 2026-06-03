@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 
 /// `adrafinil mcp` — a Model Context Protocol server (JSON-RPC 2.0 over stdio) that exposes agent
 /// holds as native, agent-callable tools. An agent configured with this server can keep the Mac
@@ -11,7 +11,7 @@ import AdrafinilShared
 enum MCPServer {
     /// MCP revision we implement. We echo the client's requested version when it sends one.
     private static let defaultProtocolVersion = "2024-11-05"
-    private static let serverVersion = "0.1.0"
+    private static let serverVersion = AdrafinilConstants.marketingVersion
 
     static func run(args: [String]) {
         let parser = ArgParser(args: args)
@@ -34,7 +34,7 @@ enum MCPServer {
     // MARK: - Dispatch
 
     private static func handle(_ msg: [String: Any], toolLabel: String) {
-        let id = msg["id"]   // absent for notifications
+        let id = msg["id"] // absent for notifications
         guard let method = msg["method"] as? String else { return }
         let params = msg["params"] as? [String: Any] ?? [:]
 
@@ -44,10 +44,10 @@ enum MCPServer {
             send(id: id, result: [
                 "protocolVersion": version,
                 "capabilities": ["tools": [String: Any]()],
-                "serverInfo": ["name": "adrafinil", "version": serverVersion]
+                "serverInfo": ["name": "adrafinil", "version": serverVersion],
             ])
         case "notifications/initialized", "notifications/cancelled":
-            break   // notifications take no response
+            break // notifications take no response
         case "ping":
             send(id: id, result: [String: Any]())
         case "tools/list":
@@ -56,7 +56,7 @@ enum MCPServer {
             handleToolCall(id: id, params: params, toolLabel: toolLabel)
         default:
             if id != nil {
-                send(id: id, error: -32601, message: "Method not found: \(method)")
+                send(id: id, error: -32_601, message: "Method not found: \(method)")
             }
         }
     }
@@ -73,19 +73,19 @@ enum MCPServer {
                     "properties": [
                         "reason": [
                             "type": "string",
-                            "description": "Short human-readable reason, shown to the user (e.g. 'running database migration')."
+                            "description": "Short human-readable reason, shown to the user (e.g. 'running database migration').",
                         ],
                         "minutes": [
                             "type": "number",
-                            "description": "How long to hold, in minutes. Optional; defaults to 60 and is capped by the user's setting. Prefer a realistic estimate over a large value."
+                            "description": "How long to hold, in minutes. Optional; defaults to 60 and is capped by the user's setting. Prefer a realistic estimate over a large value.",
                         ],
                         "pid": [
                             "type": "integer",
-                            "description": "Optional process id of the background job. When given, the hold releases automatically the moment that process exits — the most precise option."
-                        ]
+                            "description": "Optional process id of the background job. When given, the hold releases automatically the moment that process exits — the most precise option.",
+                        ],
                     ],
-                    "required": ["reason"]
-                ]
+                    "required": ["reason"],
+                ],
             ],
             [
                 "name": "release_awake",
@@ -95,32 +95,32 @@ enum MCPServer {
                     "properties": [
                         "hold_id": [
                             "type": "string",
-                            "description": "The hold id returned by keep_awake (looks like 'hold:abc12345')."
-                        ]
+                            "description": "The hold id returned by keep_awake (looks like 'hold:abc12345').",
+                        ],
                     ],
-                    "required": ["hold_id"]
-                ]
+                    "required": ["hold_id"],
+                ],
             ],
             [
                 "name": "awake_status",
                 "description": "Report whether the Mac is currently being kept awake, and by what (active agents and holds, with their reasons and time remaining).",
-                "inputSchema": ["type": "object", "properties": [String: Any]()]
-            ]
+                "inputSchema": ["type": "object", "properties": [String: Any]()],
+            ],
         ]
     }
 
     private static func handleToolCall(id: Any?, params: [String: Any], toolLabel: String) {
         guard let name = params["name"] as? String else {
-            send(id: id, error: -32602, message: "tools/call requires a tool name")
+            send(id: id, error: -32_602, message: "tools/call requires a tool name")
             return
         }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
 
         switch name {
-        case "keep_awake":   keepAwake(id: id, arguments: arguments, toolLabel: toolLabel)
+        case "keep_awake": keepAwake(id: id, arguments: arguments, toolLabel: toolLabel)
         case "release_awake": releaseAwake(id: id, arguments: arguments)
         case "awake_status": awakeStatus(id: id)
-        default:             sendToolResult(id: id, text: "Unknown tool: \(name)", isError: true)
+        default: sendToolResult(id: id, text: "Unknown tool: \(name)", isError: true)
         }
     }
 
@@ -132,8 +132,15 @@ enum MCPServer {
         let ttl: TimeInterval? = (arguments["minutes"] as? NSNumber).map { $0.doubleValue * 60 }
         let pid: pid_t? = (arguments["pid"] as? NSNumber).map { pid_t(truncating: $0) }
 
-        let req = CLIRequest(op: .hold, key: nil, tool: toolLabel, reason: reason,
-                             pid: (pid ?? 0) > 0 ? pid : nil, processName: toolLabel, ttlSeconds: ttl)
+        let req = CLIRequest(
+            op: .hold,
+            key: nil,
+            tool: toolLabel,
+            reason: reason,
+            pid: (pid ?? 0) > 0 ? pid : nil,
+            processName: toolLabel,
+            ttlSeconds: ttl,
+        )
         do {
             let resp = try DaemonSocketClient.send(req)
             guard resp.ok, let key = resp.holdKey else {
@@ -141,9 +148,13 @@ enum MCPServer {
                 return
             }
             var text = "Keeping the Mac awake (hold id: \(key))."
-            if let pid, pid > 0 { text += " Releases when process \(pid) exits" }
-            else if let ttl { text += " Expires in about \(Int((ttl / 60).rounded())) min" }
-            else { text += " Expires in about 60 min" }
+            if let pid, pid > 0 {
+                text += " Releases when process \(pid) exits"
+            } else if let ttl {
+                text += " Expires in about \(Int((ttl / 60).rounded())) min"
+            } else {
+                text += " Expires in about 60 min"
+            }
             text += " — call release_awake with this id when the task finishes."
             sendToolResult(id: id, text: text)
         } catch {
@@ -205,7 +216,7 @@ enum MCPServer {
     private static func sendToolResult(id: Any?, text: String, isError: Bool = false) {
         send(id: id, result: [
             "content": [["type": "text", "text": text]],
-            "isError": isError
+            "isError": isError,
         ])
     }
 
@@ -223,7 +234,7 @@ enum MCPServer {
 
     private static func write(_ payload: [String: Any]) {
         guard var data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        data.append(0x0A)   // newline-delimited transport
+        data.append(0x0A) // newline-delimited transport
         FileHandle.standardOutput.write(data)
     }
 

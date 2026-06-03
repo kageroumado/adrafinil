@@ -28,9 +28,12 @@ public final class IdleReleaseEvaluator {
         /// Hard backstop: any assertion older than this is released regardless of PID or `enabled`.
         public var maxAssertionAgeHours: Double
 
-        public init(enabled: Bool = true, idleThresholdSeconds: TimeInterval = 90,
-                    cpuRateThreshold: Double = IdleReleaseEvaluator.defaultCPURateThreshold,
-                    maxAssertionAgeHours: Double = 24) {
+        public init(
+            enabled: Bool = true,
+            idleThresholdSeconds: TimeInterval = 90,
+            cpuRateThreshold: Double = IdleReleaseEvaluator.defaultCPURateThreshold,
+            maxAssertionAgeHours: Double = 24,
+        ) {
             self.enabled = enabled
             self.idleThresholdSeconds = idleThresholdSeconds
             self.cpuRateThreshold = cpuRateThreshold
@@ -87,10 +90,10 @@ public final class IdleReleaseEvaluator {
         config: Config,
         pidAlive: (pid_t) -> Bool,
         cpuTime: (pid_t) -> TimeInterval?,
-        treeHoldsWakeAssertion: (pid_t) -> Bool = { _ in false }
+        treeHoldsWakeAssertion: (pid_t) -> Bool = { _ in false },
     ) -> [Release] {
         var releases: [Release] = []
-        let maxAge = config.maxAssertionAgeHours * 3600
+        let maxAge = config.maxAssertionAgeHours * 3_600
 
         for a in assertions {
             // Safety backstop: a too-old assertion is a leak. Applies regardless of `enabled` or PID.
@@ -142,5 +145,16 @@ public final class IdleReleaseEvaluator {
             }
         }
         return releases
+    }
+
+    /// Drop cross-sweep CPU bookkeeping for any PID no longer held, so the per-PID maps can't grow
+    /// unbounded on a 24/7 daemon and a recycled PID starts from a fresh baseline rather than
+    /// inheriting a vanished process's CPU total (which could release or pin the new owner wrongly).
+    /// Call once per sweep with the PIDs still backing a live assertion. Mirrors
+    /// `ProcessActivityGate.forget(keeping:)`.
+    public func forget(keeping livePids: Set<pid_t>) {
+        lastCpuTime = lastCpuTime.filter { livePids.contains($0.key) }
+        lastSampleAt = lastSampleAt.filter { livePids.contains($0.key) }
+        lastActiveAt = lastActiveAt.filter { livePids.contains($0.key) }
     }
 }

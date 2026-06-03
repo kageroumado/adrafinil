@@ -1,6 +1,6 @@
-import Foundation
 import AdrafinilShared
 import Darwin
+import Foundation
 import OSLog
 
 /// Releases assertions whose owning process is dead or has been CPU-idle for a configurable window.
@@ -47,7 +47,7 @@ final class IdleMonitor {
         let config = IdleReleaseEvaluator.Config(
             enabled: enabled,
             idleThresholdSeconds: idleThresholdSeconds,
-            maxAssertionAgeHours: maxAssertionAgeHours
+            maxAssertionAgeHours: maxAssertionAgeHours,
         )
         // One process-table snapshot per sweep, shared by every tree walk below (CPU sum + wake
         // assertion). Built from KERN_PROC_ALL because proc_listchildpids is unreliable here.
@@ -61,8 +61,11 @@ final class IdleMonitor {
             config: config,
             pidAlive: { self.pidExists($0) },
             cpuTime: { self.cpuTimeTree(rootPID: $0) },
-            treeHoldsWakeAssertion: { self.treeContains(rootPID: $0, anyOf: wakePIDs) }
+            treeHoldsWakeAssertion: { self.treeContains(rootPID: $0, anyOf: wakePIDs) },
         )
+        // Prune bookkeeping for PIDs that no longer back a live assertion — bound the per-PID maps
+        // on this always-on daemon and stop a recycled PID inheriting a vanished process's baseline.
+        evaluator.forget(keeping: Set(assertions.map(\.pid).filter { $0 > 0 }))
         guard !releases.isEmpty else { return }
 
         for r in releases where r.reason == .maxAgeBackstop {
@@ -75,7 +78,7 @@ final class IdleMonitor {
 
     private func pidExists(_ pid: pid_t) -> Bool {
         // kill(pid, 0) returns 0 if the process exists and we have permission.
-        return kill(pid, 0) == 0 || errno == EPERM
+        kill(pid, 0) == 0 || errno == EPERM
     }
 
     /// Cumulative CPU seconds for `rootPID` plus every descendant, over this sweep's process snapshot.

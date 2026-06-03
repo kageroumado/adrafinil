@@ -24,9 +24,13 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     public var expiresAt: Date?
     public let origin: AssertionOrigin
 
-    public var id: String { key }
+    public var id: String {
+        key
+    }
 
-    public var age: TimeInterval { Date().timeIntervalSince(acquiredAt) }
+    public var age: TimeInterval {
+        Date().timeIntervalSince(acquiredAt)
+    }
 
     /// Seconds until `expiresAt`, or nil if the assertion has no TTL. Negative once expired.
     public var timeRemaining: TimeInterval? {
@@ -41,7 +45,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         processName: String,
         acquiredAt: Date = Date(),
         ttl: TimeInterval? = nil,
-        origin: AssertionOrigin = .hook
+        origin: AssertionOrigin = .hook,
     ) {
         self.key = key
         self.tool = tool
@@ -55,22 +59,30 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case key, tool, reason, pid, processName, acquiredAt, lastActivityAt, expiresAt, origin
+        case key
+        case tool
+        case reason
+        case pid
+        case processName
+        case acquiredAt
+        case lastActivityAt
+        case expiresAt
+        case origin
     }
 
-    // Custom decode so state files written before `origin` existed still restore (defaulting to
-    // `.hook`). Encoding stays synthesized.
+    /// Custom decode so state files written before `origin` existed still restore (defaulting to
+    /// `.hook`). Encoding stays synthesized.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        key = try c.decode(String.self, forKey: .key)
-        tool = try c.decode(String.self, forKey: .tool)
-        reason = try c.decodeIfPresent(String.self, forKey: .reason)
-        pid = try c.decode(pid_t.self, forKey: .pid)
-        processName = try c.decode(String.self, forKey: .processName)
-        acquiredAt = try c.decode(Date.self, forKey: .acquiredAt)
-        lastActivityAt = try c.decode(Date.self, forKey: .lastActivityAt)
-        expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
-        origin = try c.decodeIfPresent(AssertionOrigin.self, forKey: .origin) ?? .hook
+        self.key = try c.decode(String.self, forKey: .key)
+        self.tool = try c.decode(String.self, forKey: .tool)
+        self.reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        self.pid = try c.decode(pid_t.self, forKey: .pid)
+        self.processName = try c.decode(String.self, forKey: .processName)
+        self.acquiredAt = try c.decode(Date.self, forKey: .acquiredAt)
+        self.lastActivityAt = try c.decode(Date.self, forKey: .lastActivityAt)
+        self.expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        self.origin = try c.decodeIfPresent(AssertionOrigin.self, forKey: .origin) ?? .hook
     }
 }
 
@@ -102,7 +114,7 @@ public struct DaemonStatus: Codable, Sendable {
         lastEvent: DaemonEvent?,
         lastEventAt: Date? = nil,
         paused: Bool = false,
-        awaySummaryPending: Bool = false
+        awaySummaryPending: Bool = false,
     ) {
         self.isBlocking = isBlocking
         self.assertions = assertions
@@ -122,7 +134,9 @@ public struct FinishedAgentSummary: Codable, Sendable, Identifiable, Hashable {
     public let displayName: String
     public let duration: TimeInterval
 
-    public var id: String { tool }
+    public var id: String {
+        tool
+    }
 
     public init(tool: String, displayName: String, duration: TimeInterval) {
         self.tool = tool
@@ -145,7 +159,9 @@ public struct AwaySummary: Codable, Sendable {
     /// Whether the low-battery cutout fired while the lid was closed.
     public let lowBatteryCutout: Bool
 
-    public var awayDuration: TimeInterval { openedAt.timeIntervalSince(closedAt) }
+    public var awayDuration: TimeInterval {
+        openedAt.timeIntervalSince(closedAt)
+    }
 
     public init(
         closedAt: Date,
@@ -154,7 +170,7 @@ public struct AwaySummary: Codable, Sendable {
         stillActive: [FinishedAgentSummary],
         peakTemperatureCelsius: Double?,
         thermalCutout: Bool,
-        lowBatteryCutout: Bool = false
+        lowBatteryCutout: Bool = false,
     ) {
         self.closedAt = closedAt
         self.openedAt = openedAt
@@ -174,6 +190,4 @@ public enum DaemonEvent: String, Codable, Sendable {
     case idleRelease
     case lidClosed
     case lidOpened
-    case helperLost
-    case helperReconnected
 }

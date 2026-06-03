@@ -1,7 +1,7 @@
-import SwiftUI
 import AdrafinilShared
-import ServiceManagement
 import AppKit
+import ServiceManagement
+import SwiftUI
 
 struct SettingsView: View {
     /// Binding to the authoritative settings in `AdrafinilApp`.
@@ -89,7 +89,7 @@ struct GeneralSettingsTab: View {
                 Section {
                     Toggle("Play a sound when you close the lid", isOn: $settings.soundOnLidClose)
                     LabeledContent("Volume") {
-                        Slider(value: $settings.soundVolume, in: 0...1)
+                        Slider(value: $settings.soundVolume, in: 0 ... 1)
                             .frame(maxWidth: 220)
                     }
                     .disabled(!settings.soundOnLidClose)
@@ -162,10 +162,12 @@ struct AgentsSettingsTab: View {
 
     private func refreshRows() {
         agentRows = agentHooks.detectedAgents().map { kind in
-            AgentRowModel(kind: kind,
-                          installState: agentHooks.installState(for: kind),
-                          mcpSupported: agentHooks.mcpSupported(for: kind),
-                          mcpState: agentHooks.mcpState(for: kind))
+            AgentRowModel(
+                kind: kind,
+                installState: agentHooks.installState(for: kind),
+                mcpSupported: agentHooks.mcpSupported(for: kind),
+                mcpState: agentHooks.mcpState(for: kind),
+            )
         }
     }
 }
@@ -178,7 +180,9 @@ struct AgentRowModel: Identifiable {
     var mcpSupported: Bool
     /// Registration state of the MCP hold tool, independent of the hook `installState`.
     var mcpState: HookInstallState
-    var id: AgentKind { kind }
+    var id: AgentKind {
+        kind
+    }
 }
 
 private struct AgentInstallRow: View {
@@ -186,8 +190,12 @@ private struct AgentInstallRow: View {
     let agentHooks: any AgentHooksProviding
     let onChange: () -> Void
 
-    private var isInstalled: Bool { model.installState == .installed }
-    private var mcpInstalled: Bool { model.mcpState == .installed }
+    private var isInstalled: Bool {
+        model.installState == .installed
+    }
+    private var mcpInstalled: Bool {
+        model.mcpState == .installed
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
@@ -213,7 +221,7 @@ private struct AgentInstallRow: View {
                             try? agentHooks.uninstall(for: model.kind)
                         }
                         onChange()
-                    }
+                    },
                 ))
                 .labelsHidden()
                 .toggleStyle(.switch)
@@ -268,7 +276,7 @@ private struct AgentInstallRow: View {
                         try? agentHooks.uninstallMCP(for: model.kind)
                     }
                     onChange()
-                }
+                },
             ))
             .labelsHidden()
             .toggleStyle(.switch)
@@ -302,11 +310,13 @@ struct SafetySettingsTab: View {
     var body: some View {
         Form {
             Section("Thermal cutout") {
-                Toggle("Force sleep when CPU temperature is too high",
-                       isOn: $settings.thermalCutoutEnabled)
+                Toggle(
+                    "Force sleep when CPU temperature is too high",
+                    isOn: $settings.thermalCutoutEnabled,
+                )
                 LabeledContent("Threshold") {
                     HStack(spacing: Theme.Space.sm) {
-                        Slider(value: $settings.thermalThresholdCelsius, in: 70...95, step: 1)
+                        Slider(value: $settings.thermalThresholdCelsius, in: 70 ... 95, step: 1)
                             .frame(maxWidth: 180)
                         Text("\(Int(settings.thermalThresholdCelsius))°C")
                             .monospacedDigit()
@@ -319,15 +329,17 @@ struct SafetySettingsTab: View {
             // No battery to drain on a desktop Mac, so the low-battery cutout is hidden there.
             if device.hasBattery {
                 Section("Low-battery cutout") {
-                    Toggle("Force sleep when battery runs low (on battery, lid closed)",
-                           isOn: $settings.lowBatteryCutoutEnabled)
+                    Toggle(
+                        "Force sleep when battery runs low (on battery, lid closed)",
+                        isOn: $settings.lowBatteryCutoutEnabled,
+                    )
                     LabeledContent("Threshold") {
                         HStack(spacing: Theme.Space.sm) {
                             Slider(value: Binding(
                                 get: { Double(settings.lowBatteryThresholdPercent) },
-                                set: { settings.lowBatteryThresholdPercent = Int($0) }
-                            ), in: 5...50, step: 1)
-                            .frame(maxWidth: 180)
+                                set: { settings.lowBatteryThresholdPercent = Int($0) },
+                            ), in: 5 ... 50, step: 1)
+                                .frame(maxWidth: 180)
                             Text("\(settings.lowBatteryThresholdPercent)%")
                                 .monospacedDigit()
                                 .frame(width: 44, alignment: .trailing)
@@ -338,9 +350,11 @@ struct SafetySettingsTab: View {
             }
 
             Section {
-                Toggle("Stop waiting on agents that go quiet",
-                       isOn: $settings.idleReleaseEnabled)
-                Stepper(value: $settings.idleReleaseSeconds, in: 30...600, step: 30) {
+                Toggle(
+                    "Stop waiting on agents that go quiet",
+                    isOn: $settings.idleReleaseEnabled,
+                )
+                Stepper(value: $settings.idleReleaseSeconds, in: 30 ... 600, step: 30) {
                     LabeledContent("Consider quiet after", value: "\(settings.idleReleaseSeconds)s")
                 }
                 .disabled(!settings.idleReleaseEnabled)
@@ -351,27 +365,35 @@ struct SafetySettingsTab: View {
             }
 
             Section {
-                Toggle("Notice agents even if setup is incomplete",
-                       isOn: $settings.processSniffingEnabled)
-                Toggle("Start as soon as a known agent launches",
-                       isOn: $settings.autoAcquireForKnownAgents)
-                    .disabled(!settings.processSniffingEnabled)
+                Toggle(
+                    "Notice agents even if setup is incomplete",
+                    isOn: $settings.processSniffingEnabled,
+                )
+                Toggle(
+                    "Start as soon as a known agent launches",
+                    isOn: $settings.autoAcquireForKnownAgents,
+                )
+                .disabled(!settings.processSniffingEnabled)
             } header: {
                 Text("Finding agents")
             } footer: {
                 Text("""
                 A backup to the per-agent setup: Adrafinil also watches for known agent apps running, in case one starts without notifying it.
-
+                
                 “Start as soon as a known agent launches” keeps your Mac awake the whole time a normal agent (like Claude Code) is open. Some agents — such as Hermes — instead run as one shared background service that can't announce itself, so Adrafinil always keeps watch for those while “Notice agents” is on and keeps the Mac awake only while they're actually working.
                 """)
             }
 
             Section {
-                Toggle("Let agents keep your Mac awake on their own",
-                       isOn: $settings.agentHoldsEnabled)
-                Stepper(value: $settings.manualHoldMaxHours, in: 1...12, step: 1) {
-                    LabeledContent("Longest a hold can last",
-                                   value: "\(Int(settings.manualHoldMaxHours)) \(Int(settings.manualHoldMaxHours) == 1 ? "hour" : "hours")")
+                Toggle(
+                    "Let agents keep your Mac awake on their own",
+                    isOn: $settings.agentHoldsEnabled,
+                )
+                Stepper(value: $settings.manualHoldMaxHours, in: 1 ... 12, step: 1) {
+                    LabeledContent(
+                        "Longest a hold can last",
+                        value: "\(Int(settings.manualHoldMaxHours)) \(Int(settings.manualHoldMaxHours) == 1 ? "hour" : "hours")",
+                    )
                 }
                 .disabled(!settings.agentHoldsEnabled)
             } header: {
@@ -391,7 +413,7 @@ struct AboutTab: View {
     @State private var showUninstallConfirm = false
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? AdrafinilConstants.marketingVersion
     }
 
     var body: some View {
@@ -413,9 +435,11 @@ struct AboutTab: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 340)
 
-            Link("github.com/kageroumado/adrafinil",
-                 destination: URL(string: "https://github.com/kageroumado/adrafinil")!)
-                .font(.callout)
+            Link(
+                "github.com/kageroumado/adrafinil",
+                destination: URL(string: "https://github.com/kageroumado/adrafinil")!,
+            )
+            .font(.callout)
 
             Spacer()
 
@@ -453,36 +477,42 @@ struct AboutTab: View {
 // MARK: - Previews
 
 #if DEBUG
-#Preview("Settings · General") {
-    @Previewable @State var settings = AdrafinilSettings()
-    SettingsView(appSettings: $settings,
-                 agentHooks: PreviewAgentHooksProvider(),
-                 setup: PreviewSetupProvider())
+    #Preview("Settings · General") {
+        @Previewable @State var settings = AdrafinilSettings()
+        SettingsView(
+            appSettings: $settings,
+            agentHooks: PreviewAgentHooksProvider(),
+            setup: PreviewSetupProvider(),
+        )
         .frame(width: 520, height: 560)
-}
-#Preview("Settings · General (desktop)") {
-    @Previewable @State var settings = AdrafinilSettings()
-    GeneralSettingsTab(settings: $settings,
-                       device: DeviceCapabilities(hasLid: false, hasBattery: false))
+    }
+    #Preview("Settings · General (desktop)") {
+        @Previewable @State var settings = AdrafinilSettings()
+        GeneralSettingsTab(
+            settings: $settings,
+            device: DeviceCapabilities(hasLid: false, hasBattery: false),
+        )
         .frame(width: 520, height: 560)
-}
-#Preview("Settings · Safety (desktop)") {
-    @Previewable @State var settings = AdrafinilSettings()
-    SafetySettingsTab(settings: $settings,
-                      device: DeviceCapabilities(hasLid: false, hasBattery: false))
+    }
+    #Preview("Settings · Safety (desktop)") {
+        @Previewable @State var settings = AdrafinilSettings()
+        SafetySettingsTab(
+            settings: $settings,
+            device: DeviceCapabilities(hasLid: false, hasBattery: false),
+        )
         .frame(width: 520, height: 560)
-}
-#Preview("Settings · Agents") {
-    AgentsSettingsTab(agentHooks: PreviewAgentHooksProvider())
-        .frame(width: 520, height: 560)
-}
-#Preview("Settings · Safety") {
-    @Previewable @State var settings = AdrafinilSettings()
-    SafetySettingsTab(settings: $settings)
-        .frame(width: 520, height: 560)
-}
-#Preview("Settings · About") {
-    AboutTab(setup: PreviewSetupProvider())
-        .frame(width: 520, height: 560)
-}
+    }
+    #Preview("Settings · Agents") {
+        AgentsSettingsTab(agentHooks: PreviewAgentHooksProvider())
+            .frame(width: 520, height: 560)
+    }
+    #Preview("Settings · Safety") {
+        @Previewable @State var settings = AdrafinilSettings()
+        SafetySettingsTab(settings: $settings)
+            .frame(width: 520, height: 560)
+    }
+    #Preview("Settings · About") {
+        AboutTab(setup: PreviewSetupProvider())
+            .frame(width: 520, height: 560)
+    }
 #endif

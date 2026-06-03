@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import OSLog
 
 @MainActor
@@ -11,7 +11,7 @@ final class Daemon {
     let stateStore = StateStore()
     let eventLog = EventLog()
 
-    var settings: AdrafinilSettings = AdrafinilSettings.load()
+    var settings: AdrafinilSettings = .load()
 
     /// User-controlled master switch. While paused, all holds are released and agent acquires are
     /// ignored, so the Mac sleeps normally. In-memory: a daemon restart resumes (fresh) by default.
@@ -75,7 +75,9 @@ final class Daemon {
         thermalMonitor.lidClosed = lidMonitor.isLidClosed
         batteryMonitor.isBlocking = blocking
         batteryMonitor.lidClosed = lidMonitor.isLidClosed
-        for a in await registry.snapshot() where a.pid > 0 { processWatcher.watch(pid: a.pid) }
+        for a in await registry.snapshot() where a.pid > 0 {
+            processWatcher.watch(pid: a.pid)
+        }
         await syncHelperToRegistry()
 
         updateSweepTimer()
@@ -103,7 +105,7 @@ final class Daemon {
 
     /// Outcome of an agent-hold request, so the CLI/MCP can report precisely why a hold did or
     /// didn't take.
-    enum HoldResult: Sendable {
+    enum HoldResult {
         case placed(key: String, count: Int)
         /// Agent holds are disabled in settings.
         case disabled
@@ -133,7 +135,7 @@ final class Daemon {
             pid: pid ?? -1,
             processName: label,
             ttl: ttl,
-            origin: .manual
+            origin: .manual,
         )
         await handleAcquire(assertion)
         let count = await registry.snapshot().count
@@ -193,7 +195,7 @@ final class Daemon {
             lastEvent: eventLog.last,
             lastEventAt: eventLog.lastAt,
             paused: isPaused,
-            awaySummaryPending: pendingAwaySummary != nil
+            awaySummaryPending: pendingAwaySummary != nil,
         )
     }
 
@@ -230,22 +232,33 @@ final class Daemon {
         // blocking state — unlike spawning a Task per edge, which could apply out of order.
         blockingObserver = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await blocking in self.registry.blockingStateChanges {
-                self.thermalMonitor.isBlocking = blocking
-                self.batteryMonitor.isBlocking = blocking
-                await self.helperClient.setBlocked(blocking)
+            for await blocking in registry.blockingStateChanges {
+                thermalMonitor.isBlocking = blocking
+                batteryMonitor.isBlocking = blocking
+                await helperClient.setBlocked(blocking)
             }
         }
     }
 
     private func wireMonitors() {
+        wirePowerMonitor()
+        wireLidMonitor()
+        wireProcessWatcher()
+        wireIdleMonitor()
+        wireThermalMonitor()
+        wireBatteryMonitor()
+    }
+
+    private func wirePowerMonitor() {
         systemPowerMonitor.onWake = { [weak self] in
             guard let self else { return }
             // The helper's private clamshell-disable bit can be reset across a sleep/wake
             // cycle, so re-push the current blocking state — the helper re-applies it.
             Task { @MainActor in await self.syncHelperToRegistry() }
         }
+    }
 
+    private func wireLidMonitor() {
         lidMonitor.onChange = { [weak self] closed in
             guard let self else { return }
             Task { @MainActor in
@@ -253,14 +266,16 @@ final class Daemon {
                 self.thermalMonitor.lidClosed = closed
                 self.batteryMonitor.lidClosed = closed
                 if closed {
-                    let decision = LidActionDecider().onLidClose(
-                        isBlocking: await self.registry.isBlocking,
+                    let decision = await LidActionDecider().onLidClose(
+                        isBlocking: self.registry.isBlocking,
                         lockOnLidClose: self.settings.lockOnLidClose,
-                        soundOnLidClose: self.settings.soundOnLidClose
+                        soundOnLidClose: self.settings.soundOnLidClose,
                     )
                     if decision.shouldChime {
-                        self.chimePlayer.playLidCloseChime(volume: self.settings.soundVolume,
-                                                           chimeName: self.settings.chimeName)
+                        self.chimePlayer.playLidCloseChime(
+                            volume: self.settings.soundVolume,
+                            chimeName: self.settings.chimeName,
+                        )
                     }
                     // Secure the kept-awake machine: lock the screen on lid close. Explicit lock
                     // works even when an idle-lock-prevention assertion is held, and the system
@@ -269,7 +284,7 @@ final class Daemon {
                         self.screenLocker.lock()
                     }
                     if decision.shouldBeginAwayTracking {
-                        self.beginAwayTracking(snapshot: await self.registry.snapshot())
+                        await self.beginAwayTracking(snapshot: self.registry.snapshot())
                     }
                 } else {
                     await self.finishAwayTracking()
@@ -278,7 +293,9 @@ final class Daemon {
                 await self.broadcastStatus()
             }
         }
+    }
 
+    private func wireProcessWatcher() {
         processWatcher.onProcessExit = { [weak self] pid in
             guard let self else { return }
             Task { @MainActor in
@@ -290,12 +307,16 @@ final class Daemon {
             }
         }
         processWatcher.start()
+    }
 
+    private func wireIdleMonitor() {
         idleMonitor.onIdleRelease = { [weak self] keys in
             guard let self else { return }
             Task { @MainActor in
                 var released = 0
-                for key in keys where await self.registry.release(key: key) { released += 1 }
+                for key in keys where await self.registry.release(key: key) {
+                    released += 1
+                }
                 if released > 0 { await self.persistAndSync(event: .idleRelease) }
             }
         }
@@ -305,7 +326,9 @@ final class Daemon {
         idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
         idleMonitor.start()
+    }
 
+    private func wireThermalMonitor() {
         thermalMonitor.thresholdCelsius = settings.thermalThresholdCelsius
         thermalMonitor.enabled = settings.thermalCutoutEnabled
         thermalMonitor.onReading = { [weak self] temp in
@@ -324,7 +347,9 @@ final class Daemon {
             }
         }
         thermalMonitor.start()
+    }
 
+    private func wireBatteryMonitor() {
         batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
         batteryMonitor.onCutout = { [weak self] in
@@ -413,7 +438,7 @@ final class Daemon {
                 reason: kind.isGatewayScoped ? "auto (active gateway)" : "auto (process sniffing)",
                 pid: proc.pid,
                 processName: proc.name,
-                origin: .sniffed
+                origin: .sniffed,
             )
             log.info("Auto-acquiring for sniffed agent \(kind.rawValue) (pid \(proc.pid))")
             await handleAcquire(assertion)
@@ -438,7 +463,7 @@ final class Daemon {
             return
         }
         let openedAt = Date()
-        let activeTools = Set(await registry.snapshot().map(\.tool))
+        let activeTools = await Set(registry.snapshot().map(\.tool))
         let held = heldAtClose.map {
             AwaySummaryBuilder.HeldAgent(tool: $0.tool, displayName: $0.displayName, acquiredAt: $0.acquiredAt)
         }
@@ -449,7 +474,7 @@ final class Daemon {
             openedAt: openedAt,
             peakTemperatureCelsius: peakTempWhileClosed,
             thermalCutout: thermalCutoutWhileClosed,
-            lowBatteryCutout: lowBatteryCutoutWhileClosed
+            lowBatteryCutout: lowBatteryCutoutWhileClosed,
         )
         pendingAwaySummary = summary
         if let summary {
