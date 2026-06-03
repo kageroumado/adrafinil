@@ -102,28 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return .terminateLater
     }
 
-    /// Confirms before quitting from the popover's power button — the one quit affordance that's
-    /// easy to hit by reflex. The actual stop-everything work happens in `applicationShouldTerminate`.
-    /// Run as an AppKit modal (not a SwiftUI alert) because the menu-bar popover dismisses the
-    /// moment it loses key focus, which would tear down a popover-hosted alert before it appears.
-    func confirmQuit() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Quit Adrafinil?"
-        alert.informativeText = """
-        Quitting turns Adrafinil off: your Mac goes back to sleeping normally and your agents \
-        stop being tracked until you open it again.
-        
-        To pause without quitting, use “Let it sleep” instead.
-        """
-        alert.addButton(withTitle: "Quit") // default — Return
-        alert.addButton(withTitle: "Cancel") // Esc
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSApp.terminate(nil)
-        }
-    }
-
     /// Marks the impending termination as an uninstall so `applicationShouldTerminate` doesn't try
     /// to pause a daemon that's being removed. Called by the About tab's uninstall flow.
     func beginUninstall() {

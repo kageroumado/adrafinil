@@ -8,6 +8,12 @@ struct MenuPopover: View {
     /// device; previews/gallery inject a desktop to exercise the variant.
     var device: DeviceCapabilities = .current
 
+    /// Whether the in-popover quit confirmation is showing. This replaces a modal `NSAlert`, which an
+    /// `.accessory` (menu-bar) app can't reliably surface — the alert appears as an off-screen system
+    /// dialog and wedges the app in `runModal` waiting on a response the user can't see. An inline
+    /// confirmation also keeps the choice at the cursor, where the click landed.
+    @State private var confirmingQuit = false
+
     var body: some View {
         // The model's run-loop poll timer is suspended while the menu-bar popover is open, so a
         // TimelineView drives liveness instead. The per-second hold countdown is now drawn by
@@ -21,6 +27,9 @@ struct MenuPopover: View {
                 }
         }
         .frame(width: Theme.popoverWidth)
+        // Reset the quit confirmation when the popover closes, so reopening always lands on the
+        // status view rather than a stale "Quit Adrafinil?" prompt.
+        .onDisappear { confirmingQuit = false }
     }
 
     @ViewBuilder
@@ -31,26 +40,30 @@ struct MenuPopover: View {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 header
 
-                // A failed poll takes precedence: if we can't reach the daemon we don't have
-                // trustworthy status, so show the error rather than a stale snapshot.
-                if let err = status.lastError {
-                    errorCard(err).transition(.popoverSection)
-                } else if let live {
-                    statusCard(live, state: hero, now: now).transition(.popoverSection)
-
-                    if hero == .awake || hero == .paused {
-                        pauseToggleButton(state: hero).transition(.popoverSection)
-                    }
-
-                    if !live.assertions.isEmpty {
-                        agentList(live.assertions, now: now).transition(.popoverSection)
-                    }
+                if confirmingQuit {
+                    quitConfirmation.transition(.popoverSection)
                 } else {
-                    HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
-                        .frame(height: 64)
-                }
+                    // A failed poll takes precedence: if we can't reach the daemon we don't have
+                    // trustworthy status, so show the error rather than a stale snapshot.
+                    if let err = status.lastError {
+                        errorCard(err).transition(.popoverSection)
+                    } else if let live {
+                        statusCard(live, state: hero, now: now).transition(.popoverSection)
 
-                bottomBar(status.lastError == nil ? live : nil)
+                        if hero == .awake || hero == .paused {
+                            pauseToggleButton(state: hero).transition(.popoverSection)
+                        }
+
+                        if !live.assertions.isEmpty {
+                            agentList(live.assertions, now: now).transition(.popoverSection)
+                        }
+                    } else {
+                        HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
+                            .frame(height: 64)
+                    }
+
+                    bottomBar(status.lastError == nil ? live : nil)
+                }
             }
             .padding(Theme.Space.lg)
         }
@@ -63,7 +76,7 @@ struct MenuPopover: View {
     /// A compact, order-stable key for the popover's layout: which sections are visible and how
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)"
+        "\(confirmingQuit)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -223,6 +236,45 @@ struct MenuPopover: View {
         )
     }
 
+    // MARK: - Quit confirmation (inline)
+
+    /// In-popover quit confirmation, shown in place of the status when the bottom-bar ✕ is tapped.
+    /// Quitting routes through `NSApp.terminate`, which `applicationShouldTerminate` gates on pausing
+    /// the daemon first — so "off" means the Mac sleeps normally again, not that the services are torn
+    /// down. The pause-instead nudge points back at the primary button the user just bypassed.
+    private var quitConfirmation: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "moon.zzz.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Quit Adrafinil?").font(.system(.body, design: .rounded).weight(.semibold))
+                    Text("Your Mac goes back to sleeping normally and agents stop being tracked until you open it again.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: Theme.Space.sm) {
+                Button("Cancel") { confirmingQuit = false }
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+                Button("Quit") { NSApp.terminate(nil) }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
+                    .tint(.red)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(Theme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
     // MARK: - Bottom bar (meta + utility actions)
 
     /// One row: lid/temperature on the left (when known), Settings + Quit on the right.
@@ -234,7 +286,7 @@ struct MenuPopover: View {
                 HStack(spacing: Theme.Space.sm) {
                     SettingsLink { utilityIcon("gearshape") }
                         .help("Settings…")
-                    Button { (NSApp.delegate as? AppDelegate)?.confirmQuit() } label: {
+                    Button { confirmingQuit = true } label: {
                         // `xmark` (quit the app), not `power` — a power glyph in a Mac context
                         // reads as "shut down the Mac", the wrong mental model for closing the app.
                         utilityIcon("xmark")
