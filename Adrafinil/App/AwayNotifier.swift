@@ -1,4 +1,5 @@
 import AdrafinilShared
+import CoreGraphics
 import Foundation
 import os
 import UserNotifications
@@ -16,12 +17,28 @@ final class AwayNotifier {
     private let center = UNUserNotificationCenter.current()
     private let log = Logger(subsystem: "glass.kagerou.adrafinil", category: "notifications")
 
+    /// A recap waiting for the screen to unlock, and the one-shot unlock observer holding it.
+    private var pendingSummary: AwaySummary?
+    private var unlockObserver: (any NSObjectProtocol)?
+
     private init() {}
 
-    /// Posts a recap notification for `summary`. Requests notification permission the first
-    /// time it's needed; if the user has denied it, this logs and does nothing.
+    /// Posts a recap notification for `summary`. If the lid-close locked the screen, the recap is
+    /// held until the screen unlocks — a banner delivered to a *locked* session is dropped before the
+    /// user logs back in, so it would otherwise appear and vanish unseen. Requests notification
+    /// permission the first time it's needed; if the user has denied it, this logs and does nothing.
     func deliver(_ summary: AwaySummary) {
-        log.notice("deliver() called")
+        if screenIsLocked() {
+            log.notice("Screen locked — holding away recap until unlock")
+            pendingSummary = summary
+            observeUnlock()
+        } else {
+            post(summary)
+        }
+    }
+
+    private func post(_ summary: AwaySummary) {
+        log.notice("posting away recap")
         Task {
             guard await ensureAuthorized() else { return }
 
@@ -41,6 +58,41 @@ final class AwayNotifier {
                 log.notice("Delivered away recap: \(title, privacy: .public)")
             } catch {
                 log.error("Failed to add notification: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Whether the login session's screen is currently locked (lid-close lock, screensaver, etc.).
+    private func screenIsLocked() -> Bool {
+        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false
+    }
+
+    /// Registers a one-shot observer for the system unlock notification, which posts the held recap.
+    /// Idempotent: a second pending recap reuses the existing observer and just supersedes the first.
+    private func observeUnlock() {
+        guard unlockObserver == nil else { return }
+        unlockObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: .main,
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let observer = self.unlockObserver {
+                    DistributedNotificationCenter.default().removeObserver(observer)
+                    self.unlockObserver = nil
+                }
+                if let summary = self.pendingSummary {
+                    self.pendingSummary = nil
+                    // `com.apple.screenIsUnlocked` fires during the login→desktop transition, and a
+                    // banner posted into that transition is dropped before it's visible. Let the
+                    // desktop settle first, then post.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        self.post(summary)
+                    }
+                }
             }
         }
     }
