@@ -92,4 +92,30 @@ struct AgentKindTests {
         }
         #expect(AgentKind.hermes.gatewayPIDFileRelativePath == ".hermes/gateway.pid")
     }
+
+    @Test func argvMatchesHermesGateway() {
+        let argv = ["python", "-m", "hermes_cli.main", "gateway", "run", "--replace"]
+        #expect(AgentKind.forRunningProcess(argv: argv) == .hermes)
+    }
+
+    @Test func argvMatchesHermesDesktopDashboard() {
+        let argv = ["python", "-m", "hermes_cli.main", "dashboard",
+                    "--no-open", "--tui", "--host", "127.0.0.1", "--port", "9120"]
+        #expect(AgentKind.forRunningProcess(argv: argv) == .hermes)
+    }
+
+    @Test func argvDoesNotMatchUnrelatedPython() {
+        #expect(AgentKind.forRunningProcess(argv: ["python", "-m", "http.server"]) == nil)
+        #expect(AgentKind.forRunningProcess(argv: []) == nil)
+    }
+
+    @Test func argvRequiresAllMarkersInAGroup() {
+        // hermes_cli.main alone (no gateway/dashboard subcommand) shouldn't match — e.g. `--help`.
+        #expect(AgentKind.forRunningProcess(argv: ["python", "-m", "hermes_cli.main", "--help"]) == nil)
+    }
+
+    @Test func argvMatchedAgentsIsExactlyTheArgvMarkerAgents() {
+        #expect(Set(AgentKind.argvMatchedAgents) == Set(AgentKind.allCases.filter { $0.argvMarkers != nil }))
+        #expect(AgentKind.argvMatchedAgents.contains(.hermes))
+    }
 }

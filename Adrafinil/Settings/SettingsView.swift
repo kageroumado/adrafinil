@@ -359,7 +359,11 @@ struct SafetySettingsTab: View {
             } header: {
                 Text("Finding agents")
             } footer: {
-                Text("A backup to the per-agent setup: Adrafinil also watches for known agent apps running, in case one starts without notifying it.")
+                Text("""
+                A backup to the per-agent setup: Adrafinil also watches for known agent apps running, in case one starts without notifying it.
+
+                “Start as soon as a known agent launches” keeps your Mac awake the whole time a normal agent (like Claude Code) is open. Some agents — such as Hermes — instead run as one shared background service that can't announce itself, so Adrafinil always keeps watch for those while “Notice agents” is on and keeps the Mac awake only while they're actually working.
+                """)
             }
 
             Section {

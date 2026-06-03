@@ -69,6 +69,35 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         return nil
     }
 
+    /// argv substring markers for agents that run under a generic interpreter, where the executable
+    /// path (`python`, `node`) reveals nothing. A process matches this agent when its argv contains
+    /// *every* marker in *any one* of these groups (groups are alternatives). Hermes runs as
+    /// `python -m hermes_cli.main {gateway run | dashboard …}`, so both the long-lived gateway and the
+    /// desktop app's embedded dashboard are recognized. `nil` for agents identifiable by path.
+    public var argvMarkers: [[String]]? {
+        switch self {
+        case .hermes: [["hermes_cli.main", "gateway"], ["hermes_cli.main", "dashboard"]]
+        default:      nil
+        }
+    }
+
+    /// Agents that can only be identified by inspecting argv (see `argvMarkers`). Cached: static.
+    public static let argvMatchedAgents: [AgentKind] = allCases.filter { $0.argvMarkers != nil }
+
+    /// Identify the agent that an argument vector belongs to, for interpreter-hosted agents the
+    /// path-based `forRunningProcess(name:path:)` can't recognize. A marker matches if it is a
+    /// substring of *any* argv element; an agent matches if all markers in one of its groups do.
+    public static func forRunningProcess(argv: [String]) -> AgentKind? {
+        guard !argv.isEmpty else { return nil }
+        for kind in argvMatchedAgents {
+            guard let groups = kind.argvMarkers else { continue }
+            for group in groups where group.allSatisfy({ marker in argv.contains { $0.contains(marker) } }) {
+                return kind
+            }
+        }
+        return nil
+    }
+
     /// For an agent that runs as a single long-lived **shared process** (a gateway/daemon)
     /// multiplexing many logical sessions — rather than one process per session — this is the path,
     /// relative to the user's home, of the pid-file that process writes. `nil` for the normal
