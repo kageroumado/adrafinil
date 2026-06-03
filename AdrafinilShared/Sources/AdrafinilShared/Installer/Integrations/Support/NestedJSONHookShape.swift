@@ -1,8 +1,9 @@
 import Foundation
 
-/// The nested hook shape shared by Claude Code, Codex, and Gemini CLI: a single JSON file with a
-/// top-level `hooks` dict keyed by event name, each value an array of entries that themselves wrap
-/// an inner `hooks` array of `{"type": "command", "command": …}` objects.
+/// The nested hook shape shared by Claude Code and Gemini CLI: a single JSON file with a top-level
+/// `hooks` dict keyed by event name, each value an array of entries that themselves wrap an inner
+/// `hooks` array of `{"type": "command", "command": …}` objects. (Codex uses a flatter variant — see
+/// `CodexHookShape`.)
 ///
 /// ```json
 /// { "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "adrafinil acquire …" } ] } ] } }

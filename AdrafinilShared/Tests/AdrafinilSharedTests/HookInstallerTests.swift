@@ -178,13 +178,48 @@ struct HookInstallerTests {
         #expect(hooks["Stop"] == nil, "Stop is per-turn, not session-end — must not be used for release")
         #expect(hooks["SessionEnd"] == nil)
 
+        // Codex's shape is flat: the event maps to an array of HookHandlerConfig objects directly —
+        // `{ "type": "command", "command": … }`, NOT Claude's nested `{ "hooks": [ … ] }`. And no
+        // `_adrafinil` marker key, which Codex's strict deserializer would reject.
+        let start = try #require(hooks["SessionStart"] as? [[String: Any]])
+        let entry = try #require(start.first)
+        #expect(entry["type"] as? String == "command")
+        #expect(entry["hooks"] == nil, "must be flat — no inner hooks wrapper")
+        #expect(entry["_adrafinil"] == nil, "no marker key — Codex may reject unknown fields")
+        let cmd = try #require(entry["command"] as? String)
         // Codex exposes no session-id env var — the id comes from stdin `session_id`, so the
         // command carries no `$…` positional and definitely no fictional $CODEX_THREAD_ID.
-        let start = try #require(hooks["SessionStart"] as? [[String: Any]])
-        let cmd = try #require((start.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String)
         #expect(!cmd.contains("CODEX_THREAD_ID"))
         #expect(!cmd.contains("$"))
         #expect(cmd.contains("acquire --tool codex"))
+    }
+
+    /// Codex stamps a `trusted_hash` onto a hook when the user trusts it via `/hooks`. Re-installing
+    /// must leave an already-correct entry untouched so that trust survives — overwriting it would
+    /// force the user to re-approve on every reinstall.
+    @Test
+    func `reinstalling codex preserves a user-applied trusted_hash`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .codex, dryRun: false)
+
+        // Simulate Codex trusting our hook: stamp a trusted_hash onto our entry.
+        let path = home.path + "/.codex/hooks.json"
+        var dict = try readJSON(path)
+        var hooks = try #require(dict["hooks"] as? [String: Any])
+        var start = try #require(hooks["SessionStart"] as? [[String: Any]])
+        start[0]["trusted_hash"] = "abc123"
+        hooks["SessionStart"] = start
+        dict["hooks"] = hooks
+        try writeJSON(dict, to: path)
+
+        _ = try installer.install(for: .codex, dryRun: false)
+
+        let after = try readJSON(path)
+        let entries = try #require((after["hooks"] as? [String: Any])?["SessionStart"] as? [[String: Any]])
+        #expect(entries.count == 1, "reinstall must not duplicate the entry")
+        #expect(entries[0]["trusted_hash"] as? String == "abc123", "trust must survive a reinstall")
     }
 
     @Test
