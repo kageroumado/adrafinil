@@ -46,7 +46,7 @@ moment that work finishes.
 ## Features
 
 - **Agent-aware, not always-on.** Sleep is blocked only while ≥1 agent session holds an assertion. Zero sessions → normal sleep, including lid-close.
-- **Hook integration for 10 agents.** One-click installer wires Adrafinil into the hook systems of Claude Code, Codex, Cursor, Gemini CLI, Crush, Aider, Hermes, OpenCode, Cline, and Pi.
+- **Hook integration for 9 agents.** One-click installer wires Adrafinil into the hook systems of Claude Code, Codex, Cursor, Gemini CLI, Aider, Hermes, OpenCode, Cline, and Pi.
 - **Sub-50ms CLI.** `adrafinil acquire` / `release` are called from agent hooks and round-trip to the daemon in under 50ms, so they never stall an agent's workflow.
 - **Reference-counted assertions.** Overlapping sessions stack cleanly; sleep unblocks only when the last one releases.
 - **Thermal cutout.** If skin/CPU temperature crosses threshold while the lid is closed, all assertions are force-released so a bag-bound Mac can't cook itself.
@@ -104,6 +104,16 @@ releases on `Stop`, so the Mac is only kept awake while the agent is actually wo
 open-but-idle session at the prompt lets it sleep normally.
 
 The daemon refcounts by session key and asks the helper to block sleep while the count is non-zero.
+
+An agent can also keep the Mac awake for a background task that outlives its reply (a long build or
+deploy) with a time-boxed **hold** — either by calling `adrafinil hold` directly or, for MCP-capable
+agents, through the bundled MCP tool that `adrafinil mcp` serves:
+
+```sh
+adrafinil hold --ttl 30m --reason "deploy"   # keep awake up to 30 min, then auto-release
+adrafinil mcp                                 # speak the Model Context Protocol on stdio (for agents)
+```
+
 Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
 
 ## Architecture
@@ -135,7 +145,7 @@ Four products across three privilege tiers (full detail, including the Xcode pro
 └──────────────────────────────────────────────────────────────┘
 
   adrafinil  (CLI, ships inside the .app, symlinked onto PATH)
-  • acquire / release / status / install-hooks / uninstall-hooks
+  • acquire / release / hold / mcp / status / install-hooks / uninstall-hooks
   • Connects to the daemon socket; <50ms round-trip
 ```
 

@@ -116,7 +116,6 @@ session-scoped with the CPU-idle sweep as their idle backstop.
 
 | Tool | Strategy |
 |------|----------|
-| Crush | Only `PreToolUse` exists. Use it to `acquire`; release via the process-exit watcher. Config `~/.config/crush/crush.json`. |
 | Aider | No hooks. A shell alias in `~/.zshrc`/`~/.bashrc` wraps `aider` with acquire/release (`~/.local/bin/aider-adrafinil`). |
 | Hermes | A **shell hook** in `~/.hermes/config.yaml` (`hooks.on_session_start`/`on_session_end`), plus an approval in `~/.hermes/shell-hooks-allowlist.json` (first-use consent). Runs in CLI + Gateway; session id on stdin. Device-verified — Hermes's other two hook systems (Python plugins, gateway-only `HOOK.yaml`) don't fit. |
 | OpenCode | TS plugin at `~/.config/opencode/plugins/adrafinil.ts`. Acquire on `session.created` (id = `event.properties.info.id`); release via the process-exit watcher (`session.idle` is per-turn). |
@@ -228,7 +227,7 @@ adrafinil version
 
 ## 8. Xcode project layout
 
-`Adrafinil.xcodeproj` contains **five targets** (four products + a test bundle) and consumes one local Swift package:
+`Adrafinil.xcodeproj` contains **four targets** (the four products) and consumes one local Swift package:
 
 | Target | Kind | Product | Bundle ID |
 |--------|------|---------|-----------|
@@ -236,18 +235,20 @@ adrafinil version
 | `AdrafinilDaemon` | Command-line tool | `AdrafinilDaemon` | `glass.kagerou.adrafinil.daemon` |
 | `AdrafinilHelper` | Command-line tool | `AdrafinilHelper` | `glass.kagerou.adrafinil.helper` |
 | `AdrafinilCLI` | Command-line tool | `adrafinil` (lowercase) | `glass.kagerou.adrafinil.cli` |
-| `AdrafinilTests` | Unit test bundle | — | `glass.kagerou.AdrafinilTests` |
 
-`AdrafinilShared` is a local Swift package (`AdrafinilShared/Package.swift`); each non-test target links it (no embed — it's a static library). The package declares a macOS 14 minimum so the shared code stays portable; the app and tools target macOS 26.4.
+The unit tests live in the `AdrafinilShared` Swift package (`AdrafinilShared/Tests/`), run with `swift test` — there is no separate Xcode test-bundle target. `AdrafinilShared` is a local Swift package (`AdrafinilShared/Package.swift`); each target links it (no embed — it's a static library). The package declares a macOS 14 minimum so the shared code stays portable; the app and tools target macOS 26.4.
 
 The project uses **Xcode filesystem-synchronized groups** (`PBXFileSystemSynchronizedRootGroup`) for every target — files added or removed under a target's source folder are picked up automatically, with no file list in the pbxproj to maintain.
 
-### 8.1 Shared build settings
+### 8.1 Build settings
 
-Applied at the project level and inherited by all non-shared targets:
+Set at the project level (inherited by every target):
 
 - `MACOSX_DEPLOYMENT_TARGET = 26.4`
 - `SWIFT_VERSION = 6.0`
+
+Per-target (the app target carries these explicitly; the command-line tools get complete checking via the Swift 6 language mode):
+
 - `SWIFT_STRICT_CONCURRENCY = complete`
 - `ENABLE_HARDENED_RUNTIME = YES`
 - `CODE_SIGN_STYLE = Automatic`
@@ -270,8 +271,7 @@ adrafinil/
 ├── Adrafinil/                        ← app target sources (menu bar UI, installer, settings)
 ├── AdrafinilDaemon/                  ← daemon: registry, monitors, IPC, persistence, audio
 ├── AdrafinilHelper/                  ← privileged helper: SleepBlocker + XPC listener
-├── AdrafinilCLI/                     ← the `adrafinil` binary: subcommands + socket client
-└── AdrafinilTests/                   ← app-level test target
+└── AdrafinilCLI/                     ← the `adrafinil` binary: subcommands + socket client
 ```
 
 ### 8.3 Embedding the tools inside the app bundle
@@ -302,7 +302,7 @@ SMAppService.agent(plistName: "LaunchAgent.plist")
 
 ### 8.5 Sanity check after a clean checkout
 
-1. `Cmd+B` the **Adrafinil** scheme. All five targets build (set a development team for signing, or pass `CODE_SIGNING_ALLOWED=NO` for a headless compile check — see the README).
+1. `Cmd+B` the **Adrafinil** scheme. All four targets build (set a development team for signing, or pass `CODE_SIGNING_ALLOWED=NO` for a headless compile check — see the README).
 2. Run the app. The menu bar icon appears; first launch opens the Setup window, which calls `SMAppService.register()` for the helper and daemon — macOS prompts for approval in System Settings → Login Items.
 3. Approve both. The status icon then reflects daemon state.
 4. From a terminal: `adrafinil status` prints the daemon status.
