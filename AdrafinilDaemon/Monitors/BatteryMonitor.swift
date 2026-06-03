@@ -13,10 +13,23 @@ final class BatteryMonitor {
 
     var enabled: Bool = true
     var thresholdPercent: Int = 20
-    var lidClosed: Bool = false
-    /// Whether any assertion is currently held — the cutout only fires while we are keeping the
-    /// Mac awake (with zero assertions there is nothing to cut out).
-    var isBlocking: Bool = false
+    /// Re-evaluate the cutout whenever the lid state changes. A lid close is **not** a power-source
+    /// event, so without this the IOKit power-source notification (which fires only on
+    /// plug/unplug/charge changes) would never re-check — and the cutout would miss its single most
+    /// important trigger: closing the lid while *already* on battery below the threshold, i.e. the
+    /// drain-to-shutdown-in-a-bag case this whole monitor exists to prevent.
+    var lidClosed: Bool = false {
+        didSet { if lidClosed != oldValue { gateChanged() } }
+    }
+
+    /// Whether any assertion is currently held — the cutout only fires while we are keeping the Mac
+    /// awake (with zero assertions there is nothing to cut out). Re-evaluates on change so a hold
+    /// acquired while already on battery with the lid closed is checked immediately, not only on the
+    /// next power-source event.
+    var isBlocking: Bool = false {
+        didSet { if isBlocking != oldValue { gateChanged() } }
+    }
+
     var onCutout: (() -> Void)?
     /// Fired on every successful reading: `(percent, onBattery)`.
     var onReading: ((Int, Bool) -> Void)?
@@ -26,6 +39,15 @@ final class BatteryMonitor {
 
     private let evaluator = LowBatteryCutoutEvaluator()
     private var runLoopSource: CFRunLoopSource?
+    /// Safety-net poll, armed only while blocking with the lid closed. The IOKit power-source
+    /// notification catches plug/unplug and charge changes, but those events can be coalesced or
+    /// throttled while the display is asleep — so the slow drain that matters most (agent working,
+    /// lid shut, battery falling toward the threshold) could otherwise cross the line unnoticed until
+    /// the next event. Polling closes that gap. It costs nothing extra: the Mac is already awake
+    /// (we're holding a wake assertion) exactly when this runs, and it disarms the instant the hold is
+    /// released or the lid opens, so there are no wakeups while idle.
+    private var pollTimer: Timer?
+    private let pollInterval: TimeInterval = 60
 
     func start() {
         tick() // seed an initial reading
@@ -48,8 +70,30 @@ final class BatteryMonitor {
     }
 
     isolated deinit {
+        pollTimer?.invalidate()
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .defaultMode)
+        }
+    }
+
+    /// A lid or blocking change: re-evaluate immediately on the edge, then arm/disarm the safety-net
+    /// poll for the new state.
+    private func gateChanged() {
+        tick()
+        updatePollTimer()
+    }
+
+    /// Poll only while blocking *and* the lid is closed — the one window where a slow drain can cross
+    /// the threshold unseen. Disarmed otherwise so an open-lid or idle daemon never wakes on a timer.
+    private func updatePollTimer() {
+        let shouldPoll = isBlocking && lidClosed
+        if shouldPoll, pollTimer == nil {
+            pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.tick() }
+            }
+        } else if !shouldPoll, pollTimer != nil {
+            pollTimer?.invalidate()
+            pollTimer = nil
         }
     }
 
