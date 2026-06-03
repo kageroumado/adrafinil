@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import os
 
 /// Menu bar app's client for talking to AdrafinilDaemon over XPC.
@@ -19,6 +19,7 @@ final class DaemonClient {
     private let connectionDied = OSAllocatedUnfairLock(initialState: false)
 
     // MARK: Push subscription state
+
     /// The callback object the daemon pushes status to. Created once when `statusUpdates()` is first
     /// called; reused across reconnects (it captures the stream continuation).
     private var callback: AppStatusCallback?
@@ -74,7 +75,7 @@ final class DaemonClient {
     /// daemon isn't running (e.g. before first-run setup), the message fails and only the
     /// error handler fires; without resuming there, the call would hang forever.
     private func call<T: Sendable>(
-        _ invoke: @escaping @Sendable (DaemonXPCProtocol, @escaping @Sendable (Result<T, Error>) -> Void) -> Void
+        _ invoke: @escaping @Sendable (DaemonXPCProtocol, @escaping @Sendable (Result<T, Error>) -> Void) -> Void,
     ) async throws -> T {
         let conn = ensureConnection()
         return try await withCheckedThrowingContinuation { cont in
@@ -137,7 +138,7 @@ final class DaemonClient {
                 done(.success(data))
             }
         }
-        guard let bytes = data.flatMap({ $0 }),
+        guard let bytes = data.flatMap(\.self),
               let summary = try? JSONDecoder().decode(AwaySummary.self, from: bytes) else {
             return nil
         }
@@ -189,7 +190,7 @@ final class DaemonClient {
             // Reply lands on NSXPC's private queue — hop to the main actor to touch state.
             Task { @MainActor in
                 guard let self else { return }
-                self.reconnectAttempts = 0  // subscription is live — reset backoff
+                self.reconnectAttempts = 0 // subscription is live — reset backoff
                 if let data, let status = try? JSONDecoder().decode(DaemonStatus.self, from: data) {
                     self.statusContinuation?.yield(status)
                 }
@@ -207,8 +208,8 @@ final class DaemonClient {
         reconnectAttempts += 1
         reconnectTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self, self.wantsSubscription else { return }
-            self.subscribeNow()
+            guard !Task.isCancelled, let self, wantsSubscription else { return }
+            subscribeNow()
         }
     }
 
@@ -232,6 +233,10 @@ final class DaemonClient {
 /// running off-main is safe; the closure hops to the main actor as needed.
 private final class AppStatusCallback: NSObject, AppXPCProtocol, @unchecked Sendable {
     private let onStatus: @Sendable (Data) -> Void
-    init(onStatus: @escaping @Sendable (Data) -> Void) { self.onStatus = onStatus }
-    nonisolated func statusChanged(_ encodedStatus: Data) { onStatus(encodedStatus) }
+    init(onStatus: @escaping @Sendable (Data) -> Void) {
+        self.onStatus = onStatus
+    }
+    nonisolated func statusChanged(_ encodedStatus: Data) {
+        onStatus(encodedStatus)
+    }
 }

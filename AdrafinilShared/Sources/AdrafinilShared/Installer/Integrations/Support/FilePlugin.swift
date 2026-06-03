@@ -12,7 +12,9 @@ struct FilePlugin {
     let content: () -> String
     let installSummary: String
 
-    private var filePath: String { "\(pluginRoot)/\(fileName)" }
+    private var filePath: String {
+        "\(pluginRoot)/\(fileName)"
+    }
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         if !dryRun {
@@ -35,7 +37,7 @@ struct FilePlugin {
               let actual = try? String(contentsOfFile: filePath, encoding: .utf8),
               actual.contains("adrafinil") else { return .notInstalled }
         return actual.trimmingCharacters(in: .whitespacesAndNewlines) ==
-               content().trimmingCharacters(in: .whitespacesAndNewlines)
-               ? .installed : .modifiedExternally
+            content().trimmingCharacters(in: .whitespacesAndNewlines)
+            ? .installed : .modifiedExternally
     }
 }

@@ -21,9 +21,9 @@ enum PowerAssertionReader {
     /// (`PreventUserIdleDisplaySleep`) are deliberately excluded — they don't keep a lid-closed,
     /// displayless Mac running, so they don't mean "agent working" for our purposes.
     private static let systemSleepPreventingTypes: Set<String> = [
-        "PreventUserIdleSystemSleep",  // caffeinate -i — the common agent signal
-        "PreventSystemSleep",          // caffeinate -s
-        "NoIdleSleepAssertion",        // legacy alias
+        "PreventUserIdleSystemSleep", // caffeinate -i — the common agent signal
+        "PreventSystemSleep", // caffeinate -s
+        "NoIdleSleepAssertion", // legacy alias
     ]
 
     /// PIDs currently holding a system-sleep-preventing assertion. Empty on failure or none — both

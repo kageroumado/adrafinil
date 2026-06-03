@@ -24,9 +24,9 @@ enum CLIStdin {
         var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
         guard poll(&pfd, 1, 100) > 0, (pfd.revents & Int16(POLLIN)) != 0 else { return nil }
 
-        var buffer = [UInt8](repeating: 0, count: 65536)
+        var buffer = [UInt8](repeating: 0, count: 65_536)
         let n = read(fd, &buffer, buffer.count)
-        guard n > 0 else { return nil }   // n == 0 is EOF (e.g. `< /dev/null`); -1 is error
+        guard n > 0 else { return nil } // n == 0 is EOF (e.g. `< /dev/null`); -1 is error
 
         guard let obj = try? JSONSerialization.jsonObject(with: Data(buffer.prefix(n))) as? [String: Any],
               let sid = obj["session_id"] as? String,

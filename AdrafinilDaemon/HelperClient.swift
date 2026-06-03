@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import OSLog
 
 @MainActor
@@ -51,7 +51,7 @@ final class HelperClient {
                     self?.log.error("Helper setSleepBlocked error: \(error.localizedDescription)")
                 } else {
                     self?.log.info("Helper applied blocked=\(applied)")
-                    Task { @MainActor in self?.reconnectAttempts = 0 }  // call landed — reset backoff
+                    Task { @MainActor in self?.reconnectAttempts = 0 } // call landed — reset backoff
                 }
                 once.resume(())
             }
@@ -86,8 +86,8 @@ final class HelperClient {
         reconnectAttempts += 1
         reconnectTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self, self.desiredBlockedState else { return }
-            await self.setBlocked(true)
+            guard !Task.isCancelled, let self, desiredBlockedState else { return }
+            await setBlocked(true)
         }
     }
 }

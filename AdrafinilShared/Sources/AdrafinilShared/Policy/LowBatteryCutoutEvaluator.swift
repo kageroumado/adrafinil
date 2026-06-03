@@ -17,7 +17,7 @@ public struct LowBatteryCutoutEvaluator {
         onBattery: Bool,
         enabled: Bool,
         lidClosed: Bool,
-        isBlocking: Bool
+        isBlocking: Bool,
     ) -> Bool {
         guard enabled, onBattery, lidClosed, isBlocking else { return false }
         return batteryPercent <= thresholdPercent

@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import OSLog
-import AdrafinilShared
 
 /// Locks the screen immediately, used when the lid closes while an agent is active so the
 /// kept-awake machine is still physically secured.
@@ -21,9 +21,9 @@ final class ScreenLocker {
     init() {
         if let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_NOW),
            let symbol = dlsym(handle, "SACLockScreenImmediate") {
-            lockFunction = unsafeBitCast(symbol, to: LockFunction.self)
+            self.lockFunction = unsafeBitCast(symbol, to: LockFunction.self)
         } else {
-            lockFunction = nil
+            self.lockFunction = nil
             log.warning("SACLockScreenImmediate unavailable — will fall back to pmset displaysleepnow")
         }
     }

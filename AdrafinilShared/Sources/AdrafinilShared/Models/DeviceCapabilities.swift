@@ -13,7 +13,9 @@ public struct DeviceCapabilities: Sendable, Equatable {
 
     /// A desktop Mac: nothing to close, nothing to drain. Both signals must be absent — a laptop
     /// always has a battery, so even if the lid probe transiently misses we won't mislabel it.
-    public var isDesktop: Bool { !hasLid && !hasBattery }
+    public var isDesktop: Bool {
+        !hasLid && !hasBattery
+    }
 
     public init(hasLid: Bool, hasBattery: Bool) {
         self.hasLid = hasLid
@@ -29,8 +31,12 @@ public struct DeviceCapabilities: Sendable, Equatable {
         let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
         guard root != 0 else { return false }
         defer { IOObjectRelease(root) }
-        return IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString,
-                                               kCFAllocatorDefault, 0)?.takeRetainedValue() != nil
+        return IORegistryEntryCreateCFProperty(
+            root,
+            "AppleClamshellState" as CFString,
+            kCFAllocatorDefault,
+            0,
+        )?.takeRetainedValue() != nil
     }
 
     /// An internal battery exists iff a power source of type `InternalBattery` is present. Same

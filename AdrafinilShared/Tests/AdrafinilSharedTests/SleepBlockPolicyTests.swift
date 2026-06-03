@@ -1,10 +1,9 @@
-import Testing
 import Foundation
+import Testing
 @testable import AdrafinilShared
 
 @Suite("SleepBlockPolicy")
 struct SleepBlockPolicyTests {
-
     /// Models the real idle assertion: `acquire()` is idempotent (the production conformer guards
     /// on a non-zero assertion id), so a double-acquire holds exactly one assertion.
     final class FakeIdle: IdleSleepAsserting {
@@ -34,8 +33,8 @@ struct SleepBlockPolicyTests {
         }
     }
 
-    @Test("init clears any stale clamshell block (crash recovery)")
-    func initClearsStaleClamshell() {
+    @Test
+    func `init clears any stale clamshell block (crash recovery)`() {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         #expect(clam.calls == [false])
@@ -43,19 +42,19 @@ struct SleepBlockPolicyTests {
         #expect(!idle.isHeld)
     }
 
-    @Test("set(true) acquires the idle assertion and disables clamshell sleep")
-    func setTrueBlocks() throws {
+    @Test
+    func `set(true) acquires the idle assertion and disables clamshell sleep`() throws {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         try policy.set(blocked: true)
         #expect(idle.acquireCount == 1)
         #expect(idle.isHeld)
-        #expect(clam.calls == [false, true])   // init-clear, then block
+        #expect(clam.calls == [false, true]) // init-clear, then block
         #expect(policy.isBlocked)
     }
 
-    @Test("set(false) releases the idle assertion and clears clamshell sleep")
-    func setFalseUnblocks() throws {
+    @Test
+    func `set(false) releases the idle assertion and clears clamshell sleep`() throws {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         try policy.set(blocked: true)
@@ -66,36 +65,36 @@ struct SleepBlockPolicyTests {
         #expect(!policy.isBlocked)
     }
 
-    @Test("repeated set(true) re-asserts clamshell but does not double-acquire the assertion")
-    func repeatedSetTrueReassertsWithoutDoubleAcquire() throws {
+    @Test
+    func `repeated set(true) re-asserts clamshell but does not double-acquire the assertion`() throws {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         try policy.set(blocked: true)
         try policy.set(blocked: true)
-        #expect(idle.acquireCount == 1)            // idempotent acquire
+        #expect(idle.acquireCount == 1) // idempotent acquire
         #expect(clam.calls == [false, true, true]) // clamshell re-asserted (wake recovery)
         #expect(policy.isBlocked)
     }
 
-    @Test("a clamshell failure while blocking propagates")
-    func throwOnBlockPropagates() {
+    @Test
+    func `a clamshell failure while blocking propagates`() {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         clam.throwOn = true
         #expect(throws: FakeClamshell.Boom.self) {
             try policy.set(blocked: true)
         }
-        #expect(!policy.isBlocked)   // block did not complete
-        #expect(idle.isHeld)         // but the idle assertion was already acquired (matches original)
+        #expect(!policy.isBlocked) // block did not complete
+        #expect(idle.isHeld) // but the idle assertion was already acquired (matches original)
     }
 
-    @Test("a clamshell failure while unblocking is swallowed (best-effort clear)")
-    func throwOnUnblockIsSwallowed() throws {
+    @Test
+    func `a clamshell failure while unblocking is swallowed (best-effort clear)`() throws {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         try policy.set(blocked: true)
         clam.throwOn = false
-        try policy.set(blocked: false)   // must not throw
+        try policy.set(blocked: false) // must not throw
         #expect(!policy.isBlocked)
         #expect(!idle.isHeld)
     }

@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 
 enum StatusCommand {
     static func run(args: [String]) throws {

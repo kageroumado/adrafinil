@@ -4,7 +4,8 @@ import Foundation
 /// Reply closures are `@Sendable`: NSXPC delivers them on its own private queue, so they
 /// must not be `@MainActor`-isolated (which under default isolation they otherwise would be,
 /// causing a queue-assertion trap when the reply fires off the main actor).
-@objc public protocol DaemonXPCProtocol {
+@objc
+public protocol DaemonXPCProtocol {
     /// Returns the current daemon status as a JSON-encoded `DaemonStatus`.
     func status(reply: @escaping @Sendable (Data?, Error?) -> Void)
 

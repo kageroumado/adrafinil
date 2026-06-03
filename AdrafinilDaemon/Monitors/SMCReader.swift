@@ -7,7 +7,9 @@ import IOKit
 /// No private headers; no entitlements required.
 final class SMCReader: @unchecked Sendable {
     private var connection: io_connect_t = 0
-    private var isOpen: Bool { connection != 0 }
+    private var isOpen: Bool {
+        connection != 0
+    }
 
     deinit { close() }
 
@@ -74,7 +76,7 @@ final class SMCReader: @unchecked Sendable {
         return String(bytes: [b0, b1, b2, b3], encoding: .ascii) ?? ""
     }
 
-    private func decodeTemperature(bytes: SMCBytes, size: UInt32, type: String) -> Double? {
+    private func decodeTemperature(bytes: SMCBytes, size _: UInt32, type: String) -> Double? {
         // We only need to handle the temperature formats: "sp78" (Intel) and "flt " (Apple Silicon).
         let b0 = bytes.0, b1 = bytes.1, b2 = bytes.2, b3 = bytes.3
         switch type {
@@ -97,10 +99,40 @@ final class SMCReader: @unchecked Sendable {
 
 // MARK: - SMC structs
 
-private typealias SMCBytes = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
-                              UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
-                              UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
-                              UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
+private typealias SMCBytes = (
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+    UInt8,
+)
 
 private struct SMCKeyInfoData {
     var dataSize: UInt32 = 0
@@ -112,13 +144,43 @@ private struct SMCKeyData {
     var key: UInt32 = 0
     var vers: (UInt8, UInt8, UInt8, UInt8, UInt32) = (0, 0, 0, 0, 0)
     var pLimitData: (UInt16, UInt16, UInt16, UInt16, UInt32) = (0, 0, 0, 0, 0)
-    var keyInfo: SMCKeyInfoData = SMCKeyInfoData()
+    var keyInfo: SMCKeyInfoData = .init()
     var result: UInt8 = 0
     var status: UInt8 = 0
     var data8: UInt8 = 0
     var data32: UInt32 = 0
-    var bytes: SMCBytes = (0, 0, 0, 0, 0, 0, 0, 0,
-                           0, 0, 0, 0, 0, 0, 0, 0,
-                           0, 0, 0, 0, 0, 0, 0, 0,
-                           0, 0, 0, 0, 0, 0, 0, 0)
+    var bytes: SMCBytes = (
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
 }

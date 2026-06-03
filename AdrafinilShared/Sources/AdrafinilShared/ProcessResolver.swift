@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 
 /// Process-tree helpers shared by the CLI (to find which agent owns an `acquire`) and the
 /// daemon (to sweep for running agents).
@@ -10,14 +10,13 @@ import Darwin
 /// `owningAgentPID` walks up the parent chain to the real agent process so the daemon can watch the
 /// process that actually matters.
 public enum ProcessResolver {
-
     /// Walks up the parent chain from this process looking for an agent executable. Returns that
     /// PID, or `-1` if none is found (in which case the daemon must not process-watch, to avoid a
     /// premature release).
     public static func owningAgentPID(binaryNames: Set<String>) -> pid_t {
         var pid = getppid()
         var depth = 0
-        while pid > 1 && depth < 16 {
+        while pid > 1, depth < 16 {
             if let path = path(of: pid), pathMatchesAgent(path, names: binaryNames) {
                 return pid
             }
@@ -53,7 +52,7 @@ public enum ProcessResolver {
 
         var result: [(pid_t, String, String)] = []
         result.reserveCapacity(count)
-        for i in 0..<min(count, pids.count) {
+        for i in 0 ..< min(count, pids.count) {
             let pid = pids[i]
             guard pid > 0, let path = path(of: pid) else { continue }
             result.append((pid, (path as NSString).lastPathComponent, path))
@@ -99,8 +98,8 @@ public enum ProcessResolver {
         if defaultPID > 0 { return defaultPID }
 
         let rel = pidFileRelativePath as NSString
-        let hermesDir = rel.deletingLastPathComponent          // ".hermes"
-        let pidFilename = rel.lastPathComponent                // "gateway.pid"
+        let hermesDir = rel.deletingLastPathComponent // ".hermes"
+        let pidFilename = rel.lastPathComponent // "gateway.pid"
         let profilesDir = "\(homeRoot)/\(hermesDir)/profiles"
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: profilesDir) else { return -1 }
         for name in names.sorted() {
@@ -111,7 +110,7 @@ public enum ProcessResolver {
     }
 
     /// `PROC_PIDPATHINFO_MAXSIZE` (4 * MAXPATHLEN); the macro isn't visible to Swift.
-    private static let maxPathSize = 4 * 1024
+    private static let maxPathSize = 4 * 1_024
 
     /// Full executable path for a PID, or nil if it can't be read.
     public static func path(of pid: pid_t) -> String? {
@@ -143,7 +142,7 @@ public enum ProcessResolver {
         guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [:] }
         let count = min(size / MemoryLayout<kinfo_proc>.stride, procs.count)
         var map: [pid_t: [pid_t]] = [:]
-        for i in 0..<count {
+        for i in 0 ..< count {
             let pid = procs[i].kp_proc.p_pid
             let ppid = procs[i].kp_eproc.e_ppid
             if pid > 0 { map[ppid, default: []].append(pid) }
@@ -177,15 +176,19 @@ public enum ProcessResolver {
 
         var i = MemoryLayout<Int32>.size
         // Skip the executable path and the alignment NULs that follow it.
-        while i < size && buf[i] != 0 { i += 1 }
-        while i < size && buf[i] == 0 { i += 1 }
+        while i < size && buf[i] != 0 {
+            i += 1
+        }
+        while i < size && buf[i] == 0 {
+            i += 1
+        }
 
         var args: [String] = []
         args.reserveCapacity(Int(argc))
         var tokenStart = i
         while i < size && args.count < Int(argc) {
             if buf[i] == 0 {
-                args.append(String(decoding: buf[tokenStart..<i], as: UTF8.self))
+                args.append(String(decoding: buf[tokenStart ..< i], as: UTF8.self))
                 tokenStart = i + 1
             }
             i += 1

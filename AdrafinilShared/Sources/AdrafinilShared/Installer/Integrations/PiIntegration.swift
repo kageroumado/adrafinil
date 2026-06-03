@@ -4,7 +4,9 @@ import Foundation
 struct PiIntegration: AgentIntegration {
     let agent = AgentKind.pi
 
-    private func pluginRoot(_ ctx: HookContext) -> String { "\(ctx.homeRoot)/.pi/agent/extensions" }
+    private func pluginRoot(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.pi/agent/extensions"
+    }
 
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.pi")
@@ -27,7 +29,7 @@ struct PiIntegration: AgentIntegration {
             pluginRoot: pluginRoot(ctx),
             fileName: "adrafinil.ts",
             content: { Self.extensionTS(cliPath: ctx.cliPath) },
-            installSummary: "wrote Pi extension"
+            installSummary: "wrote Pi extension",
         )
     }
 
@@ -42,11 +44,11 @@ struct PiIntegration: AgentIntegration {
     private static func extensionTS(cliPath: String) -> String {
         """
         import { execFileSync } from "node:child_process"
-
+        
         function run(args) {
           try { execFileSync(\(swiftStringLiteral: cliPath), args) } catch (_) {}
         }
-
+        
         export default function (pi) {
           const id = (ctx) => ctx?.sessionManager?.getSessionFile?.() ?? String(process.pid)
           pi.on("session_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))

@@ -1,9 +1,9 @@
+import AdrafinilShared
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
 import os
 import OSLog
-import AdrafinilShared
 
 /// Keeps the Mac awake while an agent is working.
 ///
@@ -55,20 +55,22 @@ final class SleepBlocker {
     private let policy: OSAllocatedUnfairLock<SleepBlockPolicy>
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
-    var isBlocked: Bool { policy.withLock { $0.isBlocked } }
+    var isBlocked: Bool {
+        policy.withLock { $0.isBlocked }
+    }
 
     init() {
         log.notice("init — clearing any stale disablesleep state from a prior instance")
         // SleepBlockPolicy clears any stale clamshell block on construction (crash recovery).
-        policy = OSAllocatedUnfairLock(
-            uncheckedState: SleepBlockPolicy(idle: RealIdleAssertion(), clamshell: PMSetClamshellControl())
+        self.policy = OSAllocatedUnfairLock(
+            uncheckedState: SleepBlockPolicy(idle: RealIdleAssertion(), clamshell: PMSetClamshellControl()),
         )
     }
 
     func set(blocked: Bool) throws {
         // `withLock`'s body is `@Sendable`, so it can't capture `self`; bind the (Sendable) Logger
         // locally and capture that, keeping the before/after logging inside the critical section.
-        let log = self.log
+        let log = log
         try policy.withLock { policy in
             // Read into locals before logging: the Logger interpolation is an escaping autoclosure,
             // which can't capture the `inout policy`.
@@ -87,7 +89,9 @@ private final class RealIdleAssertion: IdleSleepAsserting {
     private var assertionID: IOPMAssertionID = 0
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
-    var isHeld: Bool { assertionID != 0 }
+    var isHeld: Bool {
+        assertionID != 0
+    }
 
     /// Defensive: if a `SleepBlocker` is ever torn down while still holding the assertion, release
     /// it here rather than leaking it until process death. With the shared-instance design this
@@ -104,7 +108,7 @@ private final class RealIdleAssertion: IdleSleepAsserting {
             kIOPMAssertPreventUserIdleSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
             "Adrafinil: agent active" as CFString,
-            &assertionID
+            &assertionID,
         )
         if kr == kIOReturnSuccess {
             log.notice("ensureIdleAssertion — created idle-sleep assertion id=\(self.assertionID)")
@@ -143,8 +147,11 @@ private final class PMSetClamshellControl: ClamshellSleepControlling {
         guard task.terminationStatus == 0 else {
             let err = errPipe.fileHandleForReading.readDataToEndOfFile()
             let msg = String(data: err, encoding: .utf8) ?? "pmset exited \(task.terminationStatus)"
-            throw NSError(domain: "Adrafinil.Helper.SleepBlocker", code: Int(task.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: msg])
+            throw NSError(
+                domain: "Adrafinil.Helper.SleepBlocker",
+                code: Int(task.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: msg],
+            )
         }
     }
 }

@@ -1,6 +1,6 @@
-import Foundation
 import AdrafinilShared
 import Darwin
+import Foundation
 import os
 import OSLog
 
@@ -39,7 +39,7 @@ final class ProcessWatcher {
             kq = kqueue()
             guard kq >= 0 else { return }
             Thread { [self] in
-                self.runLoop(notify: notify)
+                runLoop(notify: notify)
             }.start()
         }
 
@@ -58,7 +58,7 @@ final class ProcessWatcher {
                 flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
                 fflags: UInt32(NOTE_EXIT),
                 data: 0,
-                udata: nil
+                udata: nil,
             )
             _ = kevent(kq, &event, 1, nil, 0, nil)
         }

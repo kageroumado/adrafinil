@@ -31,7 +31,9 @@ public struct HookInstaller {
         self.homeRoot = homeRoot
     }
 
-    private var context: HookContext { HookContext(cliPath: cliPath, homeRoot: homeRoot) }
+    private var context: HookContext {
+        HookContext(cliPath: cliPath, homeRoot: homeRoot)
+    }
 
     public func install(for agent: AgentKind, dryRun: Bool) throws -> InstallResult {
         let integration = AgentIntegrations.integration(for: agent)
@@ -45,7 +47,7 @@ public struct HookInstaller {
     /// `InstallResult` describing the diff without writing anything to disk.
     @discardableResult
     public func uninstall(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
-        return try AgentIntegrations.integration(for: agent).uninstall(context, dryRun: dryRun)
+        try AgentIntegrations.integration(for: agent).uninstall(context, dryRun: dryRun)
     }
 
     /// Returns a list of agents currently detected on the system.

@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import OSLog
 
 /// Symlinks the bundled `adrafinil` CLI to /usr/local/bin/adrafinil (or ~/.local/bin
@@ -41,8 +41,10 @@ enum CLISymlinker {
         if (try? symlink(from: source, to: primary)) != nil { return }
 
         let fallback = AdrafinilConstants.cliFallbackInstallPath
-        try? FileManager.default.createDirectory(atPath: (fallback as NSString).deletingLastPathComponent,
-                                                 withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            atPath: (fallback as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true,
+        )
         try? symlink(from: source, to: fallback)
     }
 

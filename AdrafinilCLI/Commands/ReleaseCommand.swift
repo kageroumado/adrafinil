@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import OSLog
-import AdrafinilShared
 
 enum ReleaseCommand {
     static func run(args: [String]) throws {
@@ -33,7 +33,7 @@ enum ReleaseCommand {
             reason: nil,
             pid: nil,
             processName: nil,
-            ttlSeconds: nil
+            ttlSeconds: nil,
         )
 
         do {

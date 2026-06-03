@@ -25,7 +25,7 @@ public final class ProcessActivityGate {
         pid: pid_t,
         treeCPU: TimeInterval,
         now: Date,
-        rateThreshold: Double = IdleReleaseEvaluator.defaultCPURateThreshold
+        rateThreshold: Double = IdleReleaseEvaluator.defaultCPURateThreshold,
     ) -> Bool {
         defer { lastSample[pid] = (treeCPU, now) }
         guard let prev = lastSample[pid] else { return false }

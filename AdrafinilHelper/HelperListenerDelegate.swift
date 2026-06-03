@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import OSLog
-import AdrafinilShared
 
 final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "Listener")
@@ -10,7 +10,7 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
     /// instead of orphaning it — see `SleepBlocker`.
     private let blocker = SleepBlocker()
 
-    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+    func listener(_: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
         // Only accept connections from binaries signed by us. The daemon is the only
         // legitimate caller in practice. (Verifier lives in AdrafinilShared so the
         // daemon's app-facing listener can reuse it.)

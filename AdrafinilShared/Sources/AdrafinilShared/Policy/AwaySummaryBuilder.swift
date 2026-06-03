@@ -29,7 +29,7 @@ public struct AwaySummaryBuilder {
         openedAt: Date,
         peakTemperatureCelsius: Double?,
         thermalCutout: Bool,
-        lowBatteryCutout: Bool = false
+        lowBatteryCutout: Bool = false,
     ) -> AwaySummary? {
         guard !heldAtClose.isEmpty else { return nil }
 
@@ -39,7 +39,7 @@ public struct AwaySummaryBuilder {
             let item = FinishedAgentSummary(
                 tool: held.tool,
                 displayName: held.displayName,
-                duration: openedAt.timeIntervalSince(held.acquiredAt)
+                duration: openedAt.timeIntervalSince(held.acquiredAt),
             )
             if activeTools.contains(held.tool) {
                 stillActive.append(item)
@@ -55,7 +55,7 @@ public struct AwaySummaryBuilder {
             stillActive: stillActive,
             peakTemperatureCelsius: peakTemperatureCelsius,
             thermalCutout: thermalCutout,
-            lowBatteryCutout: lowBatteryCutout
+            lowBatteryCutout: lowBatteryCutout,
         )
     }
 }

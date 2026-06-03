@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import IOKit.ps
-import AdrafinilShared
 import OSLog
 
 /// Polls battery charge and power source; triggers a cutout when, on battery with the lid closed
@@ -28,7 +28,7 @@ final class BatteryMonitor {
     private var runLoopSource: CFRunLoopSource?
 
     func start() {
-        tick()  // seed an initial reading
+        tick() // seed an initial reading
         // Event-driven instead of polled: IOKit fires this source whenever power-source info changes
         // (plug/unplug, charge level), so there are no wakeups while nothing changes — and on AC at
         // full charge it is completely silent. The callback lands on the main run loop, which is the
@@ -66,7 +66,7 @@ final class BatteryMonitor {
             onBattery: reading.onBattery,
             enabled: enabled,
             lidClosed: lidClosed,
-            isBlocking: isBlocking
+            isBlocking: isBlocking,
         ) else { return }
         log.warning("Low-battery cutout: \(reading.percent)% <= \(self.thresholdPercent)% on battery")
         onCutout?()

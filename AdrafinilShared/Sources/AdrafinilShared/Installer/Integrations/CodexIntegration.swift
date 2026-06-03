@@ -28,7 +28,7 @@ struct CodexIntegration: AgentIntegration {
         let result = try shape(ctx).install(dryRun: dryRun)
         return HookInstaller.InstallResult(
             summary: result.summary + "; trust it in Codex with /hooks",
-            diff: result.diff
+            diff: result.diff,
         )
     }
 
@@ -46,7 +46,7 @@ struct CodexIntegration: AgentIntegration {
             startEvent: "SessionStart",
             endEvent: nil,
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue),
-            releaseCommand: ctx.hookCommand("release", tool: agent.rawValue)
+            releaseCommand: ctx.hookCommand("release", tool: agent.rawValue),
         )
     }
 }

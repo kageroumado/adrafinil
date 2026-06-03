@@ -39,7 +39,7 @@ public struct LidActionDecider {
         return Decision(
             shouldChime: soundOnLidClose,
             shouldLock: lockOnLidClose,
-            shouldBeginAwayTracking: true
+            shouldBeginAwayTracking: true,
         )
     }
 }

@@ -1,8 +1,8 @@
 import Foundation
 
-/// Length-prefixed JSON over Unix socket. Used by the `adrafinil` CLI.
-///
-/// Frame format: `[UInt32 big-endian length][JSON body]`.
+// Length-prefixed JSON over Unix socket. Used by the `adrafinil` CLI.
+//
+// Frame format: `[UInt32 big-endian length][JSON body]`.
 
 public struct CLIRequest: Codable, Sendable {
     public enum Op: String, Codable, Sendable {
@@ -25,7 +25,12 @@ public struct CLIRequest: Codable, Sendable {
 
     /// Wire keys match the documented protocol: `ttlSeconds` serializes as `ttl`.
     enum CodingKeys: String, CodingKey {
-        case op, key, tool, reason, pid, processName
+        case op
+        case key
+        case tool
+        case reason
+        case pid
+        case processName
         case ttlSeconds = "ttl"
     }
 
@@ -53,7 +58,12 @@ public struct CLIResponse: Codable, Sendable {
 
     /// Wire keys match the documented protocol: `blocking` serializes as `blockingState`.
     enum CodingKeys: String, CodingKey {
-        case ok, error, assertionCount, statusJSON, warning, holdKey
+        case ok
+        case error
+        case assertionCount
+        case statusJSON
+        case warning
+        case holdKey
         case blocking = "blockingState"
     }
 
@@ -69,7 +79,7 @@ public struct CLIResponse: Codable, Sendable {
 }
 
 public enum CLIFraming {
-    public static func encode<T: Encodable>(_ value: T) throws -> Data {
+    public static func encode(_ value: some Encodable) throws -> Data {
         let body = try JSONEncoder().encode(value)
         var length = UInt32(body.count).bigEndian
         var frame = Data(bytes: &length, count: MemoryLayout<UInt32>.size)
@@ -80,18 +90,27 @@ public enum CLIFraming {
     public static func readFrame(read: (Int) throws -> Data) throws -> Data {
         let lenBytes = try read(4)
         guard lenBytes.count == 4 else {
-            throw NSError(domain: "Adrafinil.CLIFraming", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Short read on length"])
+            throw NSError(
+                domain: "Adrafinil.CLIFraming",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Short read on length"],
+            )
         }
         let len = lenBytes.withUnsafeBytes { $0.load(as: UInt32.self) }.bigEndian
-        guard len < 16 * 1024 * 1024 else {
-            throw NSError(domain: "Adrafinil.CLIFraming", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "Frame too large"])
+        guard len < 16 * 1_024 * 1_024 else {
+            throw NSError(
+                domain: "Adrafinil.CLIFraming",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Frame too large"],
+            )
         }
         let body = try read(Int(len))
         guard body.count == len else {
-            throw NSError(domain: "Adrafinil.CLIFraming", code: 3,
-                          userInfo: [NSLocalizedDescriptionKey: "Short read on body"])
+            throw NSError(
+                domain: "Adrafinil.CLIFraming",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Short read on body"],
+            )
         }
         return body
     }

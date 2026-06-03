@@ -10,7 +10,8 @@ import Foundation
 /// `statusChanged` is reply-less (fire-and-forget): NSXPC delivers it on the receiver's private
 /// queue, and a dropped push (dead connection) is harmless — the app re-subscribes on reconnect and
 /// `subscribe` returns the current snapshot, so state is always eventually consistent.
-@objc public protocol AppXPCProtocol {
+@objc
+public protocol AppXPCProtocol {
     /// A fresh `DaemonStatus` (JSON-encoded), pushed by the daemon on every state change.
     func statusChanged(_ encodedStatus: Data)
 }

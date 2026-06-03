@@ -1,5 +1,5 @@
-import AppKit
 import AdrafinilShared
+import AppKit
 import ServiceManagement
 import SwiftUI
 import UserNotifications
@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Set by the uninstall flow so its own teardown isn't gated/paused by `applicationShouldTerminate`.
     private var isUninstalling = false
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         // Single instance. macOS blocks double-launch from Finder, but launching via Xcode (or a
         // different build path) bypasses that — and Xcode's Stop doesn't reliably kill a menu-bar
         // (LSUIElement) app, so old copies pile up. Terminate any other running instance on launch.
@@ -31,21 +31,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleAwaySummary(_:)),
             name: .adrafinilAwaySummaryReceived,
-            object: nil
+            object: nil,
         )
 
-#if DEBUG
-        // Daemon-free UI gallery: launch with `-ADRAFINIL_GALLERY 1` to review every surface/state.
-        if UserDefaults.standard.bool(forKey: "ADRAFINIL_GALLERY") {
-            presentGallery()
+        #if DEBUG
+            // Daemon-free UI gallery: launch with `-ADRAFINIL_GALLERY 1` to review every surface/state.
+            if UserDefaults.standard.bool(forKey: "ADRAFINIL_GALLERY") {
+                presentGallery()
+                return
+            }
+            // Every DEBUG run opens the interactive control panel and skips the real first-run flow,
+            // so the UI can be exercised with mock scenarios. Flip "Use live daemon" in the panel to
+            // talk to the real daemon instead.
+            presentDebugControlPanel()
             return
-        }
-        // Every DEBUG run opens the interactive control panel and skips the real first-run flow,
-        // so the UI can be exercised with mock scenarios. Flip "Use live daemon" in the panel to
-        // talk to the real daemon instead.
-        presentDebugControlPanel()
-        return
-#endif
+        #endif
 
         // First run: present the setup flow and nothing else. No privileged work happens
         // until the user proceeds — helper/daemon registration, the CLI symlink, and hook
@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
         false
     }
 
@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `applicationDidFinishLaunching` resumes on the next launch, so "Adrafinil is active only
     /// while its app is open" holds. Centralizing here means every quit path (the popover's power
     /// button, ⌘Q from a window, logout) stops the daemon, not just the button.
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
         // Uninstall tears everything down itself (and unregisters the daemon), so don't gate it.
         if isUninstalling { return .terminateNow }
         // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable.
@@ -105,13 +105,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.alertStyle = .warning
         alert.messageText = "Quit Adrafinil?"
         alert.informativeText = """
-            Quitting turns Adrafinil off: your Mac goes back to sleeping normally and your agents \
-            stop being tracked until you open it again.
-
-            To pause without quitting, use “Let it sleep” instead.
-            """
-        alert.addButton(withTitle: "Quit")    // default — Return
-        alert.addButton(withTitle: "Cancel")  // Esc
+        Quitting turns Adrafinil off: your Mac goes back to sleeping normally and your agents \
+        stop being tracked until you open it again.
+        
+        To pause without quitting, use “Let it sleep” instead.
+        """
+        alert.addButton(withTitle: "Quit") // default — Return
+        alert.addButton(withTitle: "Cancel") // Esc
         if alert.runModal() == .alertFirstButtonReturn {
             NSApp.terminate(nil)
         }
@@ -128,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func terminateOtherInstances() {
         let me = NSRunningApplication.current
         for app in NSWorkspace.shared.runningApplications
-        where app.bundleIdentifier == me.bundleIdentifier && app.processIdentifier != me.processIdentifier {
+            where app.bundleIdentifier == me.bundleIdentifier && app.processIdentifier != me.processIdentifier {
             app.forceTerminate()
         }
     }
@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Modern, chromeless look: keep the traffic lights but hide the title text and make the
         // titlebar transparent. Not full-size-content — that pushed the content under the titlebar
         // and left an odd gap on steps without a hero image.
-        window.title = "Adrafinil Setup"            // for the window menu / accessibility only
+        window.title = "Adrafinil Setup" // for the window menu / accessibility only
         window.styleMask = [.titled, .closable]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -161,67 +161,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
     }
 
-#if DEBUG
-    private var galleryWindow: NSWindow?
-    private var debugPanelWindow: NSWindow?
-    private var debugInstallerWindow: NSWindow?
+    #if DEBUG
+        private var galleryWindow: NSWindow?
+        private var debugPanelWindow: NSWindow?
+        private var debugInstallerWindow: NSWindow?
 
-    /// Presents the interactive debug control panel (DEBUG only).
-    func presentDebugControlPanel() {
-        DebugControl.shared.appDelegate = self
-        if let window = debugPanelWindow {
-            window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+        /// Presents the interactive debug control panel (DEBUG only).
+        func presentDebugControlPanel() {
+            DebugControl.shared.appDelegate = self
+            if let window = debugPanelWindow {
+                window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+            }
+            let hosting = NSHostingController(rootView: DebugControlPanel(control: .shared))
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Adrafinil — Debug Controls"
+            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+            window.setContentSize(NSSize(width: 760, height: 600))
+            window.center()
+            window.isReleasedWhenClosed = false
+            debugPanelWindow = window
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
-        let hosting = NSHostingController(rootView: DebugControlPanel(control: .shared))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Adrafinil — Debug Controls"
-        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-        window.setContentSize(NSSize(width: 760, height: 600))
-        window.center()
-        window.isReleasedWhenClosed = false
-        debugPanelWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
 
-    /// Opens the installer flow with mock providers — walking it touches nothing on disk.
-    func presentInstallerPreview() {
-        let hosting = NSHostingController(
-            rootView: InstallerView(setup: PreviewSetupProvider(), agentHooks: PreviewAgentHooksProvider())
-        )
-        let window = debugInstallerWindow ?? NSWindow(contentViewController: hosting)
-        window.contentViewController = hosting
-        window.title = "Adrafinil Setup (mock)"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 560, height: 600))
-        window.center()
-        window.isReleasedWhenClosed = false
-        debugInstallerWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    /// Presents the daemon-free UI gallery window (DEBUG only).
-    func presentGallery() {
-        if let window = galleryWindow {
-            window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+        /// Opens the installer flow with mock providers — walking it touches nothing on disk.
+        func presentInstallerPreview() {
+            let hosting = NSHostingController(
+                rootView: InstallerView(setup: PreviewSetupProvider(), agentHooks: PreviewAgentHooksProvider()),
+            )
+            let window = debugInstallerWindow ?? NSWindow(contentViewController: hosting)
+            window.contentViewController = hosting
+            window.title = "Adrafinil Setup (mock)"
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(NSSize(width: 560, height: 600))
+            window.center()
+            window.isReleasedWhenClosed = false
+            debugInstallerWindow = window
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
-        let hosting = NSHostingController(rootView: GalleryView())
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Adrafinil — UI Gallery"
-        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-        window.setContentSize(NSSize(width: 1180, height: 860))
-        window.center()
-        window.isReleasedWhenClosed = false
-        galleryWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-#endif
+
+        /// Presents the daemon-free UI gallery window (DEBUG only).
+        func presentGallery() {
+            if let window = galleryWindow {
+                window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+            }
+            let hosting = NSHostingController(rootView: GalleryView())
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Adrafinil — UI Gallery"
+            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+            window.setContentSize(NSSize(width: 1_180, height: 860))
+            window.center()
+            window.isReleasedWhenClosed = false
+            galleryWindow = window
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    #endif
 
     // MARK: - Away summary
 
-    @objc private func handleAwaySummary(_ notification: Notification) {
+    @objc
+    private func handleAwaySummary(_ notification: Notification) {
         guard let summary = notification.object as? AwaySummary else { return }
         AwayNotifier.shared.deliver(summary)
         (notification.userInfo?["model"] as? AppStatusModel)?.awaySummary = nil
@@ -231,9 +232,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Present the recap as a banner even while Adrafinil is the active app.
     nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+        _: UNUserNotificationCenter,
+        willPresent _: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void,
     ) {
         completionHandler([.banner, .list, .sound])
     }

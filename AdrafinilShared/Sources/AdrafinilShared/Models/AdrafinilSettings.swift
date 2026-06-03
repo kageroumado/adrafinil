@@ -40,13 +40,22 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case soundOnLidClose, soundVolume, chimeName, lockOnLidClose
-        case thermalCutoutEnabled, thermalThresholdCelsius
-        case lowBatteryCutoutEnabled, lowBatteryThresholdPercent
-        case idleReleaseEnabled, idleReleaseSeconds
-        case processSniffingEnabled, autoAcquireForKnownAgents
-        case agentHoldsEnabled, manualHoldMaxHours
-        case launchAtLogin, showInMenuBar
+        case soundOnLidClose
+        case soundVolume
+        case chimeName
+        case lockOnLidClose
+        case thermalCutoutEnabled
+        case thermalThresholdCelsius
+        case lowBatteryCutoutEnabled
+        case lowBatteryThresholdPercent
+        case idleReleaseEnabled
+        case idleReleaseSeconds
+        case processSniffingEnabled
+        case autoAcquireForKnownAgents
+        case agentHoldsEnabled
+        case manualHoldMaxHours
+        case launchAtLogin
+        case showInMenuBar
     }
 
     /// Decode-only key for the retired `idleReleaseMinutes` field, migrated to `idleReleaseSeconds`.
@@ -61,31 +70,31 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AdrafinilSettings()
-        soundOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .soundOnLidClose) ?? d.soundOnLidClose
-        soundVolume = try c.decodeIfPresent(Float.self, forKey: .soundVolume) ?? d.soundVolume
-        chimeName = try c.decodeIfPresent(String.self, forKey: .chimeName) ?? d.chimeName
-        lockOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose) ?? d.lockOnLidClose
-        thermalCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .thermalCutoutEnabled) ?? d.thermalCutoutEnabled
-        thermalThresholdCelsius = try c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius) ?? d.thermalThresholdCelsius
-        lowBatteryCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .lowBatteryCutoutEnabled) ?? d.lowBatteryCutoutEnabled
-        lowBatteryThresholdPercent = try c.decodeIfPresent(Int.self, forKey: .lowBatteryThresholdPercent) ?? d.lowBatteryThresholdPercent
-        idleReleaseEnabled = try c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled) ?? d.idleReleaseEnabled
+        self.soundOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .soundOnLidClose) ?? d.soundOnLidClose
+        self.soundVolume = try c.decodeIfPresent(Float.self, forKey: .soundVolume) ?? d.soundVolume
+        self.chimeName = try c.decodeIfPresent(String.self, forKey: .chimeName) ?? d.chimeName
+        self.lockOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose) ?? d.lockOnLidClose
+        self.thermalCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .thermalCutoutEnabled) ?? d.thermalCutoutEnabled
+        self.thermalThresholdCelsius = try c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius) ?? d.thermalThresholdCelsius
+        self.lowBatteryCutoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .lowBatteryCutoutEnabled) ?? d.lowBatteryCutoutEnabled
+        self.lowBatteryThresholdPercent = try c.decodeIfPresent(Int.self, forKey: .lowBatteryThresholdPercent) ?? d.lowBatteryThresholdPercent
+        self.idleReleaseEnabled = try c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled) ?? d.idleReleaseEnabled
         // Prefer the seconds field; migrate a legacy `idleReleaseMinutes` (×60) if that's all that's
         // present; otherwise fall back to the default.
         if let secs = try c.decodeIfPresent(Int.self, forKey: .idleReleaseSeconds) {
-            idleReleaseSeconds = secs
+            self.idleReleaseSeconds = secs
         } else if let legacy = try? decoder.container(keyedBy: LegacyCodingKeys.self),
                   let mins = try? legacy.decodeIfPresent(Int.self, forKey: .idleReleaseMinutes) {
-            idleReleaseSeconds = mins * 60
+            self.idleReleaseSeconds = mins * 60
         } else {
-            idleReleaseSeconds = d.idleReleaseSeconds
+            self.idleReleaseSeconds = d.idleReleaseSeconds
         }
-        processSniffingEnabled = try c.decodeIfPresent(Bool.self, forKey: .processSniffingEnabled) ?? d.processSniffingEnabled
-        autoAcquireForKnownAgents = try c.decodeIfPresent(Bool.self, forKey: .autoAcquireForKnownAgents) ?? d.autoAcquireForKnownAgents
-        agentHoldsEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentHoldsEnabled) ?? d.agentHoldsEnabled
-        manualHoldMaxHours = try c.decodeIfPresent(Double.self, forKey: .manualHoldMaxHours) ?? d.manualHoldMaxHours
-        launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
-        showInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showInMenuBar) ?? d.showInMenuBar
+        self.processSniffingEnabled = try c.decodeIfPresent(Bool.self, forKey: .processSniffingEnabled) ?? d.processSniffingEnabled
+        self.autoAcquireForKnownAgents = try c.decodeIfPresent(Bool.self, forKey: .autoAcquireForKnownAgents) ?? d.autoAcquireForKnownAgents
+        self.agentHoldsEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentHoldsEnabled) ?? d.agentHoldsEnabled
+        self.manualHoldMaxHours = try c.decodeIfPresent(Double.self, forKey: .manualHoldMaxHours) ?? d.manualHoldMaxHours
+        self.launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
+        self.showInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showInMenuBar) ?? d.showInMenuBar
     }
 
     public static func load(from url: URL = AdrafinilConstants.appSupportURL.appendingPathComponent(AdrafinilConstants.configFilename)) -> AdrafinilSettings {

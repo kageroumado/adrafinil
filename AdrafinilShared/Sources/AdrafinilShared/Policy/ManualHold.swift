@@ -14,7 +14,9 @@ public enum ManualHold {
     /// Tool label stored on a hold that didn't name its originating agent.
     public static let defaultTool = "manual"
 
-    public static func isHoldKey(_ key: String) -> Bool { key.hasPrefix(keyPrefix) }
+    public static func isHoldKey(_ key: String) -> Bool {
+        key.hasPrefix(keyPrefix)
+    }
 
     /// A fresh hold key: `hold:` + 8 lowercase hex chars. Short enough to echo back to an agent,
     /// unique enough to never collide in practice.
@@ -27,7 +29,7 @@ public enum ManualHold {
     /// The cap (the user-configurable `manualHoldMaxHours`) is the hard ceiling: a forgetful agent
     /// can never pin the Mac awake longer than this.
     public static func clampTTL(_ requested: TimeInterval?, capHours: Double) -> TimeInterval {
-        let cap = max(1, capHours * 3600)
+        let cap = max(1, capHours * 3_600)
         let wanted = requested ?? defaultTTL
         return min(max(wanted, 1), cap)
     }
@@ -44,7 +46,7 @@ public enum DurationParser {
         // Bare number → seconds.
         if let bare = TimeInterval(s) { return bare >= 0 ? bare : nil }
 
-        let units: [Character: TimeInterval] = ["s": 1, "m": 60, "h": 3600, "d": 86400]
+        let units: [Character: TimeInterval] = ["s": 1, "m": 60, "h": 3_600, "d": 86_400]
         var total: TimeInterval = 0
         var number = ""
         var sawUnit = false

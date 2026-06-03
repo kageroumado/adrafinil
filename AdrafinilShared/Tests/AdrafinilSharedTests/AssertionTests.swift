@@ -1,53 +1,60 @@
-import Testing
 import Foundation
+import Testing
 @testable import AdrafinilShared
 
 @Suite("Assertion")
 struct AssertionTests {
-
-    @Test func ageGrowsOverTime() async throws {
+    @Test
+    func `age grows over time`() {
         let a = Assertion(key: "k", tool: "t", pid: 1, processName: "t", acquiredAt: Date().addingTimeInterval(-2))
         #expect(a.age >= 2)
     }
 
-    @Test func ttlSetsExpiresAt() {
+    @Test
+    func `ttl sets expires at`() throws {
         let now = Date()
         let a = Assertion(key: "k", tool: "t", pid: 1, processName: "t", acquiredAt: now, ttl: 30)
         #expect(a.expiresAt != nil)
-        #expect(abs(a.expiresAt!.timeIntervalSince(now) - 30) < 0.01)
+        #expect(try abs(#require(a.expiresAt?.timeIntervalSince(now)) - 30) < 0.01)
     }
 
-    @Test func absentTtlMeansNoExpiry() {
+    @Test
+    func `absent ttl means no expiry`() {
         let a = Assertion(key: "k", tool: "t", pid: 1, processName: "t")
         #expect(a.expiresAt == nil)
     }
 
-    @Test func identifierIsKey() {
+    @Test
+    func `identifier is key`() {
         let a = Assertion(key: "claude:abc", tool: "claude", pid: 1, processName: "claude")
         #expect(a.id == "claude:abc")
     }
 
-    @Test func codableRoundtrip() throws {
+    @Test
+    func `codable roundtrip`() throws {
         let a = Assertion(key: "k", tool: "t", reason: "running", pid: 42, processName: "tool", ttl: 60)
         let data = try JSONEncoder().encode(a)
         let decoded = try JSONDecoder().decode(Assertion.self, from: data)
         #expect(decoded == a)
     }
 
-    @Test func zeroTtlExpiresAtAcquisition() {
+    @Test
+    func `zero ttl expires at acquisition`() {
         let now = Date()
         let a = Assertion(key: "k", tool: "t", pid: 1, processName: "t", acquiredAt: now, ttl: 0)
         #expect(a.expiresAt == now)
     }
 
-    @Test func negativeTtlIsAlreadyExpired() {
+    @Test
+    func `negative ttl is already expired`() throws {
         let now = Date()
         let a = Assertion(key: "k", tool: "t", pid: 1, processName: "t", acquiredAt: now, ttl: -10)
         #expect(a.expiresAt != nil)
-        #expect(a.expiresAt! < now)
+        #expect(try #require(a.expiresAt) < now)
     }
 
-    @Test func codableRoundtripPreservesActivityAndExpiry() throws {
+    @Test
+    func `codable roundtrip preserves activity and expiry`() throws {
         let now = Date()
         var a = Assertion(key: "k", tool: "t", pid: 1, processName: "t", acquiredAt: now, ttl: 60)
         a.lastActivityAt = now.addingTimeInterval(5)
@@ -56,7 +63,8 @@ struct AssertionTests {
         #expect(decoded.expiresAt == a.expiresAt)
     }
 
-    @Test func awaySummaryRoundtripsAndComputesDuration() throws {
+    @Test
+    func `away summary roundtrips and computes duration`() throws {
         let closed = Date().addingTimeInterval(-300)
         let opened = Date()
         let summary = AwaySummary(
@@ -64,7 +72,7 @@ struct AssertionTests {
             finished: [FinishedAgentSummary(tool: "claude-code", displayName: "Claude Code", duration: 250)],
             stillActive: [],
             peakTemperatureCelsius: nil,
-            thermalCutout: true
+            thermalCutout: true,
         )
         let decoded = try JSONDecoder().decode(AwaySummary.self, from: JSONEncoder().encode(summary))
         #expect(decoded.finished.count == 1)
@@ -75,18 +83,20 @@ struct AssertionTests {
         #expect(abs(decoded.awayDuration - 300) < 0.01)
     }
 
-    @Test func finishedAgentSummaryIdentifierIsTool() {
+    @Test
+    func `finished agent summary identifier is tool`() {
         let f = FinishedAgentSummary(tool: "codex", displayName: "Codex", duration: 10)
         #expect(f.id == "codex")
     }
 
-    @Test func daemonStatusRoundtripsWithAndWithoutOptionals() throws {
+    @Test
+    func `daemon status roundtrips with and without optionals`() throws {
         let full = DaemonStatus(
             isBlocking: true,
             assertions: [Assertion(key: "k", tool: "t", pid: 1, processName: "t")],
             lidClosed: true, helperConnected: true,
             cpuTemperatureCelsius: 58.5,
-            lastEvent: .thermalCutout, lastEventAt: Date()
+            lastEvent: .thermalCutout, lastEventAt: Date(),
         )
         let d1 = try JSONDecoder().decode(DaemonStatus.self, from: JSONEncoder().encode(full))
         #expect(d1.lastEvent == .thermalCutout)
@@ -96,7 +106,7 @@ struct AssertionTests {
         let empty = DaemonStatus(
             isBlocking: false, assertions: [], lidClosed: false,
             helperConnected: false, cpuTemperatureCelsius: nil,
-            lastEvent: nil, lastEventAt: nil
+            lastEvent: nil, lastEventAt: nil,
         )
         let d2 = try JSONDecoder().decode(DaemonStatus.self, from: JSONEncoder().encode(empty))
         #expect(d2.lastEvent == nil)

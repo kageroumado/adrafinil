@@ -1,7 +1,7 @@
-import Foundation
 import AdrafinilShared
-import SwiftUI
+import Foundation
 import Observation
+import SwiftUI
 
 extension Notification.Name {
     static let adrafinilAwaySummaryReceived = Notification.Name("glass.kagerou.adrafinil.awaySummaryReceived")
@@ -47,10 +47,10 @@ final class AppStatusModel {
             // Set up the push subscription synchronously (the AsyncStream builder runs now), so the
             // connection is established with its callback before the initial refresh reuses it.
             let updates = provider.statusUpdates()
-            subscriptionTask = Task { @MainActor [weak self] in
+            self.subscriptionTask = Task { @MainActor [weak self] in
                 for await status in updates {
                     guard let self else { break }
-                    self.apply(status)
+                    apply(status)
                 }
             }
             // Heartbeat in `.common` mode: a default-mode timer is suspended while the menu-bar
@@ -59,9 +59,9 @@ final class AppStatusModel {
                 Task { @MainActor in await self?.refresh() }
             }
             RunLoop.main.add(t, forMode: .common)
-            heartbeatTimer = t
+            self.heartbeatTimer = t
         }
-        Task { @MainActor in await refresh() }  // immediate first snapshot
+        Task { @MainActor in await refresh() } // immediate first snapshot
     }
 
     isolated deinit {
@@ -71,7 +71,7 @@ final class AppStatusModel {
 
     func refresh() async {
         do {
-            apply(try await provider.fetchStatus())
+            try await apply(provider.fetchStatus())
         } catch {
             lastError = error.localizedDescription
         }
@@ -92,7 +92,7 @@ final class AppStatusModel {
             NotificationCenter.default.post(
                 name: .adrafinilAwaySummaryReceived,
                 object: summary,
-                userInfo: ["model": self]
+                userInfo: ["model": self],
             )
         }
     }
@@ -115,17 +115,17 @@ final class AppStatusModel {
         await refresh()
     }
 
-#if DEBUG
-    /// Fixed-snapshot model for previews and the gallery: seeds `status`/`awaySummary` synchronously
-    /// and does not poll, so a scenario renders deterministically without a daemon.
-    convenience init(previewStatus: DaemonStatus, awaySummary: AwaySummary? = nil, error: (any Error)? = nil) {
-        self.init(provider: PreviewStatusProvider(status: previewStatus, awaySummary: awaySummary, error: error), poll: false)
-        if let error {
-            self.lastError = error.localizedDescription
-        } else {
-            self.status = previewStatus
+    #if DEBUG
+        /// Fixed-snapshot model for previews and the gallery: seeds `status`/`awaySummary` synchronously
+        /// and does not poll, so a scenario renders deterministically without a daemon.
+        convenience init(previewStatus: DaemonStatus, awaySummary: AwaySummary? = nil, error: (any Error)? = nil) {
+            self.init(provider: PreviewStatusProvider(status: previewStatus, awaySummary: awaySummary, error: error), poll: false)
+            if let error {
+                self.lastError = error.localizedDescription
+            } else {
+                self.status = previewStatus
+            }
+            self.awaySummary = awaySummary
         }
-        self.awaySummary = awaySummary
-    }
-#endif
+    #endif
 }

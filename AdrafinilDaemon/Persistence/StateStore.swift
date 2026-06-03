@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 
 /// Persists the current assertion set to disk so daemon restarts don't drop live agent sessions.
 final class StateStore: @unchecked Sendable {

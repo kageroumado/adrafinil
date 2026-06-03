@@ -13,7 +13,7 @@ let package = Package(
             path: "Sources/AdrafinilShared",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-            ]
+            ],
         ),
         .testTarget(
             name: "AdrafinilSharedTests",
@@ -21,7 +21,7 @@ let package = Package(
             path: "Tests/AdrafinilSharedTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-            ]
+            ],
         ),
-    ]
+    ],
 )

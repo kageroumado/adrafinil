@@ -8,7 +8,9 @@ import Foundation
 struct ClineIntegration: AgentIntegration {
     let agent = AgentKind.cline
 
-    func isDetected(_ ctx: HookContext) -> Bool { binaryOnPath("cline") }
+    func isDetected(_: HookContext) -> Bool {
+        binaryOnPath("cline")
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try wrapper(ctx).install(dryRun: dryRun)

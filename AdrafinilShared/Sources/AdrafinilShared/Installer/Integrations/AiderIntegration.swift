@@ -6,7 +6,9 @@ import Foundation
 struct AiderIntegration: AgentIntegration {
     let agent = AgentKind.aider
 
-    func isDetected(_ ctx: HookContext) -> Bool { binaryOnPath("aider") }
+    func isDetected(_: HookContext) -> Bool {
+        binaryOnPath("aider")
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try wrapper(ctx).install(dryRun: dryRun)

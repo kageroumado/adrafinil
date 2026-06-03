@@ -1,3 +1,19 @@
+# Lint only first-party sources; never the build output, SPM checkouts, or generated files.
+included:
+  - Adrafinil
+  - AdrafinilCLI
+  - AdrafinilDaemon
+  - AdrafinilHelper
+  - AdrafinilShared/Sources
+  - AdrafinilShared/Tests
+
+excluded:
+  - build
+  - DerivedData
+  - .build
+  - AdrafinilShared/.build
+  - .swiftpm
+
 disabled_rules:
   # Formatting handled by SwiftFormat
   - trailing_whitespace
@@ -18,6 +34,22 @@ disabled_rules:
   # "whitelist" is accurate technical terminology here
   - inclusive_language
 
+  # Structure is owned by SwiftFormat; the only over-long lines left are content — UI copy,
+  # log messages, and the MCP tool's JSON description — which read worse broken mid-sentence.
+  - line_length
+
+  # ProcessResolver decodes raw proc-table bytes (paths/argv) where `String(decoding:as:)` is the
+  # right tool — a lossy, never-nil decode. The suggested failable initializer is the wrong choice
+  # here, so silence this opt-in rule rather than fight it.
+  - optional_data_string_conversion
+
+# force_try / force_cast are legitimate signals but often intentional in tests (bundled-resource
+# decode, fixtures) — keep them visible as warnings rather than CI-blocking errors.
+force_try:
+  severity: warning
+force_cast:
+  severity: warning
+
 # Length limits adjusted for codebase complexity
 file_length:
   warning: 1000
@@ -26,12 +58,6 @@ file_length:
 function_body_length:
   warning: 60
   error: 120
-
-line_length:
-  warning: 180
-  error: 250
-  ignores_comments: true
-  ignores_urls: true
 
 cyclomatic_complexity:
   warning: 15

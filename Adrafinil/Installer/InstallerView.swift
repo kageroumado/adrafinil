@@ -1,14 +1,16 @@
-import SwiftUI
 import AdrafinilShared
+import SwiftUI
 
 struct InstallerView: View {
     let setup: any SetupProviding
     let agentHooks: any AgentHooksProviding
 
-    init(setup: any SetupProviding = LiveSetupProvider(),
-         agentHooks: any AgentHooksProviding = LiveAgentHooksProvider(),
-         initialStep: Step = .helper,
-         previewInstalling: Bool = false) {
+    init(
+        setup: any SetupProviding = LiveSetupProvider(),
+        agentHooks: any AgentHooksProviding = LiveAgentHooksProvider(),
+        initialStep: Step = .helper,
+        previewInstalling: Bool = false,
+    ) {
         self.setup = setup
         self.agentHooks = agentHooks
         self._step = State(initialValue: initialStep)
@@ -43,7 +45,7 @@ struct InstallerView: View {
     /// Fraction of the selected agents that have finished (done or failed). Drives the progress bar.
     private var installProgress: Double {
         guard !selected.isEmpty else { return 0 }
-        let finished = phases.values.filter { $0 == .done || $0 == .failed }.count
+        let finished = phases.values.count(where: { $0 == .done || $0 == .failed })
         return Double(finished) / Double(selected.count)
     }
 
@@ -51,7 +53,8 @@ struct InstallerView: View {
     /// the old one fades out — a gentle morph rather than a hard cut (used for agents → done).
     private static let stepTransition: AnyTransition = .asymmetric(
         insertion: .opacity.combined(with: .scale(scale: 0.96)),
-        removal: .opacity)
+        removal: .opacity,
+    )
 
     private static let repoURL = URL(string: "https://github.com/kageroumado/adrafinil")!
 
@@ -59,9 +62,9 @@ struct InstallerView: View {
         GlassEffectContainer(spacing: Theme.Space.lg) {
             VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 switch step {
-                case .helper:  helperStep.transition(Self.stepTransition)
-                case .agents:  agentsStep.transition(Self.stepTransition)
-                case .done:    doneStep.transition(Self.stepTransition)
+                case .helper: helperStep.transition(Self.stepTransition)
+                case .agents: agentsStep.transition(Self.stepTransition)
+                case .done: doneStep.transition(Self.stepTransition)
                 }
             }
             .padding(Theme.Space.xl + Theme.Space.sm)
@@ -166,15 +169,18 @@ struct InstallerView: View {
             installItem(
                 icon: "menubar.dock.rectangle",
                 title: Text("A menu bar app"),
-                detail: "The controls you're looking at now — its window opens from the menu bar.")
+                detail: "The controls you're looking at now — its window opens from the menu bar.",
+            )
             installItem(
                 icon: "gearshape.2.fill",
                 title: Text("A background helper"),
-                detail: "Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart.")
+                detail: "Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart.",
+            )
             installItem(
                 icon: "terminal",
                 title: Text("The ") + Text("adrafinil").monospaced() + Text(" command"),
-                detail: "Lets your agents tell Adrafinil when they start and stop working.")
+                detail: "Lets your agents tell Adrafinil when they start and stop working.",
+            )
         }
         .padding(Theme.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -232,7 +238,7 @@ struct InstallerView: View {
             }
             guard helperErrors.isEmpty else { return }
             if outcomes.contains(where: \.requiresApproval) {
-                needsApproval = true   // stay here, show guidance, wait for the user to approve
+                needsApproval = true // stay here, show guidance, wait for the user to approve
             } else {
                 step = .agents
             }
@@ -278,7 +284,7 @@ struct InstallerView: View {
                                 },
                                 onToggleMCP: { sel in
                                     if sel { mcpSelected.insert(kind) } else { mcpSelected.remove(kind) }
-                                }
+                                },
                             )
                         }
                     }
@@ -372,7 +378,9 @@ struct InstallerView: View {
         // row starts pending. One animation so the morph and the pending states land together.
         withAnimation(.smooth(duration: 0.35)) {
             isInstalling = true
-            for agent in agents { phases[agent] = .pending }
+            for agent in agents {
+                phases[agent] = .pending
+            }
         }
         try? await Task.sleep(for: .milliseconds(300))
 
@@ -415,7 +423,7 @@ struct AgentRow: View {
     let isMCPSelected: Bool
     /// Non-nil once installation begins: the row shows live status instead of its toggles, and the
     /// MCP sub-row collapses (its setup is folded into the single connecting beat).
-    var phase: InstallerView.InstallPhase? = nil
+    var phase: InstallerView.InstallPhase?
     let onToggle: (Bool) -> Void
     let onToggleMCP: (Bool) -> Void
 
@@ -434,7 +442,7 @@ struct AgentRow: View {
         .background(
             Theme.controlShape
                 .fill(Theme.awake.opacity(phase == .installing ? 0.12 : 0))
-                .padding(.horizontal, Theme.Space.xs)
+                .padding(.horizontal, Theme.Space.xs),
         )
     }
 
@@ -496,35 +504,41 @@ struct AgentRow: View {
 /// System Settings opens for approval).
 private struct WindowAccessor: NSViewRepresentable {
     let onResolve: (NSWindow) -> Void
-    func makeNSView(context: Context) -> NSView {
+    func makeNSView(context _: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async { if let window = view.window { onResolve(window) } }
         return view
     }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_: NSView, context _: Context) {}
 }
 
 #if DEBUG
-#Preview("Installer · helper") {
-    InstallerView(setup: PreviewSetupProvider(), agentHooks: PreviewAgentHooksProvider())
+    #Preview("Installer · helper") {
+        InstallerView(setup: PreviewSetupProvider(), agentHooks: PreviewAgentHooksProvider())
+            .frame(width: 560, height: 600)
+    }
+    #Preview("Installer · needs approval") {
+        InstallerView(
+            setup: PreviewSetupProvider(simulateApproval: true),
+            agentHooks: PreviewAgentHooksProvider(),
+        )
         .frame(width: 560, height: 600)
-}
-#Preview("Installer · needs approval") {
-    InstallerView(setup: PreviewSetupProvider(simulateApproval: true),
-                  agentHooks: PreviewAgentHooksProvider())
+    }
+    #Preview("Installer · agents") {
+        InstallerView(
+            setup: PreviewSetupProvider(),
+            agentHooks: PreviewAgentHooksProvider(),
+            initialStep: .agents,
+        )
         .frame(width: 560, height: 600)
-}
-#Preview("Installer · agents") {
-    InstallerView(setup: PreviewSetupProvider(),
-                  agentHooks: PreviewAgentHooksProvider(),
-                  initialStep: .agents)
+    }
+    #Preview("Installer · installing") {
+        InstallerView(
+            setup: PreviewSetupProvider(),
+            agentHooks: PreviewAgentHooksProvider(),
+            initialStep: .agents,
+            previewInstalling: true,
+        )
         .frame(width: 560, height: 600)
-}
-#Preview("Installer · installing") {
-    InstallerView(setup: PreviewSetupProvider(),
-                  agentHooks: PreviewAgentHooksProvider(),
-                  initialStep: .agents,
-                  previewInstalling: true)
-        .frame(width: 560, height: 600)
-}
+    }
 #endif

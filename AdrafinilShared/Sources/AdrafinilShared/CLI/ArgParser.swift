@@ -45,7 +45,11 @@ public struct ArgParser {
         positionals.indices.contains(index) ? positionals[index] : nil
     }
 
-    public func option(_ name: String) -> String? { options[name] }
+    public func option(_ name: String) -> String? {
+        options[name]
+    }
 
-    public func flag(_ name: String) -> Bool { flags.contains(name) }
+    public func flag(_ name: String) -> Bool {
+        flags.contains(name)
+    }
 }

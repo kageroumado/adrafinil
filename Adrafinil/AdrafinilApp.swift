@@ -1,5 +1,5 @@
-import SwiftUI
 import AdrafinilShared
+import SwiftUI
 
 @main
 struct AdrafinilApp: App {
@@ -8,15 +8,15 @@ struct AdrafinilApp: App {
     @State private var settings: AdrafinilSettings = .load()
 
     init() {
-#if DEBUG
-        // Back the menu-bar model with mock data so the debug control panel can drive scenarios
-        // live. `DebugControl` keeps a reference so it can force an immediate refresh on switch.
-        let model = AppStatusModel(provider: MockStatusProvider())
-        DebugControl.shared.statusModel = model
-        _status = State(initialValue: model)
-#else
-        _status = State(initialValue: AppStatusModel())
-#endif
+        #if DEBUG
+            // Back the menu-bar model with mock data so the debug control panel can drive scenarios
+            // live. `DebugControl` keeps a reference so it can force an immediate refresh on switch.
+            let model = AppStatusModel(provider: MockStatusProvider())
+            DebugControl.shared.statusModel = model
+            _status = State(initialValue: model)
+        #else
+            _status = State(initialValue: AppStatusModel())
+        #endif
     }
 
     var body: some Scene {

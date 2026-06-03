@@ -1,6 +1,6 @@
+import AdrafinilShared
 import Foundation
 import OSLog
-import AdrafinilShared
 
 private let cliLog = Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
 
@@ -55,7 +55,7 @@ enum AcquireCommand {
             reason: reason,
             pid: watchedPID,
             processName: tool,
-            ttlSeconds: ttl
+            ttlSeconds: ttl,
         )
 
         do {

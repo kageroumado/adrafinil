@@ -13,7 +13,7 @@ public struct ThermalCutoutEvaluator {
         thresholdCelsius: Double,
         enabled: Bool,
         lidClosed: Bool,
-        isBlocking: Bool
+        isBlocking: Bool,
     ) -> Bool {
         guard enabled, lidClosed, isBlocking else { return false }
         return temperatureCelsius >= thresholdCelsius

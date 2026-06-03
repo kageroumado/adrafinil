@@ -20,9 +20,13 @@ public actor AssertionRegistry {
         self.blockingContinuation = continuation
     }
 
-    public var isBlocking: Bool { !assertions.isEmpty }
+    public var isBlocking: Bool {
+        !assertions.isEmpty
+    }
 
-    public var count: Int { assertions.count }
+    public var count: Int {
+        assertions.count
+    }
 
     public func snapshot() -> [Assertion] {
         Array(assertions.values).sorted { $0.acquiredAt < $1.acquiredAt }
@@ -59,7 +63,9 @@ public actor AssertionRegistry {
         // dead process would drop every PID-less assertion at once.
         guard pid > 0 else { return 0 }
         let matching = assertions.values.filter { $0.pid == pid }.map(\.key)
-        for k in matching { assertions.removeValue(forKey: k) }
+        for k in matching {
+            assertions.removeValue(forKey: k)
+        }
         notifyIfNeeded()
         return matching.count
     }

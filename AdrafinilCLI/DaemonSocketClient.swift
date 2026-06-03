@@ -1,6 +1,6 @@
-import Foundation
 import AdrafinilShared
 import Darwin
+import Foundation
 
 /// Tiny Unix-socket client for talking to AdrafinilDaemon. Single round trip per call.
 enum DaemonSocketClient {
@@ -11,8 +11,8 @@ enum DaemonSocketClient {
         var errorDescription: String? {
             switch self {
             case .daemonUnreachable: "Adrafinil daemon is not running."
-            case .io(let m): "Socket I/O failed: \(m)"
-            case .decode(let m): "Bad response from daemon: \(m)"
+            case let .io(m): "Socket I/O failed: \(m)"
+            case let .decode(m): "Bad response from daemon: \(m)"
             }
         }
     }

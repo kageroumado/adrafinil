@@ -1,7 +1,7 @@
-import Foundation
 import AdrafinilShared
-import ServiceManagement
 import AppKit
+import Foundation
+import ServiceManagement
 
 /// One service's registration outcome, surfaced in the installer's helper step.
 struct SetupOutcome: Identifiable, Equatable {
@@ -12,7 +12,9 @@ struct SetupOutcome: Identifiable, Equatable {
     /// Login Items before it enables. The installer surfaces this with guidance instead of silently
     /// advancing.
     var requiresApproval: Bool = false
-    var id: String { name }
+    var id: String {
+        name
+    }
 }
 
 /// First-run setup operations: register the privileged services, symlink the CLI, and the full
@@ -30,17 +32,19 @@ protocol SetupProviding {
 
 @MainActor
 struct LiveSetupProvider: SetupProviding {
-    var isFirstRun: Bool { HelperInstaller.isFirstRun }
+    var isFirstRun: Bool {
+        HelperInstaller.isFirstRun
+    }
 
     func installHelper() async -> [SetupOutcome] {
         await HelperInstaller.installIfNeeded().map { entry in
             switch entry.result {
-            case .failed(let msg):
-                return SetupOutcome(name: entry.name, failureMessage: msg)
+            case let .failed(msg):
+                SetupOutcome(name: entry.name, failureMessage: msg)
             case .pendingApproval:
-                return SetupOutcome(name: entry.name, failureMessage: nil, requiresApproval: true)
+                SetupOutcome(name: entry.name, failureMessage: nil, requiresApproval: true)
             case .enabled:
-                return SetupOutcome(name: entry.name, failureMessage: nil)
+                SetupOutcome(name: entry.name, failureMessage: nil)
             }
         }
     }
@@ -61,7 +65,7 @@ struct LiveSetupProvider: SetupProviding {
         try? await DaemonClient.shared.forceReleaseAll()
 
         let installer = HookInstaller(
-            cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil"
+            cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil",
         )
         for kind in AgentKind.allCases {
             try? installer.uninstall(for: kind)
@@ -80,18 +84,20 @@ struct LiveSetupProvider: SetupProviding {
 }
 
 #if DEBUG
-/// A no-op `SetupProviding` for previews/gallery — reports success without registering anything.
-@MainActor
-struct PreviewSetupProvider: SetupProviding {
-    var isFirstRun: Bool = true
-    /// Drives a preview of the "needs approval" guidance in the installer's helper step.
-    var simulateApproval: Bool = false
-    func installHelper() async -> [SetupOutcome] {
-        [SetupOutcome(name: "Helper", failureMessage: nil, requiresApproval: simulateApproval),
-         SetupOutcome(name: "Daemon", failureMessage: nil, requiresApproval: simulateApproval)]
+    /// A no-op `SetupProviding` for previews/gallery — reports success without registering anything.
+    @MainActor
+    struct PreviewSetupProvider: SetupProviding {
+        var isFirstRun: Bool = true
+        /// Drives a preview of the "needs approval" guidance in the installer's helper step.
+        var simulateApproval: Bool = false
+        func installHelper() async -> [SetupOutcome] {
+            [
+                SetupOutcome(name: "Helper", failureMessage: nil, requiresApproval: simulateApproval),
+                SetupOutcome(name: "Daemon", failureMessage: nil, requiresApproval: simulateApproval),
+            ]
+        }
+        func symlinkCLI() async {}
+        func uninstallEverything() async {}
+        func openLoginItems() {}
     }
-    func symlinkCLI() async {}
-    func uninstallEverything() async {}
-    func openLoginItems() {}
-}
 #endif

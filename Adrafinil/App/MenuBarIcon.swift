@@ -1,6 +1,6 @@
-import SwiftUI
-import AppKit
 import AdrafinilShared
+import AppKit
+import SwiftUI
 
 /// Menu-bar icon with three states:
 ///
@@ -76,9 +76,9 @@ struct MenuBarIcon: View {
     /// and tinted by AppKit to match the menu-bar appearance (the native look for an idle item).
     private static func spec(for state: IconState) -> (symbol: String, tint: NSColor?) {
         switch state {
-        case .idle:             ("moon", nil)
-        case .active:           ("sun.max.fill", NSColor(Theme.awake))
-        case .thermalCutout:    ("exclamationmark.triangle.fill", .systemRed)
+        case .idle: ("moon", nil)
+        case .active: ("sun.max.fill", NSColor(Theme.awake))
+        case .thermalCutout: ("exclamationmark.triangle.fill", .systemRed)
         case .lowBatteryCutout: ("battery.25percent", .systemRed)
         }
     }
@@ -129,7 +129,7 @@ struct MenuBarIcon: View {
                 x: ((rect.width - fitted.width) / 2).rounded(),
                 y: ((rect.height - fitted.height) / 2).rounded(),
                 width: fitted.width,
-                height: fitted.height
+                height: fitted.height,
             )
             symbol.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
             if let tint {

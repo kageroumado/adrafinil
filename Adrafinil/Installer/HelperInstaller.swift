@@ -1,7 +1,7 @@
-import Foundation
 import AdrafinilShared
-import ServiceManagement
+import Foundation
 import OSLog
+import ServiceManagement
 
 /// Registers the AdrafinilHelper LaunchDaemon and the AdrafinilDaemon LaunchAgent
 /// via SMAppService. First launch triggers the system approval prompt; later launches
@@ -30,9 +30,9 @@ enum HelperInstaller {
         let helper = SMAppService.daemon(plistName: "LaunchDaemon.plist")
         let agent = SMAppService.agent(plistName: "LaunchAgent.plist")
 
-        let results = [
-            (name: "Helper", result: await registerIfNeeded(service: helper, name: "Helper")),
-            (name: "Daemon", result: await registerIfNeeded(service: agent, name: "Daemon")),
+        let results = await [
+            (name: "Helper", result: registerIfNeeded(service: helper, name: "Helper")),
+            (name: "Daemon", result: registerIfNeeded(service: agent, name: "Daemon")),
         ]
 
         // Register the menu-bar app itself as a login item so it's present after a reboot without
@@ -51,7 +51,7 @@ enum HelperInstaller {
         // Only consider first-run "done" if nothing hard-failed; a pending approval still
         // counts (the services are registered and enable once the user approves). A hard
         // failure leaves the flag clear so the setup flow re-presents on next launch.
-        if !results.contains(where: { if case .failed = $0.result { return true } else { return false } }) {
+        if !results.contains(where: { if case .failed = $0.result { true } else { false } }) {
             markFirstRunComplete()
         }
         return results

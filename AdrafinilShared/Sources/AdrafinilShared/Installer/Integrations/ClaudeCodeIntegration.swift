@@ -49,7 +49,7 @@ struct ClaudeCodeIntegration: AgentIntegration {
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
             obsoleteEvents: ["SessionStart", "SessionEnd"],
-            extraReleases: [.init(event: "Notification", matcher: "idle_prompt")]
+            extraReleases: [.init(event: "Notification", matcher: "idle_prompt")],
         )
     }
 
@@ -59,7 +59,7 @@ struct ClaudeCodeIntegration: AgentIntegration {
         MCPServerShape(
             configPath: "\(ctx.homeRoot)/.claude.json",
             serverName: HookContext.mcpServerName,
-            entry: ctx.mcpEntry(tool: agent.rawValue)
+            entry: ctx.mcpEntry(tool: agent.rawValue),
         )
     }
 }

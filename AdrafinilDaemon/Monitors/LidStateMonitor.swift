@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import IOKit
 import IOKit.pwr_mgt
 import OSLog
@@ -56,13 +56,13 @@ final class LidStateMonitor {
             port,
             rootDomain,
             kIOGeneralInterest,
-            { (refcon, _, _, _) in
+            { refcon, _, _, _ in
                 guard let refcon else { return }
                 let monitor = Unmanaged<LidStateMonitor>.fromOpaque(refcon).takeUnretainedValue()
                 MainActor.assumeIsolated { monitor.updateLidState() }
             },
             context,
-            &notifier
+            &notifier,
         )
         if result != KERN_SUCCESS {
             log.warning("IOServiceAddInterestNotification failed: \(result)")

@@ -76,5 +76,7 @@ struct PopoverMenuItemStyle: ButtonStyle {
 }
 
 extension ButtonStyle where Self == PopoverMenuItemStyle {
-    static var popoverItem: PopoverMenuItemStyle { PopoverMenuItemStyle() }
+    static var popoverItem: PopoverMenuItemStyle {
+        PopoverMenuItemStyle()
+    }
 }

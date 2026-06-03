@@ -1,11 +1,11 @@
-import Testing
 import Foundation
+import Testing
 @testable import AdrafinilShared
 
 @Suite("AdrafinilSettings")
 struct AdrafinilSettingsTests {
-
-    @Test func defaultsAreSane() {
+    @Test
+    func `defaults are sane`() {
         let s = AdrafinilSettings()
         #expect(s.soundOnLidClose == true)
         #expect(s.thermalCutoutEnabled == true)
@@ -18,7 +18,8 @@ struct AdrafinilSettingsTests {
         #expect(s.showInMenuBar == true)
     }
 
-    @Test func codableRoundtripPreservesAllFields() throws {
+    @Test
+    func `codable roundtrip preserves all fields`() throws {
         var original = AdrafinilSettings()
         original.soundOnLidClose = false
         original.soundVolume = 0.25
@@ -32,7 +33,8 @@ struct AdrafinilSettingsTests {
         #expect(decoded == original)
     }
 
-    @Test func saveAndLoadRoundtripViaDisk() throws {
+    @Test
+    func `save and load roundtrip via disk`() throws {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
@@ -45,7 +47,8 @@ struct AdrafinilSettingsTests {
         #expect(loaded == settings)
     }
 
-    @Test func loadFromMissingFileReturnsDefaults() {
+    @Test
+    func `load from missing file returns defaults`() {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
         let loaded = AdrafinilSettings.load(from: missing)
         #expect(loaded == AdrafinilSettings())
@@ -54,7 +57,8 @@ struct AdrafinilSettingsTests {
     /// Regression: a config written by an older build (missing a newer field) must not
     /// throw and reset *all* settings. Each absent field should fall back to its default
     /// while user-set fields are preserved.
-    @Test func missingNewFieldFallsBackWithoutLosingOthers() throws {
+    @Test
+    func `missing new field falls back without losing others`() throws {
         let json = Data(#"""
         {"soundOnLidClose": false, "soundVolume": 0.25, "chimeName": "Tink",
          "thermalCutoutEnabled": false, "thermalThresholdCelsius": 72.5,
@@ -67,21 +71,26 @@ struct AdrafinilSettingsTests {
         #expect(s.thermalThresholdCelsius == 72.5)
         #expect(s.launchAtLogin == false)
         #expect(s.chimeName == "Tink")
-        #expect(s.showInMenuBar == true)  // absent → default, not a decode failure
+        #expect(s.showInMenuBar == true) // absent → default, not a decode failure
     }
 
-    @Test func emptyObjectDecodesToAllDefaults() throws {
+    @Test
+    func `empty object decodes to all defaults`() throws {
         let s = try JSONDecoder().decode(AdrafinilSettings.self, from: Data("{}".utf8))
         #expect(s == AdrafinilSettings())
     }
 
-    @Test func unknownExtraKeysAreIgnored() throws {
-        let s = try JSONDecoder().decode(AdrafinilSettings.self,
-                                         from: Data(#"{"idleReleaseSeconds": 70, "futureSetting": 123}"#.utf8))
+    @Test
+    func `unknown extra keys are ignored`() throws {
+        let s = try JSONDecoder().decode(
+            AdrafinilSettings.self,
+            from: Data(#"{"idleReleaseSeconds": 70, "futureSetting": 123}"#.utf8),
+        )
         #expect(s.idleReleaseSeconds == 70)
     }
 
-    @Test func loadFromDiskMissingNewFieldPreservesUserValues() throws {
+    @Test
+    func `load from disk missing new field preserves user values`() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
         try Data(#"{"idleReleaseSeconds": 220, "thermalThresholdCelsius": 90}"#.utf8).write(to: url)
@@ -92,13 +101,18 @@ struct AdrafinilSettingsTests {
     }
 
     /// A config from a build that only knew `idleReleaseMinutes` migrates to the seconds field (×60).
-    @Test func legacyMinutesMigratesToSeconds() throws {
-        let s = try JSONDecoder().decode(AdrafinilSettings.self,
-                                         from: Data(#"{"idleReleaseMinutes": 3}"#.utf8))
+    @Test
+    func `legacy minutes migrates to seconds`() throws {
+        let s = try JSONDecoder().decode(
+            AdrafinilSettings.self,
+            from: Data(#"{"idleReleaseMinutes": 3}"#.utf8),
+        )
         #expect(s.idleReleaseSeconds == 180)
         // An explicit seconds field wins over a stale minutes field if both somehow appear.
-        let both = try JSONDecoder().decode(AdrafinilSettings.self,
-                                            from: Data(#"{"idleReleaseMinutes": 3, "idleReleaseSeconds": 45}"#.utf8))
+        let both = try JSONDecoder().decode(
+            AdrafinilSettings.self,
+            from: Data(#"{"idleReleaseMinutes": 3, "idleReleaseSeconds": 45}"#.utf8),
+        )
         #expect(both.idleReleaseSeconds == 45)
     }
 }

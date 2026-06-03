@@ -45,7 +45,7 @@ struct NestedJSONHookShape {
         for extra in extraReleases {
             merge(into: &hooks, event: extra.event, command: releaseCommand, matcher: extra.matcher)
         }
-        let managed = Set([startEvent, endEvent].compactMap { $0 } + extraReleases.map(\.event))
+        let managed = Set([startEvent, endEvent].compactMap(\.self) + extraReleases.map(\.event))
         for event in obsoleteEvents where !managed.contains(event) {
             stripAdrafinil(from: &hooks, event: event)
         }
@@ -56,7 +56,7 @@ struct NestedJSONHookShape {
             try ConfigFileIO.ensureParentDir(of: configPath)
             try ConfigFileIO.writeJSON(after, to: configPath)
         }
-        let releaseEvents = ([endEvent].compactMap { $0 } + extraReleases.map(\.event)).joined(separator: "+")
+        let releaseEvents = ([endEvent].compactMap(\.self) + extraReleases.map(\.event)).joined(separator: "+")
         let summary = releaseEvents.isEmpty
             ? "wired \(startEvent) hook (release via process-exit watcher)"
             : "wired \(startEvent) acquire + \(releaseEvents) release hooks"
@@ -71,7 +71,7 @@ struct NestedJSONHookShape {
         // Clean our entry from this agent's current events, the events it has since migrated away
         // from (`obsoleteEvents`), plus the legacy `SessionEnd`/`Stop` events an earlier version may
         // have written.
-        let events = Set([startEvent, endEvent].compactMap { $0 } + extraReleases.map(\.event) + obsoleteEvents + ["SessionEnd", "Stop"])
+        let events = Set([startEvent, endEvent].compactMap(\.self) + extraReleases.map(\.event) + obsoleteEvents + ["SessionEnd", "Stop"])
         for event in events {
             stripAdrafinil(from: &hooks, event: event)
         }
@@ -121,7 +121,7 @@ struct NestedJSONHookShape {
     private func merge(into hooks: inout [String: Any], event: String, command: String, matcher: String? = nil) {
         var arr = (hooks[event] as? [[String: Any]]) ?? []
         var canonical: [String: Any] = [
-            "hooks": [["type": "command", "command": command, "_adrafinil": true]]
+            "hooks": [["type": "command", "command": command, "_adrafinil": true]],
         ]
         if let matcher { canonical["matcher"] = matcher }
         if let idx = arr.firstIndex(where: { Self.entryReferencesAdrafinil($0) }) {

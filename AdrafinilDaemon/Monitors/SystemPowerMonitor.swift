@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import IOKit
 import IOKit.pwr_mgt
 import OSLog
@@ -40,7 +40,7 @@ final class SystemPowerMonitor {
                 let monitor = Unmanaged<SystemPowerMonitor>.fromOpaque(refcon).takeUnretainedValue()
                 MainActor.assumeIsolated { monitor.handle(messageType, argument: messageArgument) }
             },
-            &notifier
+            &notifier,
         )
 
         guard rootPort != 0, let port = notificationPort else {

@@ -1,7 +1,7 @@
-import Foundation
-import UserNotifications
-import os
 import AdrafinilShared
+import Foundation
+import os
+import UserNotifications
 
 /// Delivers the "while you were away" recap as a native system notification when the lid
 /// reopens after a period Adrafinil kept the Mac awake. The system handles presentation,
@@ -29,12 +29,12 @@ final class AwayNotifier {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            content.sound = nil   // the lid-close chime already covers audio; keep the recap quiet
+            content.sound = nil // the lid-close chime already covers audio; keep the recap quiet
 
             let request = UNNotificationRequest(
                 identifier: "away-\(summary.openedAt.timeIntervalSince1970)",
                 content: content,
-                trigger: nil   // deliver immediately
+                trigger: nil, // deliver immediately
             )
             do {
                 try await center.add(request)

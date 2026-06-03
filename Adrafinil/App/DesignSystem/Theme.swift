@@ -4,7 +4,6 @@ import SwiftUI
 /// up" hue (accent), a cool moon-grey is idle, red signals a safety cutout. Surfaces lean on macOS
 /// Liquid Glass; these tokens keep radii, spacing, and color usage consistent across every view.
 enum Theme {
-
     // MARK: - Palette
 
     /// The amber accent — "awake". Backed by the AccentColor asset (light + dark variants).
@@ -46,9 +45,15 @@ enum Theme {
 
     // MARK: - Shapes
 
-    static var cardShape: RoundedRectangle { RoundedRectangle(cornerRadius: Radius.card, style: .continuous) }
-    static var innerShape: RoundedRectangle { RoundedRectangle(cornerRadius: Radius.inner, style: .continuous) }
-    static var controlShape: RoundedRectangle { RoundedRectangle(cornerRadius: Radius.control, style: .continuous) }
+    static var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+    }
+    static var innerShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Radius.inner, style: .continuous)
+    }
+    static var controlShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+    }
 }
 
 extension Font {

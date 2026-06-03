@@ -1,12 +1,12 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 
 /// `adrafinil daemon-status` — quick liveness check for the daemon.
 ///
 /// Sends a `.ping` request and prints whether the daemon is reachable. Exits 0 in both
 /// cases — the intent is informational, not a hard failure gate for agent hooks.
 enum DaemonStatusCommand {
-    static func run(args: [String]) throws {
+    static func run(args _: [String]) throws {
         let req = CLIRequest(
             op: .ping,
             key: nil,
@@ -14,7 +14,7 @@ enum DaemonStatusCommand {
             reason: nil,
             pid: nil,
             processName: nil,
-            ttlSeconds: nil
+            ttlSeconds: nil,
         )
 
         do {

@@ -1,8 +1,8 @@
-import Foundation
+import AdrafinilShared
 import AVFoundation
 import CoreAudio
+import Foundation
 import OSLog
-import AdrafinilShared
 
 /// Plays the lid-close confirmation chime.
 ///
@@ -53,7 +53,7 @@ final class ChimePlayer {
         task.standardOutput = nil
         task.standardError = nil
         do {
-            try task.run()   // fire-and-forget; the ~0.4s clip plays out on its own
+            try task.run() // fire-and-forget; the ~0.4s clip plays out on its own
             player = task
         } catch {
             log.error("afplay failed to launch: \(error.localizedDescription, privacy: .public)")
@@ -95,10 +95,10 @@ final class ChimePlayer {
         let samples = buffer.floatChannelData![0]
         let n = Int(frames)
         let n1 = Int(seg1 * sampleRate)
-        let f1 = 783.99, f2 = 587.33  // G5, D5
+        let f1 = 783.99, f2 = 587.33 // G5, D5
         let gain = Double(volume) * 0.6
 
-        for i in 0..<n {
+        for i in 0 ..< n {
             let inFirst = i < n1
             let freq = inFirst ? f1 : f2
             let localStart = inFirst ? 0 : n1
@@ -128,7 +128,7 @@ final class ChimePlayer {
         var defaultAddr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: kAudioObjectPropertyElementMain,
         )
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &defaultAddr, 0, nil, &size, &deviceID) == noErr,
               deviceID != 0 else {
@@ -138,7 +138,7 @@ final class ChimePlayer {
         var muteAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyMute,
             mScope: kAudioObjectPropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: kAudioObjectPropertyElementMain,
         )
         guard AudioObjectHasProperty(deviceID, &muteAddr) else { return false }
         var muted: UInt32 = 0

@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 import OSLog
 
 /// Polls CPU temperature via SMC; triggers a cutout if the user-configured threshold is
@@ -49,7 +49,7 @@ final class ThermalMonitor {
 
     private func startPolling() {
         guard timer == nil else { return }
-        tick()  // seed a fresh reading immediately when blocking begins
+        tick() // seed a fresh reading immediately when blocking begins
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
@@ -73,7 +73,7 @@ final class ThermalMonitor {
             thresholdCelsius: thresholdCelsius,
             enabled: enabled,
             lidClosed: lidClosed,
-            isBlocking: isBlocking
+            isBlocking: isBlocking,
         ) else { return }
         log.warning("Thermal cutout: \(temp)°C >= \(self.thresholdCelsius)°C")
         onCutout?()

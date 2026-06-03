@@ -1,7 +1,7 @@
-import Foundation
 import AdrafinilShared
-import OSLog
 import Darwin
+import Foundation
+import OSLog
 
 /// Unix-domain socket server for the `adrafinil` CLI. Length-prefixed JSON.
 @MainActor
@@ -33,8 +33,10 @@ final class CLISocketServer {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = path.utf8CString
-        precondition(pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path),
-                     "Socket path too long for sockaddr_un")
+        precondition(
+            pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path),
+            "Socket path too long for sockaddr_un",
+        )
         withUnsafeMutablePointer(to: &addr.sun_path) { dst in
             dst.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dstChars in
                 _ = pathBytes.withUnsafeBufferPointer { src in
@@ -96,7 +98,7 @@ final class CLISocketServer {
                 try Self.readExact(fd: clientFD, count: count)
             }
             let req = try JSONDecoder().decode(CLIRequest.self, from: body)
-            let resp = self.process(req)
+            let resp = process(req)
             let frame = try CLIFraming.encode(resp)
             try Self.writeAll(fd: clientFD, data: frame)
         } catch {
@@ -120,7 +122,7 @@ final class CLISocketServer {
                 reason: req.reason,
                 pid: req.pid ?? -1,
                 processName: req.processName ?? tool,
-                ttl: req.ttlSeconds
+                ttl: req.ttlSeconds,
             )
             let snapshot = runOnMain { @MainActor in
                 await daemonRef.handleAcquire(assertion)
@@ -133,7 +135,7 @@ final class CLISocketServer {
                 await daemonRef.handleHold(reason: req.reason, requestedTTL: req.ttlSeconds, pid: req.pid, tool: req.tool)
             }
             switch result {
-            case .placed(let key, let count):
+            case let .placed(key, count):
                 return CLIResponse(ok: true, error: nil, blocking: count > 0, assertionCount: count, statusJSON: nil, holdKey: key)
             case .disabled:
                 return CLIResponse(ok: false, error: "Agent holds are turned off in Adrafinil settings.", blocking: nil, assertionCount: nil, statusJSON: nil)
@@ -147,12 +149,18 @@ final class CLISocketServer {
             }
             let result: (existed: Bool, snapshot: [Assertion]) = runOnMain { @MainActor in
                 let existed = await daemonRef.handleRelease(key: key)
-                return (existed, await daemonRef.registry.snapshot())
+                return await (existed, daemonRef.registry.snapshot())
             }
             // Unknown-key release is a no-op, not an error — surface a warning.
             let warning = result.existed ? nil : "no assertion for key '\(key)' — released nothing"
-            return CLIResponse(ok: true, error: nil, blocking: !result.snapshot.isEmpty,
-                               assertionCount: result.snapshot.count, statusJSON: nil, warning: warning)
+            return CLIResponse(
+                ok: true,
+                error: nil,
+                blocking: !result.snapshot.isEmpty,
+                assertionCount: result.snapshot.count,
+                statusJSON: nil,
+                warning: warning,
+            )
 
         case .status:
             let status: DaemonStatus = runOnMain { @MainActor in

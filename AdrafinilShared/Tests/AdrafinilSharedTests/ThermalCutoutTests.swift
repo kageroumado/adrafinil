@@ -5,23 +5,23 @@ import Testing
 struct ThermalCutoutTests {
     private let e = ThermalCutoutEvaluator()
 
-    @Test("fires when enabled, lid closed, blocking, and at/over threshold")
-    func firesWhenAllGatesOpen() {
+    @Test
+    func `fires when enabled, lid closed, blocking, and at/over threshold`() {
         #expect(e.shouldCutout(temperatureCelsius: 85, thresholdCelsius: 80, enabled: true, lidClosed: true, isBlocking: true))
     }
 
-    @Test("temperature exactly at threshold fires")
-    func boundaryEqualThresholdFires() {
+    @Test
+    func `temperature exactly at threshold fires`() {
         #expect(e.shouldCutout(temperatureCelsius: 80, thresholdCelsius: 80, enabled: true, lidClosed: true, isBlocking: true))
     }
 
-    @Test("below threshold does not fire")
-    func belowThresholdNoFire() {
+    @Test
+    func `below threshold does not fire`() {
         #expect(!e.shouldCutout(temperatureCelsius: 79.9, thresholdCelsius: 80, enabled: true, lidClosed: true, isBlocking: true))
     }
 
-    @Test("each gate individually closed suppresses the cutout even when scorching")
-    func gatesSuppress() {
+    @Test
+    func `each gate individually closed suppresses the cutout even when scorching`() {
         #expect(!e.shouldCutout(temperatureCelsius: 99, thresholdCelsius: 80, enabled: false, lidClosed: true, isBlocking: true))
         #expect(!e.shouldCutout(temperatureCelsius: 99, thresholdCelsius: 80, enabled: true, lidClosed: false, isBlocking: true))
         #expect(!e.shouldCutout(temperatureCelsius: 99, thresholdCelsius: 80, enabled: true, lidClosed: true, isBlocking: false))

@@ -1,5 +1,5 @@
-import Foundation
 import AdrafinilShared
+import Foundation
 
 enum InstallHooksCommand {
     static func run(args: [String]) throws {
@@ -20,7 +20,7 @@ enum InstallHooksCommand {
                 }
             } catch HookInstaller.SkipReason.notInstalled {
                 print("[\(agent.displayName)] not detected, skipping")
-            } catch HookInstaller.SkipReason.unsupportedHere(let why) {
+            } catch let HookInstaller.SkipReason.unsupportedHere(why) {
                 print("[\(agent.displayName)] \(why)")
             } catch {
                 FileHandle.standardError.write(Data("[\(agent.displayName)] error: \(error.localizedDescription)\n".utf8))

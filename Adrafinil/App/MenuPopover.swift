@@ -1,5 +1,5 @@
-import SwiftUI
 import AdrafinilShared
+import SwiftUI
 
 /// The window-style popover attached to the menu-bar status item.
 struct MenuPopover: View {
@@ -92,37 +92,41 @@ struct MenuPopover: View {
     // MARK: - Status card (hero)
 
     @ViewBuilder
-    private func statusCard(_ s: DaemonStatus, state: HeroState, now: Date) -> some View {
+    private func statusCard(_ s: DaemonStatus, state: HeroState, now _: Date) -> some View {
         switch state {
         case .awake:
             heroCard(
                 icon: "sun.max.fill", tint: Theme.awake,
                 title: "Keeping your Mac awake",
-                subtitle: awakeSubtitle(s), dimmed: false)
+                subtitle: awakeSubtitle(s), dimmed: false,
+            )
         case .cutout:
             heroCard(
                 icon: cutoutIcon(s), tint: Theme.cutout,
                 title: cutoutTitle(s),
-                subtitle: "Your Mac can sleep again", dimmed: false)
+                subtitle: "Your Mac can sleep again", dimmed: false,
+            )
         case .idle:
             heroCard(
                 icon: "moon.zzz.fill", tint: .secondary,
                 title: "Sleeping normally",
                 subtitle: device.hasLid
                     ? "No agents active — close the lid and your Mac sleeps"
-                    : "No agents active — your Mac sleeps when idle", dimmed: true)
+                    : "No agents active — your Mac sleeps when idle", dimmed: true,
+            )
         case .paused:
             heroCard(
                 icon: "moon.fill", tint: .secondary,
                 title: "Paused",
-                subtitle: "Agents can't keep your Mac awake until you resume", dimmed: false)
+                subtitle: "Agents can't keep your Mac awake until you resume", dimmed: false,
+            )
         }
     }
 
     /// Describes what's keeping the Mac awake, distinguishing live agents from deliberate holds
     /// (e.g. "2 agents working · 1 hold").
     private func awakeSubtitle(_ s: DaemonStatus) -> String {
-        let holds = s.assertions.filter { $0.origin == .manual }.count
+        let holds = s.assertions.count(where: { $0.origin == .manual })
         let agents = s.assertions.count - holds
         var parts: [String] = []
         if agents > 0 { parts.append("\(agents) \(agents == 1 ? "agent" : "agents") working") }
@@ -202,17 +206,21 @@ struct MenuPopover: View {
         return Button {
             Task { await status.setPaused(pausing) }
         } label: {
-            Label(pausing ? "Let your Mac sleep" : "Keep your Mac awake",
-                  systemImage: pausing ? "moon.fill" : "sun.max.fill")
-                .frame(maxWidth: .infinity)
-                .foregroundStyle(Theme.onAwake)
+            Label(
+                pausing ? "Let your Mac sleep" : "Keep your Mac awake",
+                systemImage: pausing ? "moon.fill" : "sun.max.fill",
+            )
+            .frame(maxWidth: .infinity)
+            .foregroundStyle(Theme.onAwake)
         }
         .buttonStyle(.glassProminent)
         .controlSize(.large)
         .tint(Theme.awake)
-        .help(pausing
-              ? "Pause Adrafinil — your Mac sleeps normally until you resume."
-              : "Resume Adrafinil — let agents keep your Mac awake again.")
+        .help(
+            pausing
+                ? "Pause Adrafinil — your Mac sleeps normally until you resume."
+                : "Resume Adrafinil — let agents keep your Mac awake again.",
+        )
     }
 
     // MARK: - Bottom bar (meta + utility actions)
@@ -241,7 +249,6 @@ struct MenuPopover: View {
 
     /// Lid/temperature chips. The popover is only visible while the lid is open or in
     /// clamshell (lid shut + external display), so "open" is implied — only flag clamshell.
-    @ViewBuilder
     private func metaLabels(_ s: DaemonStatus) -> some View {
         HStack(spacing: Theme.Space.sm) {
             if s.lidClosed {
@@ -329,13 +336,15 @@ struct AssertionRow: View {
     let assertion: Assertion
     /// Current time, injected from the popover's TimelineView so the countdown/age tick live while
     /// the popover is open. Defaults to now for non-timeline callers (previews).
-    var now: Date = Date()
+    var now: Date = .init()
     /// Non-nil for releasable rows (agent holds). Invoked by the trailing ✕.
-    var onRelease: (() -> Void)? = nil
+    var onRelease: (() -> Void)?
 
     /// An agent hold (`adrafinil hold` / MCP) — deliberate, reasoned, time-boxed — versus a live
     /// agent session tracked by an editor hook.
-    private var isHold: Bool { assertion.origin == .manual }
+    private var isHold: Bool {
+        assertion.origin == .manual
+    }
 
     private var displayTool: String {
         AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
@@ -349,7 +358,7 @@ struct AssertionRow: View {
         if isHold, let exp = assertion.expiresAt {
             // Stable range (acquiredAt…expiresAt) so the timer doesn't reset each tick; it renders
             // the remaining time counting down.
-            Text(timerInterval: assertion.acquiredAt...exp, countsDown: true)
+            Text(timerInterval: assertion.acquiredAt ... exp, countsDown: true)
         } else {
             Text(now.timeIntervalSince(assertion.acquiredAt).compactDurationString)
         }
@@ -404,35 +413,37 @@ struct AssertionRow: View {
 // MARK: - Previews
 
 #if DEBUG
-#Preview("Popover · idle") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle))
-}
-#Preview("Popover · idle (desktop)") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle),
-                device: DeviceCapabilities(hasLid: false, hasBattery: false))
-}
-#Preview("Popover · one agent") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.oneAgent))
-}
-#Preview("Popover · many agents") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents))
-}
-#Preview("Popover · agent hold") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.withHold))
-}
-#Preview("Popover · thermal cutout") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.thermalCutout))
-}
-#Preview("Popover · paused") {
-    var paused = Fixtures.idle
-    paused.paused = true
-    return MenuPopover(status: AppStatusModel(previewStatus: paused))
-}
-#Preview("Popover · daemon error") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable()))
-}
-#Preview("Popover · many agents (dark)") {
-    MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents))
-        .preferredColorScheme(.dark)
-}
+    #Preview("Popover · idle") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle))
+    }
+    #Preview("Popover · idle (desktop)") {
+        MenuPopover(
+            status: AppStatusModel(previewStatus: Fixtures.idle),
+            device: DeviceCapabilities(hasLid: false, hasBattery: false),
+        )
+    }
+    #Preview("Popover · one agent") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.oneAgent))
+    }
+    #Preview("Popover · many agents") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents))
+    }
+    #Preview("Popover · agent hold") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.withHold))
+    }
+    #Preview("Popover · thermal cutout") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.thermalCutout))
+    }
+    #Preview("Popover · paused") {
+        var paused = Fixtures.idle
+        paused.paused = true
+        return MenuPopover(status: AppStatusModel(previewStatus: paused))
+    }
+    #Preview("Popover · daemon error") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable()))
+    }
+    #Preview("Popover · many agents (dark)") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents))
+            .preferredColorScheme(.dark)
+    }
 #endif
