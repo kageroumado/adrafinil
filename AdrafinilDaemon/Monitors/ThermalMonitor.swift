@@ -30,9 +30,6 @@ final class ThermalMonitor {
     private let smc = SMCReader()
     private var timer: Timer?
 
-    /// CPU proximity sensor. Reliable across Intel and Apple Silicon.
-    private let sensorKey = "TC0P"
-
     func start() {
         _ = smc.open()
         // No polling until something is blocking — `isBlocking`'s didSet arms/disarms the timer.
@@ -42,7 +39,7 @@ final class ThermalMonitor {
     /// One-shot read for callers that want a current temperature while the poll is stopped (e.g. the
     /// popover asking for a value when no agent is active). Refreshes the cache as a side effect.
     func readNow() -> Double? {
-        guard let temp = smc.readTemperature(key: sensorKey) else { return lastReadingCelsius }
+        guard let temp = smc.readCPUTemperature() else { return lastReadingCelsius }
         lastReadingCelsius = temp
         return temp
     }
@@ -62,7 +59,7 @@ final class ThermalMonitor {
 
     private func tick() {
         // Read on each tick while blocking; the cutout itself is gated below.
-        guard let temp = smc.readTemperature(key: sensorKey) else { return }
+        guard let temp = smc.readCPUTemperature() else { return }
         lastReadingCelsius = temp
         onReading?(temp)
 
