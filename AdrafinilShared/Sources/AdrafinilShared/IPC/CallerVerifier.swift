@@ -34,8 +34,14 @@ public enum CallerVerifier {
         return isAdrafinilComponent(caller.identifier)
     }
 
-    private static func isAdrafinilComponent(_ identifier: String) -> Bool {
-        identifier.hasPrefix(allowedPrefix) || identifier.hasPrefix("Adrafinil")
+    /// Code identifiers of the non-bundle command-line targets (the daemon and helper), which sign
+    /// with their `$(PRODUCT_NAME)` rather than a reverse-DNS bundle id. Matched exactly — a prefix
+    /// test (`hasPrefix("Adrafinil")`) would also admit a hostile `AdrafinilEvil`, which on an
+    /// ad-hoc build (no team to cross-check) is the entire authorization gate.
+    static let componentIdentifiers: Set<String> = ["AdrafinilDaemon", "AdrafinilHelper"]
+
+    static func isAdrafinilComponent(_ identifier: String) -> Bool {
+        identifier.hasPrefix(allowedPrefix) || componentIdentifiers.contains(identifier)
     }
 
     private struct SigningInfo {
@@ -44,7 +50,11 @@ public enum CallerVerifier {
     }
 
     private static func signingInfo(for connection: NSXPCConnection) -> SigningInfo? {
-        var token = connection.adrafinil_auditToken
+        // Fail closed: if the peer's audit token can't be read, we can't identify the caller, so
+        // there is no safe way to authorize it. A zeroed token would resolve via
+        // `SecCodeCopyGuestWithAttributes` to an unintended guest (pid 0 / self), so it must never
+        // be substituted for a missing one.
+        guard var token = connection.adrafinil_auditToken else { return nil }
         let tokenData = Data(bytes: &token, count: MemoryLayout.size(ofValue: token))
         let attrs = [kSecGuestAttributeAudit: tokenData] as CFDictionary
         var codeRef: SecCode?
@@ -79,10 +89,10 @@ public enum CallerVerifier {
 }
 
 private extension NSXPCConnection {
-    /// `auditToken` is private on NSXPCConnection; KVC reach is the standard workaround.
-    var adrafinil_auditToken: audit_token_t {
-        let token = (self.value(forKey: "auditToken") as? NSValue)?.adrafinil_audit_token_t_value
-        return token ?? audit_token_t()
+    /// `auditToken` is private on NSXPCConnection; KVC reach is the standard workaround. Returns nil
+    /// when the value can't be read so the caller can fail closed rather than trust a zeroed token.
+    var adrafinil_auditToken: audit_token_t? {
+        (value(forKey: "auditToken") as? NSValue)?.adrafinil_audit_token_t_value
     }
 }
 

@@ -1,10 +1,9 @@
-import Testing
 import Foundation
+import Testing
 @testable import AdrafinilShared
 
 @Suite("HookInstaller")
 struct HookInstallerTests {
-
     /// Creates a tempdir-rooted fake home with the given subdirs pre-created so
     /// `isDetected()` returns true for the target agents.
     private func makeFakeHome(detectedDirs: [String] = []) throws -> URL {
@@ -28,7 +27,8 @@ struct HookInstallerTests {
 
     // MARK: - Detection
 
-    @Test func detectsClaudeCodeByConfigDir() throws {
+    @Test
+    func `detects claude code by config dir`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let detected = HookInstaller.detectedAgents(homeRoot: home.path)
@@ -36,7 +36,8 @@ struct HookInstallerTests {
         #expect(!detected.contains(.codex))
     }
 
-    @Test func detectsAllTier1WhenAllPresent() throws {
+    @Test
+    func `detects all tier 1 when all present`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude", ".codex", ".cursor", ".gemini"])
         defer { try? FileManager.default.removeItem(at: home) }
         let detected = Set(HookInstaller.detectedAgents(homeRoot: home.path))
@@ -45,7 +46,8 @@ struct HookInstallerTests {
 
     // MARK: - Install: Claude Code shape
 
-    @Test func installClaudeCodeWritesActivityScopedHooks() throws {
+    @Test
+    func `install claude code writes activity scoped hooks`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -72,7 +74,8 @@ struct HookInstallerTests {
         #expect((inner.first?["command"] as? String)?.contains("claude-code") == true)
     }
 
-    @Test func uninstallClaudeCodeRemovesNotificationHook() throws {
+    @Test
+    func `uninstall claude code removes notification hook`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
@@ -89,7 +92,8 @@ struct HookInstallerTests {
 
     /// An install missing the Notification release (a build predating it) must read as not-fully-installed
     /// so the UI nudges a reinstall that adds it.
-    @Test func installStateNotInstalledWhenNotificationHookMissing() throws {
+    @Test
+    func `install state not installed when notification hook missing`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
@@ -98,7 +102,7 @@ struct HookInstallerTests {
         // Simulate the pre-idle_prompt state: drop the Notification hook only.
         let path = home.path + "/.claude/settings.json"
         var dict = try readJSON(path)
-        var hooks = dict["hooks"] as! [String: Any]
+        var hooks = try #require(dict["hooks"] as? [String: Any])
         hooks["Notification"] = nil
         dict["hooks"] = hooks
         try writeJSON(dict, to: path)
@@ -108,7 +112,8 @@ struct HookInstallerTests {
 
     /// Upgrading from the old `SessionStart`/`SessionEnd` wiring must strip the stale acquire/release
     /// entries, or a lingering `SessionStart` → acquire would keep re-introducing the whole-session hold.
-    @Test func installClaudeCodeMigratesAwayFromSessionScopedHooks() throws {
+    @Test
+    func `install claude code migrates away from session scoped hooks`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let path = home.path + "/.claude/settings.json"
@@ -132,7 +137,8 @@ struct HookInstallerTests {
     }
 
     /// A user's own `SessionStart` hook must survive the migration cleanup untouched.
-    @Test func migrationPreservesUserSessionStartHook() throws {
+    @Test
+    func `migration preserves user session start hook`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let path = home.path + "/.claude/settings.json"
@@ -156,7 +162,8 @@ struct HookInstallerTests {
         #expect(inner.first?["command"] as? String == "echo my-own-hook")
     }
 
-    @Test func installCodexWritesSessionStartOnlyAndSourcesIdFromStdin() throws {
+    @Test
+    func `install codex writes session start only and sources id from stdin`() throws {
         let home = try makeFakeHome(detectedDirs: [".codex"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -180,7 +187,8 @@ struct HookInstallerTests {
         #expect(cmd.contains("acquire --tool codex"))
     }
 
-    @Test func installPiWritesExtensionWithCorrectEvents() throws {
+    @Test
+    func `install pi writes extension with correct events`() throws {
         let home = try makeFakeHome(detectedDirs: [".pi"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -195,7 +203,8 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .pi) == .installed)
     }
 
-    @Test func installOpenCodeUsesInfoIdAndNoIdleRelease() throws {
+    @Test
+    func `install open code uses info id and no idle release`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
         // OpenCode is binary-detected; install via the integration directly to bypass the PATH gate.
@@ -209,7 +218,8 @@ struct HookInstallerTests {
         #expect(ts.contains("session.created"))
     }
 
-    @Test func installHermesWritesShellHookAndAllowlist() throws {
+    @Test
+    func `install hermes writes shell hook and allowlist`() throws {
         let home = try makeFakeHome(detectedDirs: [".hermes"])
         defer { try? FileManager.default.removeItem(at: home) }
         // Seed a realistic Hermes config with the default empty hooks map.
@@ -230,7 +240,7 @@ struct HookInstallerTests {
 
         // Every (event, command) pair must be allowlisted or Hermes skips that hook.
         let allow = try Data(contentsOf: URL(fileURLWithPath: home.path + "/.hermes/shell-hooks-allowlist.json"))
-        let approvals = try #require((try JSONSerialization.jsonObject(with: allow) as? [String: Any])?["approvals"] as? [[String: Any]])
+        let approvals = try #require(try (JSONSerialization.jsonObject(with: allow) as? [String: Any])?["approvals"] as? [[String: Any]])
         #expect(approvals.count == 3)
         #expect(approvals.contains { ($0["event"] as? String) == "on_session_start" })
         #expect(approvals.contains { ($0["event"] as? String) == "pre_gateway_dispatch" })
@@ -239,7 +249,8 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .hermes) == .installed)
     }
 
-    @Test func hermesUninstallRestoresEmptyHooksAndRevokesAllowlist() throws {
+    @Test
+    func `hermes uninstall restores empty hooks and revokes allowlist`() throws {
         let home = try makeFakeHome(detectedDirs: [".hermes"])
         defer { try? FileManager.default.removeItem(at: home) }
         try "model:\n  default: x\nhooks: {}\nhooks_auto_accept: false\n"
@@ -255,7 +266,30 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .hermes) == .notInstalled)
     }
 
-    @Test func installIsIdempotent() throws {
+    /// Regression: uninstall must restore only the top-level `hooks:` map we own — a *nested* `hooks:`
+    /// elsewhere in the user's YAML must survive untouched. A global `replacingOccurrences(of:"hooks:\n")`
+    /// matched the tail of an indented `      hooks:\n` and rewrote that nested map to `hooks: {}`.
+    @Test
+    func `hermes uninstall leaves nested hooks map intact`() throws {
+        let home = try makeFakeHome(detectedDirs: [".hermes"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        // A user config with an unrelated nested `hooks:` map *and* the default top-level empty one.
+        try "agents:\n  sub:\n    hooks:\n      on_x:\n        - command: \"echo hi\"\nhooks: {}\n"
+            .write(toFile: home.path + "/.hermes/config.yaml", atomically: true, encoding: .utf8)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .hermes, dryRun: false)
+        try installer.uninstall(for: .hermes)
+
+        let cfg = try String(contentsOfFile: home.path + "/.hermes/config.yaml", encoding: .utf8)
+        #expect(!cfg.contains("adrafinil"), "our hooks must be gone")
+        #expect(cfg.contains("    hooks:\n      on_x:"), "the nested hooks map must be preserved verbatim")
+        #expect(cfg.contains("echo hi"), "nested hook command must survive")
+        #expect(cfg.contains("hooks: {}"), "the top-level map we owned is restored to empty")
+    }
+
+    @Test
+    func `install is idempotent`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -269,7 +303,8 @@ struct HookInstallerTests {
         #expect(startEntries.count == 1, "double-install should not duplicate hook entries")
     }
 
-    @Test func installPreservesExistingUserHooks() throws {
+    @Test
+    func `install preserves existing user hooks`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -277,9 +312,9 @@ struct HookInstallerTests {
         let existing: [String: Any] = [
             "hooks": [
                 "UserPromptSubmit": [
-                    ["hooks": [["type": "command", "command": "echo user-hook"]]]
-                ]
-            ]
+                    ["hooks": [["type": "command", "command": "echo user-hook"]]],
+                ],
+            ],
         ]
         let settingsPath = home.path + "/.claude/settings.json"
         let existingData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted])
@@ -294,7 +329,8 @@ struct HookInstallerTests {
         #expect(startEntries.count == 2, "must preserve the user's existing hook alongside ours")
     }
 
-    @Test func dryRunDoesNotTouchDisk() throws {
+    @Test
+    func `dry run does not touch disk`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -305,7 +341,8 @@ struct HookInstallerTests {
         #expect(!FileManager.default.fileExists(atPath: home.path + "/.claude/settings.json"))
     }
 
-    @Test func installSkipsUndetectedAgent() throws {
+    @Test
+    func `install skips undetected agent`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
@@ -316,7 +353,8 @@ struct HookInstallerTests {
 
     // MARK: - Uninstall
 
-    @Test func uninstallRemovesOnlyAdrafinilEntries() throws {
+    @Test
+    func `uninstall removes only adrafinil entries`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -324,8 +362,8 @@ struct HookInstallerTests {
         // Seed a user hook first, under the same event we wire.
         let existing: [String: Any] = [
             "hooks": [
-                "UserPromptSubmit": [["hooks": [["type": "command", "command": "echo user-hook"]]]]
-            ]
+                "UserPromptSubmit": [["hooks": [["type": "command", "command": "echo user-hook"]]]],
+            ],
         ]
         let settingsPath = home.path + "/.claude/settings.json"
         let data = try JSONSerialization.data(withJSONObject: existing, options: [])
@@ -340,7 +378,8 @@ struct HookInstallerTests {
         #expect(startEntries.count == 1, "uninstall must leave the user's hook intact")
     }
 
-    @Test func uninstallDryRunDoesNotTouchDisk() throws {
+    @Test
+    func `uninstall dry run does not touch disk`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -359,7 +398,8 @@ struct HookInstallerTests {
 
     // MARK: - installState
 
-    @Test func installStateNotInstalledWhenClean() throws {
+    @Test
+    func `install state not installed when clean`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -367,7 +407,8 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .claudeCode) == .notInstalled)
     }
 
-    @Test func installStateInstalledAfterInstall() throws {
+    @Test
+    func `install state installed after install`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -376,7 +417,8 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .claudeCode) == .installed)
     }
 
-    @Test func installStateNotInstalledAfterUninstall() throws {
+    @Test
+    func `install state not installed after uninstall`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -386,7 +428,8 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .claudeCode) == .notInstalled)
     }
 
-    @Test func installStateModifiedExternallyWhenCommandEdited() throws {
+    @Test
+    func `install state modified externally when command edited`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -396,9 +439,9 @@ struct HookInstallerTests {
         // Tamper: change the command in the installed entry.
         let settingsPath = home.path + "/.claude/settings.json"
         var dict = try readJSON(settingsPath)
-        var hooks = dict["hooks"] as! [String: Any]
-        var startArr = hooks["UserPromptSubmit"] as! [[String: Any]]
-        var innerHooks = startArr[0]["hooks"] as! [[String: Any]]
+        var hooks = try #require(dict["hooks"] as? [String: Any])
+        var startArr = try #require(hooks["UserPromptSubmit"] as? [[String: Any]])
+        var innerHooks = try #require(startArr[0]["hooks"] as? [[String: Any]])
         innerHooks[0]["command"] = "adrafinil acquire TAMPERED --tool claude-code"
         startArr[0] = ["hooks": innerHooks]
         hooks["UserPromptSubmit"] = startArr
@@ -411,7 +454,8 @@ struct HookInstallerTests {
 
     // MARK: - Aider wrapper (both rc files + script)
 
-    @Test func aiderInstallWritesToBothRCFiles() throws {
+    @Test
+    func `aider install writes to both RC files`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -431,7 +475,7 @@ struct HookInstallerTests {
         let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         let result = try AiderIntegration().install(ctx, dryRun: false)
 
-        let zshrc  = try String(contentsOfFile: home.path + "/.zshrc", encoding: .utf8)
+        let zshrc = try String(contentsOfFile: home.path + "/.zshrc", encoding: .utf8)
         let bashrc = try String(contentsOfFile: home.path + "/.bashrc", encoding: .utf8)
 
         #expect(zshrc.contains("# adrafinil-aider"), "zshrc must contain marker")
@@ -440,7 +484,29 @@ struct HookInstallerTests {
         #expect(!result.summary.isEmpty)
     }
 
-    @Test func aiderUninstallStripsFromBothRCFilesAndRemovesScript() throws {
+    /// Regression: the wrapper's `release` must carry the same `--tool` as its `acquire`. Without it,
+    /// `release` defaults to tool `unknown` and targets the key `unknown:$$` — which never exists —
+    /// so the real `aider:$$` hold leaks until the daemon's dead-process net reaps it (and never, if
+    /// the PID couldn't be resolved at acquire time).
+    @Test
+    func `aider wrapper script acquire and release both carry tool`() throws {
+        let home = try makeFakeHome(detectedDirs: [])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        try "".write(toFile: home.path + "/.zshrc", atomically: true, encoding: .utf8)
+        try "".write(toFile: home.path + "/.bashrc", atomically: true, encoding: .utf8)
+
+        let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try AiderIntegration().install(ctx, dryRun: false)
+
+        let script = try String(contentsOfFile: home.path + "/.local/bin/aider-adrafinil", encoding: .utf8)
+        #expect(script.contains("acquire $$ --tool aider"), "acquire must tag the hold with --tool aider")
+        #expect(script.contains("release $$ --tool aider"), "release must target the same key acquire created")
+        #expect(!script.contains("release $$\n"), "release must not drop --tool (would target unknown:$$)")
+    }
+
+    @Test
+    func `aider uninstall strips from both RC files and removes script`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -451,17 +517,20 @@ struct HookInstallerTests {
         _ = try AiderIntegration().install(ctx, dryRun: false)
         let result = try AiderIntegration().uninstall(ctx, dryRun: false)
 
-        let zshrc  = try String(contentsOfFile: home.path + "/.zshrc", encoding: .utf8)
+        let zshrc = try String(contentsOfFile: home.path + "/.zshrc", encoding: .utf8)
         let bashrc = try String(contentsOfFile: home.path + "/.bashrc", encoding: .utf8)
 
         #expect(!zshrc.contains("adrafinil-aider"), "zshrc must not contain marker after uninstall")
         #expect(!bashrc.contains("adrafinil-aider"), "bashrc must not contain marker after uninstall")
-        #expect(!FileManager.default.fileExists(atPath: home.path + "/.local/bin/aider-adrafinil"),
-                "wrapper script must be removed")
+        #expect(
+            !FileManager.default.fileExists(atPath: home.path + "/.local/bin/aider-adrafinil"),
+            "wrapper script must be removed",
+        )
         #expect(!result.diff.isEmpty)
     }
 
-    @Test func aiderInstallStateInstalledWhenBothRCsAndScriptPresent() throws {
+    @Test
+    func `aider install state installed when both R cs and script present`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -477,7 +546,8 @@ struct HookInstallerTests {
 
     // MARK: - Cursor (different JSON shape)
 
-    @Test func installCursorWritesFlatShape() throws {
+    @Test
+    func `install cursor writes flat shape`() throws {
         let home = try makeFakeHome(detectedDirs: [".cursor"])
         defer { try? FileManager.default.removeItem(at: home) }
 

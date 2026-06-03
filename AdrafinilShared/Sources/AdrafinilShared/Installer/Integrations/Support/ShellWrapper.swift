@@ -8,19 +8,29 @@ import Foundation
 /// > Cline note: this misses in-editor VS Code sessions — only terminal `cline` invocations are
 /// > wrapped. Cline's native `~/Documents/Cline/Rules/Hooks/` would be the proper path for those.
 struct ShellWrapper {
-    let toolName: String        // AgentKind.rawValue, e.g. "aider"
+    let toolName: String // AgentKind.rawValue, e.g. "aider"
     let cliPath: String
     let homeRoot: String
 
     /// Path for the standalone wrapper script, e.g. `~/.local/bin/aider-adrafinil`.
-    private var wrapperScriptPath: String { "\(homeRoot)/.local/bin/\(toolName)-adrafinil" }
+    private var wrapperScriptPath: String {
+        "\(homeRoot)/.local/bin/\(toolName)-adrafinil"
+    }
 
     /// Shell rc files that receive the alias.
-    private var shellRCPaths: [String] { ["\(homeRoot)/.zshrc", "\(homeRoot)/.bashrc"] }
+    private var shellRCPaths: [String] {
+        ["\(homeRoot)/.zshrc", "\(homeRoot)/.bashrc"]
+    }
 
-    private var quotedCLI: String { cliPath.contains(" ") ? "\"\(cliPath)\"" : cliPath }
-    private var marker: String { "# adrafinil-\(toolName)" }
-    private var endMarker: String { "# end-adrafinil-\(toolName)" }
+    private var quotedCLI: String {
+        cliPath.contains(" ") ? "\"\(cliPath)\"" : cliPath
+    }
+    private var marker: String {
+        "# adrafinil-\(toolName)"
+    }
+    private var endMarker: String {
+        "# end-adrafinil-\(toolName)"
+    }
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         let scriptPath = wrapperScriptPath
@@ -30,7 +40,7 @@ struct ShellWrapper {
         \(quotedCLI) acquire $$ --tool \(toolName)
         \(toolName) "$@"
         status=$?
-        \(quotedCLI) release $$
+        \(quotedCLI) release $$ --tool \(toolName)
         exit $status
         """
 
@@ -71,11 +81,11 @@ struct ShellWrapper {
             var out: [String] = []
             var inBlock = false
             for line in current.components(separatedBy: "\n") {
-                if line.hasPrefix(marker)    { inBlock = true; continue }
+                if line.hasPrefix(marker) { inBlock = true; continue }
                 if line.hasPrefix(endMarker) { inBlock = false; continue }
                 if inBlock { continue }
                 // Legacy single-line marker support (no end marker).
-                if line.hasPrefix("# adrafinil-") && line.contains(toolName) { continue }
+                if line.hasPrefix("# adrafinil-"), line.contains(toolName) { continue }
                 out.append(line)
             }
             let updated = out.joined(separator: "\n")
