@@ -110,7 +110,7 @@ deploy) with a time-boxed **hold** — either by calling `adrafinil hold` direct
 agents, through the bundled MCP tool that `adrafinil mcp` serves:
 
 ```sh
-adrafinil hold --ttl 30m --reason "deploy"   # keep awake up to 30 min, then auto-release
+adrafinil hold --for 30m --reason "deploy"   # keep awake up to 30 min, then auto-release
 adrafinil mcp                                 # speak the Model Context Protocol on stdio (for agents)
 ```
 
