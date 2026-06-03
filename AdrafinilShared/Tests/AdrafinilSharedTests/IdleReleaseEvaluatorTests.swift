@@ -248,59 +248,6 @@ struct IdleReleaseEvaluatorTests {
         #expect(out.isEmpty)
     }
 
-    // MARK: Remote-connection signal (thinking-gap fix for agents that don't self-assert)
-
-    @Test
-    func `an idle tree with an open remote connection is NOT released (thinking)`() {
-        let e = IdleReleaseEvaluator()
-        let a = assertion(acquiredAt: t0, pid: 100)
-        // Near-idle CPU but an open connection to a model/API the whole time → must never release.
-        _ = e.evaluate(
-            assertions: [a],
-            now: t0,
-            config: cfg(),
-            pidAlive: { _ in true },
-            cpuTime: { _ in 1.0 },
-            treeHasActiveConnection: { _ in true },
-        )
-        for step in 1 ... 8 {
-            let out = e.evaluate(
-                assertions: [a],
-                now: t0.addingTimeInterval(Double(step) * 30),
-                config: cfg(),
-                pidAlive: { _ in true },
-                cpuTime: { _ in 1.0 },
-                treeHasActiveConnection: { _ in true },
-            )
-            #expect(out.isEmpty)
-        }
-    }
-
-    @Test
-    func `once the connection closes, an idle tree releases after the window`() {
-        let e = IdleReleaseEvaluator()
-        let a = assertion(acquiredAt: t0, pid: 100)
-        _ = e.evaluate(
-            assertions: [a], now: t0, config: cfg(),
-            pidAlive: { _ in true }, cpuTime: { _ in 1.0 }, treeHasActiveConnection: { _ in true },
-        )
-        let held = e.evaluate(
-            assertions: [a], now: t0.addingTimeInterval(120), config: cfg(),
-            pidAlive: { _ in true }, cpuTime: { _ in 1.0 }, treeHasActiveConnection: { _ in true },
-        )
-        #expect(held.isEmpty)
-        // Connection closes (request done), CPU still idle → idle clock restarts from t0+120.
-        _ = e.evaluate(
-            assertions: [a], now: t0.addingTimeInterval(150), config: cfg(),
-            pidAlive: { _ in true }, cpuTime: { _ in 1.0 }, treeHasActiveConnection: { _ in false },
-        )
-        let out = e.evaluate(
-            assertions: [a], now: t0.addingTimeInterval(120 + 91), config: cfg(),
-            pidAlive: { _ in true }, cpuTime: { _ in 1.0 }, treeHasActiveConnection: { _ in false },
-        )
-        #expect(reasons(out) == [.cpuIdle])
-    }
-
     // MARK: Manual-hold idle exemption
 
     @Test

@@ -79,14 +79,10 @@ public final class IdleReleaseEvaluator {
     ///     unavailable. Tree (not just the agent process) so a long tool call — where the agent waits
     ///     while a busy child does the work — still reads as active.
     ///   - treeHoldsWakeAssertion: whether the PID's process tree currently holds a system-sleep
-    ///     assertion (e.g. Claude Code's `caffeinate` child). When true the tree counts as active even
-    ///     with idle CPU — this is what keeps a hold alive through server-side *thinking*, where the
-    ///     local process is near-idle but the agent has declared it's working. Defaults to always-false
-    ///     so callers that don't probe assertions (and the unit tests) keep the pure CPU-rate behavior.
-    ///   - treeHasActiveConnection: whether the PID's tree holds an established connection to a remote
-    ///     host (see `ProcessResolver.treeHasRemoteConnection`). Like `treeHoldsWakeAssertion`, a true
-    ///     value keeps the hold alive through near-idle CPU — it covers agents that don't self-assert
-    ///     but are blocked on a model/API response. Defaults to always-false.
+    ///     assertion (e.g. an agent's own `caffeinate` child). When true the tree counts as active even
+    ///     with idle CPU — this keeps a hold alive through server-side *thinking*, where the local
+    ///     process is near-idle but the agent has declared it's working. Defaults to always-false so
+    ///     callers that don't probe assertions (and the unit tests) keep the pure CPU-rate behavior.
     public func evaluate(
         assertions: [Assertion],
         now: Date,
@@ -94,7 +90,6 @@ public final class IdleReleaseEvaluator {
         pidAlive: (pid_t) -> Bool,
         cpuTime: (pid_t) -> TimeInterval?,
         treeHoldsWakeAssertion: (pid_t) -> Bool = { _ in false },
-        treeHasActiveConnection: (pid_t) -> Bool = { _ in false },
     ) -> [Release] {
         var releases: [Release] = []
         let maxAge = config.maxAssertionAgeHours * 3_600
@@ -128,12 +123,12 @@ public final class IdleReleaseEvaluator {
                     let rate = dt > 0 ? (cpu - prev) / dt : 0
                     lastCpuTime[a.pid] = cpu
                     lastSampleAt[a.pid] = now
-                    // Active if the tree is burning CPU, holds a wake assertion, OR has an open remote
-                    // connection. The latter two cover server-side *thinking*, when local CPU is
-                    // near-idle but work is in flight: the wake assertion is an agent's explicit "I'm
-                    // working" signal (Claude Code's `caffeinate`); the remote connection catches agents
-                    // that don't self-assert but are blocked on a model/API response. Any one keeps it alive.
-                    if rate >= config.cpuRateThreshold || treeHoldsWakeAssertion(a.pid) || treeHasActiveConnection(a.pid) {
+                    // Active if the tree is burning CPU or holds its own wake assertion. The wake
+                    // assertion covers server-side *thinking* for agents that self-caffeinate: an
+                    // explicit "I'm working" signal that holds even while local CPU is near-idle.
+                    // (Connection *presence* is deliberately not used — a pooled keep-alive to the API
+                    // stays ESTABLISHED across idle turns, so it would pin the hold forever.)
+                    if rate >= config.cpuRateThreshold || treeHoldsWakeAssertion(a.pid) {
                         lastActiveAt[a.pid] = now
                     } else if now.timeIntervalSince(lastActiveAt[a.pid] ?? a.acquiredAt) > config.idleThresholdSeconds {
                         releases.append(Release(key: a.key, reason: .cpuIdle))

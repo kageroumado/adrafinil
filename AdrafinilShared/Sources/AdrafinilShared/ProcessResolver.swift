@@ -233,62 +233,6 @@ public enum ProcessResolver {
         return total
     }
 
-    /// Whether `rootPID` or any descendant holds an **ESTABLISHED TCP connection to a non-loopback
-    /// host** — a best-effort proxy for "waiting on a server". An agent blocked on a model-API
-    /// response burns near-zero local CPU but has real work in flight; the idle-release uses this to
-    /// avoid sleeping the Mac mid-request during server-side "thinking". Loopback connections (e.g.
-    /// to local MCP servers) are excluded, so an otherwise-idle process with only local keep-alives
-    /// still releases. Trade-off: a lingering *remote* keep-alive can delay release until the TTL or
-    /// max-age backstop — deliberately erring toward never cutting a real request short. Best-effort:
-    /// PIDs whose fd table we can't read are skipped.
-    public static func treeHasRemoteConnection(rootPID: pid_t, childMap: [pid_t: [pid_t]]) -> Bool {
-        var seen: Set<pid_t> = []
-        var stack = [rootPID]
-        while let pid = stack.popLast() {
-            guard seen.insert(pid).inserted else { continue }
-            if pidHasRemoteConnection(pid) { return true }
-            stack.append(contentsOf: childMap[pid] ?? [])
-        }
-        return false
-    }
-
-    private static func pidHasRemoteConnection(_ pid: pid_t) -> Bool {
-        let probe = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard probe > 0 else { return false }
-        let stride = MemoryLayout<proc_fdinfo>.stride
-        let capacity = Int(probe) / stride + 8
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
-        let written = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(capacity * stride))
-        guard written > 0 else { return false }
-        let count = min(Int(written) / stride, fds.count)
-        for i in 0 ..< count where fds[i].proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
-            var info = socket_fdinfo()
-            let size = Int32(MemoryLayout<socket_fdinfo>.size)
-            guard proc_pidfdinfo(pid, fds[i].proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size else { continue }
-            guard info.psi.soi_kind == Int32(SOCKINFO_TCP) else { continue }
-            let tcp = info.psi.soi_proto.pri_tcp
-            guard tcp.tcpsi_state == Int32(TSI_S_ESTABLISHED) else { continue }
-            let ini = tcp.tcpsi_ini
-            guard ini.insi_fport != 0 else { continue } // has a foreign endpoint
-            if !foreignIsLoopback(ini) { return true }
-        }
-        return false
-    }
-
-    /// Whether an `in_sockinfo`'s *foreign* address is loopback (127.0.0.0/8 or `::1`).
-    private static func foreignIsLoopback(_ ini: in_sockinfo) -> Bool {
-        // insi_vflag bit 0x1 = IPv4 (INI_IPV4), 0x2 = IPv6 (INI_IPV6).
-        if ini.insi_vflag & 0x1 != 0 {
-            // IPv4 foreign address in network byte order; the first octet is the low byte. 127.x = loopback.
-            let addr = ini.insi_faddr.ina_46.i46a_addr4.s_addr
-            return UInt8(addr & 0xFF) == 127
-        }
-        var addr = ini.insi_faddr.ina_6
-        let bytes = withUnsafeBytes(of: &addr) { Array($0) }
-        guard bytes.count == 16 else { return false }
-        return bytes[0 ..< 15].allSatisfy { $0 == 0 } && bytes[15] == 1
-    }
-
     /// Parent PID via `sysctl(KERN_PROC_PID)`. Returns `-1` on failure.
     public static func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()

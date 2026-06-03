@@ -84,7 +84,6 @@ final class IdleMonitor {
             pidAlive: { self.pidExists($0) },
             cpuTime: { self.cpuTimeTree(rootPID: $0) },
             treeHoldsWakeAssertion: { self.treeContains(rootPID: $0, anyOf: wakePIDs) },
-            treeHasActiveConnection: { ProcessResolver.treeHasRemoteConnection(rootPID: $0, childMap: self.sweepChildMap) },
         )
         // Prune bookkeeping for PIDs that no longer back a live assertion — bound the per-PID maps
         // on this always-on daemon and stop a recycled PID inheriting a vanished process's baseline.
