@@ -23,8 +23,9 @@ enum AcquireCommand {
             // CPU-idle and dead-process nets release the hold when the whole gateway goes quiet or dies,
             // which is what makes a missed/asymmetric end hook safe.
             fullKey = "\(tool):gateway"
-            let pidPath = "\(NSHomeDirectory())/\(pidRel)"
-            let gwPID = ProcessResolver.gatewayPID(pidFilePath: pidPath)
+            // Check the default pid-file and any per-profile ones (the desktop app and multi-profile
+            // setups run the gateway under profiles/<name>/), mirroring Hermes' own gateway discovery.
+            let gwPID = ProcessResolver.gatewayPID(homeRoot: NSHomeDirectory(), pidFileRelativePath: pidRel)
             watchedPID = gwPID > 0 ? gwPID : nil
             cliLog.notice("acquire \(tool, privacy: .public) gateway-scoped key=\(fullKey, privacy: .public) — gateway pid=\(gwPID, privacy: .public)\(watchedPID == nil ? " (no live gateway; daemon will not process-watch)" : "", privacy: .public)")
         } else {

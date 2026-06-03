@@ -77,4 +77,47 @@ struct ProcessResolverTests {
         try #"{"pid": 2147483600}"#.write(toFile: file, atomically: true, encoding: .utf8)
         #expect(ProcessResolver.gatewayPID(pidFilePath: file) == -1)
     }
+
+    // MARK: - gatewayPID (profile-aware: default + profiles/*/gateway.pid)
+
+    private func makeHermesHome() throws -> String {
+        let home = NSTemporaryDirectory() + "hh-\(getpid())-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: home + "/.hermes", withIntermediateDirectories: true)
+        return home
+    }
+
+    @Test func gatewayPIDProfileAwarePrefersDefault() throws {
+        let home = try makeHermesHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        // Default pid-file is live (our own pid) → used directly, profiles not consulted.
+        try #"{"pid": \#(getpid())}"#.write(toFile: home + "/.hermes/gateway.pid", atomically: true, encoding: .utf8)
+        #expect(ProcessResolver.gatewayPID(homeRoot: home, pidFileRelativePath: ".hermes/gateway.pid") == getpid())
+    }
+
+    @Test func gatewayPIDProfileAwareFindsProfileWhenDefaultMissing() throws {
+        let home = try makeHermesHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        // No default pid-file; a named profile has a live gateway → found via the profiles glob.
+        let prof = home + "/.hermes/profiles/work"
+        try FileManager.default.createDirectory(atPath: prof, withIntermediateDirectories: true)
+        try #"{"pid": \#(getpid()), "kind": "hermes-gateway"}"#.write(toFile: prof + "/gateway.pid", atomically: true, encoding: .utf8)
+        #expect(ProcessResolver.gatewayPID(homeRoot: home, pidFileRelativePath: ".hermes/gateway.pid") == getpid())
+    }
+
+    @Test func gatewayPIDProfileAwareSkipsDeadProfileGateways() throws {
+        let home = try makeHermesHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        // A profile whose gateway is dead must not match (stale pid file).
+        let prof = home + "/.hermes/profiles/dead"
+        try FileManager.default.createDirectory(atPath: prof, withIntermediateDirectories: true)
+        try #"{"pid": 2147483600}"#.write(toFile: prof + "/gateway.pid", atomically: true, encoding: .utf8)
+        #expect(ProcessResolver.gatewayPID(homeRoot: home, pidFileRelativePath: ".hermes/gateway.pid") == -1)
+    }
+
+    @Test func gatewayPIDProfileAwareNoneReturnsNegative() throws {
+        let home = try makeHermesHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        // No pid-files anywhere (not even a profiles dir) → -1, no crash.
+        #expect(ProcessResolver.gatewayPID(homeRoot: home, pidFileRelativePath: ".hermes/gateway.pid") == -1)
+    }
 }

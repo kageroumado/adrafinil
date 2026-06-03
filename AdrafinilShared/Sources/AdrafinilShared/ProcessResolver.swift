@@ -82,6 +82,34 @@ public enum ProcessResolver {
         return pid
     }
 
+    /// Resolves a live gateway PID checking the default pid-file **and** any per-profile pid-files.
+    /// Hermes runs one gateway per profile — named profiles live at `<home>/.hermes/profiles/<name>/`,
+    /// each a full home writing its own `gateway.pid` — and the desktop app is just a UI launcher over
+    /// one of those gateways. Relying on the single default path would miss a profile gateway (and the
+    /// desktop's), degrading the hold to the end-hook + 24h backstop. This mirrors Hermes' own
+    /// `find_gateway_pids` discovery. Prefers the default profile, then the first live named profile;
+    /// returns `-1` if none is alive.
+    ///
+    /// - Parameters:
+    ///   - homeRoot: the user's home directory (e.g. `NSHomeDirectory()`).
+    ///   - pidFileRelativePath: home-relative path of the default pid-file, `<hermesDir>/<filename>`
+    ///     (e.g. `.hermes/gateway.pid`). The profiles glob is derived as `<hermesDir>/profiles/*/<filename>`.
+    public static func gatewayPID(homeRoot: String, pidFileRelativePath: String) -> pid_t {
+        let defaultPID = gatewayPID(pidFilePath: "\(homeRoot)/\(pidFileRelativePath)")
+        if defaultPID > 0 { return defaultPID }
+
+        let rel = pidFileRelativePath as NSString
+        let hermesDir = rel.deletingLastPathComponent          // ".hermes"
+        let pidFilename = rel.lastPathComponent                // "gateway.pid"
+        let profilesDir = "\(homeRoot)/\(hermesDir)/profiles"
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: profilesDir) else { return -1 }
+        for name in names.sorted() {
+            let pid = gatewayPID(pidFilePath: "\(profilesDir)/\(name)/\(pidFilename)")
+            if pid > 0 { return pid }
+        }
+        return -1
+    }
+
     /// `PROC_PIDPATHINFO_MAXSIZE` (4 * MAXPATHLEN); the macro isn't visible to Swift.
     private static let maxPathSize = 4 * 1024
 
