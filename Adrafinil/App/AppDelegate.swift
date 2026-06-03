@@ -14,6 +14,9 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var installerWindow: NSWindow?
 
+    /// Drives the Dock icon: shown only while a real window (Settings, Setup) is open.
+    private let dockVisibility = DockVisibilityController()
+
     /// Set by the uninstall flow so its own teardown isn't gated/paused by `applicationShouldTerminate`.
     private var isUninstalling = false
 
@@ -26,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Be the notification delegate so the away recap shows as a banner even when Adrafinil
         // is the frontmost app (otherwise the system routes it silently to Notification Center).
         UNUserNotificationCenter.current().delegate = self
+
+        // Show the Dock icon only while a real window is open (menu-bar app otherwise). Start before
+        // any window is presented so the first-run Setup window promotes it.
+        dockVisibility.start()
 
         NotificationCenter.default.addObserver(
             self,
