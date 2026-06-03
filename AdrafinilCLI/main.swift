@@ -21,7 +21,7 @@ do {
     case "daemon-status": try DaemonStatusCommand.run(args: rest)
     case "mcp": MCPServer.run(args: rest)
     case "version", "--version", "-v":
-        print("adrafinil 0.1.0")
+        print("adrafinil \(AdrafinilConstants.marketingVersion)")
     case "help", "--help", "-h":
         CLIUsage.printFullUsage()
     default:
