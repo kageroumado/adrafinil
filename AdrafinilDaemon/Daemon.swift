@@ -36,10 +36,9 @@ final class Daemon {
     private var sweepTimer: Timer?
     private var blockingObserver: Task<Void, Never>?
 
-    /// CPU-rate bookkeeping for the sniffer's activity gate on gateway-scoped agents (see
-    /// `processSweep`). Disjoint from the idle monitor's evaluator: this tracks candidate (not-yet-held)
-    /// daemon PIDs to decide *acquire*; the evaluator tracks held PIDs to decide *release*.
-    private let sniffActivityGate = ProcessActivityGate()
+    /// Whether any assertion is currently held. Mirrors the registry's blocking state (kept in sync by
+    /// `observeBlockingState`) so the periodic timers can be gated on it without an async hop.
+    private var isBlocking = false
 
     // "While you were away" tracking.
     private var lidClosedAt: Date?
@@ -71,10 +70,12 @@ final class Daemon {
         // only fires on *changes*, so restored state must be applied explicitly), re-arm the
         // exit-watch for any restored assertions, and apply the blocking state to the helper.
         let blocking = await registry.isBlocking
+        isBlocking = blocking
         thermalMonitor.isBlocking = blocking
         thermalMonitor.lidClosed = lidMonitor.isLidClosed
         batteryMonitor.isBlocking = blocking
         batteryMonitor.lidClosed = lidMonitor.isLidClosed
+        idleMonitor.isBlocking = blocking
         for a in await registry.snapshot() where a.pid > 0 {
             processWatcher.watch(pid: a.pid)
         }
@@ -233,8 +234,14 @@ final class Daemon {
         blockingObserver = Task { @MainActor [weak self] in
             guard let self else { return }
             for await blocking in registry.blockingStateChanges {
+                isBlocking = blocking
                 thermalMonitor.isBlocking = blocking
                 batteryMonitor.isBlocking = blocking
+                // Gate the periodic timers on holding: the idle/death sweep and the (opt-in) agent
+                // sniff only matter while we're keeping the Mac awake. No timers while idle means no
+                // CPU wakeups exactly when the Mac would otherwise be asleep.
+                idleMonitor.isBlocking = blocking
+                updateSweepTimer()
                 await helperClient.setBlocked(blocking)
             }
         }
@@ -364,24 +371,24 @@ final class Daemon {
         batteryMonitor.start()
     }
 
-    /// Starts or stops the process-sniffing sweep to match settings. The sweep auto-acquires for
-    /// running known agents that started without notifying us. Two kinds of work need it:
+    /// Starts or stops the agent-detection sweep. The sweep auto-acquires for **name-matched** agents
+    /// (claude, codex, …) found running without their hook installed, but only when:
     ///
-    /// - **Gateway-scoped agents** (a Hermes gateway/desktop dashboard) can't opt in via hooks — the
-    ///   desktop app fires none, and the executable is a generic interpreter — so the sniffer is their
-    ///   *only* detection path. They are activity-gated (see `processSweep`), not presence-acquired, so
-    ///   running the sweep for them doesn't pin an idle daemon. These are picked up whenever process
-    ///   sniffing is on, independent of the auto-acquire toggle.
-    /// - **Name-matched agents** (claude, codex, …) are presence-acquired only when the user opts into
-    ///   `autoAcquireForKnownAgents`; for them the sweep is pointless work when that toggle is off.
+    /// - the user opted into `autoAcquireForKnownAgents` (off by default), **and**
+    /// - we are already holding (`isBlocking`).
     ///
-    /// So the timer runs when sniffing is on *and* either there are gateway-scoped agents to watch or
-    /// auto-acquire is enabled. (Re-arming exit-watch for held assertions is handled in `start()` and
-    /// every `handleAcquire`, and `kqueue` watches persist until exit — the sweep isn't needed for that.)
+    /// The holding gate is the important one: it means there is **no background timer while the daemon
+    /// is idle** — exactly when the Mac would otherwise be asleep and a periodic wakeup would waste a
+    /// power cycle. So detection-by-sniff is a thing we do *while already awake for an agent* (to catch
+    /// a concurrent one), never a background poll that initiates a hold from nothing.
+    ///
+    /// Gateway agents (Hermes) are intentionally **not** sniff-acquired — their 24/7 process is always
+    /// present, so sniffing it would either run a forever-timer or false-acquire on background CPU.
+    /// They rely on their hooks (`pre_gateway_dispatch` → acquire / `on_session_end` → release), which
+    /// fire on real turns. (Re-arming exit-watch for held assertions is handled in `start()` and every
+    /// `handleAcquire`; `kqueue` watches persist until exit — the sweep isn't needed for that.)
     private func updateSweepTimer() {
-        let hasAlwaysSniffedAgents = AgentKind.allCases.contains(where: \.isGatewayScoped)
-        let needed = settings.processSniffingEnabled
-            && (settings.autoAcquireForKnownAgents || hasAlwaysSniffedAgents)
+        let needed = isBlocking && settings.processSniffingEnabled && settings.autoAcquireForKnownAgents
         if needed, sweepTimer == nil {
             sweepTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
                 Task { @MainActor in await self?.processSweep() }
@@ -393,49 +400,21 @@ final class Daemon {
     }
 
     private func processSweep() async {
-        // Re-check the master switch in case settings changed between the tick being scheduled and
-        // firing. The per-agent auto-acquire gating is applied below (it differs by agent kind).
-        guard settings.processSniffingEnabled else { return }
+        // Re-check the gates in case settings or the holding state changed between scheduling and firing.
+        guard isBlocking, settings.processSniffingEnabled, settings.autoAcquireForKnownAgents else { return }
         let snapshot = await registry.snapshot()
         let watchedPids = Set(snapshot.map(\.pid))
-        let now = Date()
-        // One process snapshot per sweep, shared by every tree-CPU walk in the activity gate.
-        let childMap = ProcessResolver.childMap()
-        let inspectArgv = !AgentKind.argvMatchedAgents.isEmpty
-        // Candidate (not-yet-held) gateway PIDs seen this sweep, so the gate can drop exited ones.
-        var liveGatewayPids: Set<pid_t> = []
 
         for proc in ProcessResolver.runningProcesses() {
             guard !watchedPids.contains(proc.pid) else { continue }
-            // Cheap path/basename match first; fall back to argv for interpreter-hosted agents.
-            var kind = AgentKind.forRunningProcess(name: proc.name, path: proc.path)
-            if kind == nil, inspectArgv, let argv = ProcessResolver.arguments(of: proc.pid) {
-                kind = AgentKind.forRunningProcess(argv: argv)
-            }
-            guard let kind else { continue }
-
-            let shouldAcquire: Bool
-            if kind.isGatewayScoped {
-                // Shared 24/7 daemon: presence ≠ work. Acquire only while the tree is CPU-active, so an
-                // idle gateway/dashboard never pins sleep (and the acquire/idle-release pair can't flap).
-                // Allowed regardless of the auto-acquire toggle — these agents can't opt in via hooks.
-                liveGatewayPids.insert(proc.pid)
-                let treeCPU = ProcessResolver.treeCPUTime(rootPID: proc.pid, childMap: childMap) ?? 0
-                shouldAcquire = sniffActivityGate.isActive(pid: proc.pid, treeCPU: treeCPU, now: now)
-                // Per-candidate-per-sweep, so .debug (visible via `log show --debug`) to avoid spamming
-                // the default log with a line every 30s for each long-lived gateway process.
-                log.debug("sniff candidate \(kind.rawValue, privacy: .public) pid=\(proc.pid, privacy: .public) name=\(proc.name, privacy: .public) treeCPU=\(treeCPU, privacy: .public) active=\(shouldAcquire, privacy: .public)")
-            } else {
-                // Per-session foreground agent: its presence implies a live session worth keeping awake,
-                // but only when the user opted into auto-acquire.
-                shouldAcquire = settings.autoAcquireForKnownAgents
-            }
-            guard shouldAcquire else { continue }
+            // Name/path match only — gateway agents (argv-matched) are deliberately not sniff-acquired.
+            guard let kind = AgentKind.forRunningProcess(name: proc.name, path: proc.path),
+                  !kind.isGatewayScoped else { continue }
 
             let assertion = Assertion(
                 key: "sniffed:\(kind.rawValue):\(proc.pid)",
                 tool: kind.rawValue,
-                reason: kind.isGatewayScoped ? "auto (active gateway)" : "auto (process sniffing)",
+                reason: "auto (process sniffing)",
                 pid: proc.pid,
                 processName: proc.name,
                 origin: .sniffed,
@@ -443,7 +422,6 @@ final class Daemon {
             log.info("Auto-acquiring for sniffed agent \(kind.rawValue) (pid \(proc.pid))")
             await handleAcquire(assertion)
         }
-        sniffActivityGate.forget(keeping: liveGatewayPids)
     }
 
     private func beginAwayTracking(snapshot: [Assertion]) {

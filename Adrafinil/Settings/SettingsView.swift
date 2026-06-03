@@ -366,11 +366,11 @@ struct SafetySettingsTab: View {
 
             Section {
                 Toggle(
-                    "Notice agents even if setup is incomplete",
+                    "Notice other agents while one is active",
                     isOn: $settings.processSniffingEnabled,
                 )
                 Toggle(
-                    "Start as soon as a known agent launches",
+                    "Keep the Mac awake for them too",
                     isOn: $settings.autoAcquireForKnownAgents,
                 )
                 .disabled(!settings.processSniffingEnabled)
@@ -378,9 +378,9 @@ struct SafetySettingsTab: View {
                 Text("Finding agents")
             } footer: {
                 Text("""
-                A backup to the per-agent setup: Adrafinil also watches for known agent apps running, in case one starts without notifying it.
+                A backup to the per-agent setup: while Adrafinil is already keeping your Mac awake for one agent, it can also notice other known agents (like a second Claude Code) that are running without their hook installed.
                 
-                “Start as soon as a known agent launches” keeps your Mac awake the whole time a normal agent (like Claude Code) is open. Some agents — such as Hermes — instead run as one shared background service that can't announce itself, so Adrafinil always keeps watch for those while “Notice agents” is on and keeps the Mac awake only while they're actually working.
+                This only runs while an agent is already active — never as a background scan — so it costs nothing while your Mac is idle or asleep. Agents that run as one shared background service, like Hermes, aren't picked up this way; connect them in the Agents tab so their hooks can signal when they're actually working.
                 """)
             }
 

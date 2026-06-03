@@ -35,11 +35,33 @@ final class IdleMonitor {
     private let evaluator = IdleReleaseEvaluator()
 
     /// Sweep every 30s: two samples this close turn into a meaningful CPU rate, and it bounds
+    /// Whether any assertion is currently held. The idle/death sweep only does anything while we're
+    /// keeping the Mac awake (with zero assertions there is nothing to release), so this gates the
+    /// timer itself: no 30s wakeups while the daemon is idle — exactly when the Mac would otherwise be
+    /// asleep and a timer would needlessly spin the CPU back up. Mirrors `ThermalMonitor.isBlocking`.
+    var isBlocking: Bool = false {
+        didSet {
+            guard isBlocking != oldValue else { return }
+            if isBlocking { startPolling() } else { stopPolling() }
+        }
+    }
+
     /// interrupt-detection latency to roughly the idle threshold rather than a multiple of it.
     func start() {
+        // No polling until something is blocking — `isBlocking`'s didSet arms/disarms the timer.
+        if isBlocking { startPolling() }
+    }
+
+    private func startPolling() {
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.sweep() }
         }
+    }
+
+    private func stopPolling() {
+        timer?.invalidate()
+        timer = nil
     }
 
     private func sweep() async {
@@ -62,6 +84,7 @@ final class IdleMonitor {
             pidAlive: { self.pidExists($0) },
             cpuTime: { self.cpuTimeTree(rootPID: $0) },
             treeHoldsWakeAssertion: { self.treeContains(rootPID: $0, anyOf: wakePIDs) },
+            treeHasActiveConnection: { ProcessResolver.treeHasRemoteConnection(rootPID: $0, childMap: self.sweepChildMap) },
         )
         // Prune bookkeeping for PIDs that no longer back a live assertion — bound the per-PID maps
         // on this always-on daemon and stop a recycled PID inheriting a vanished process's baseline.
