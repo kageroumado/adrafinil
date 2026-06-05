@@ -61,6 +61,12 @@ moment that work finishes.
 - **Xcode 26+** to build, with Swift 6 strict concurrency enabled.
 - Admin rights for the standard install (the privileged helper installs via `SMAppService`). A non-admin install path drops the CLI in `~/.local/bin` instead of `/usr/local/bin`.
 
+## Download
+
+**[Download Adrafinil](https://github.com/kageroumado/adrafinil/releases/latest)** — a signed, notarized disk image. Open it, drag **Adrafinil** to Applications, and launch. The first launch asks for admin rights once to register the privileged helper. Requires macOS 26.4 or later.
+
+Prefer to build it yourself? See [Building](#building).
+
 ## Building
 
 ```sh
