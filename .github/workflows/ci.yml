@@ -12,7 +12,7 @@ concurrency:
 jobs:
   lint:
     name: Swift (format + lint)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - run: brew install swiftformat swiftlint
@@ -23,7 +23,7 @@ jobs:
 
   test:
     name: Shared package tests
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode
@@ -33,7 +33,7 @@ jobs:
 
   build:
     name: App build (headless, unsigned)
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Select latest Xcode

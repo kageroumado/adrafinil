@@ -58,7 +58,7 @@ moment that work finishes.
 ## Requirements
 
 - **macOS Tahoe (26.0+).** Targets `MACOSX_DEPLOYMENT_TARGET = 26.4`.
-- **Xcode 17+** to build, with Swift 6 strict concurrency enabled.
+- **Xcode 26+** to build, with Swift 6 strict concurrency enabled.
 - Admin rights for the standard install (the privileged helper installs via `SMAppService`). A non-admin install path drops the CLI in `~/.local/bin` instead of `/usr/local/bin`.
 
 ## Building
