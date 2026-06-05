@@ -1,5 +1,4 @@
 import AdrafinilShared
-import AVFoundation
 import CoreAudio
 import Foundation
 import OSLog
@@ -68,55 +67,16 @@ final class ChimePlayer {
 
     // MARK: - Synthesis
 
-    /// Renders the two-tone chime to a temp file and returns its path (overwritten each call).
+    /// Renders the shared two-tone cue to a temp file and returns its path (overwritten each call).
+    /// The synthesis itself lives in `ChimeSynth` (AdrafinilShared) so the Settings preview plays an
+    /// identical cue.
     private func renderTwoTone(volume: Float) -> String? {
-        let sampleRate = 44_100.0
-        guard let buffer = makeTwoToneBuffer(sampleRate: sampleRate, volume: volume) else { return nil }
         let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("adrafinil-chime.caf")
-        do {
-            let file = try AVAudioFile(forWriting: url, settings: buffer.format.settings)
-            try file.write(from: buffer)
-            return url.path
-        } catch {
-            log.error("renderTwoTone — write failed: \(error.localizedDescription, privacy: .public)")
+        guard let rendered = ChimeSynth.renderTwoTone(volume: volume, to: url) else {
+            log.error("renderTwoTone — synthesis/write failed")
             return nil
         }
-    }
-
-    /// Two descending tones (G5 → D5) with short attack/release envelopes to avoid clicks.
-    /// `volume` (0…1) is baked into the samples.
-    private func makeTwoToneBuffer(sampleRate: Double, volume: Float) -> AVAudioPCMBuffer? {
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        let seg1 = 0.18, seg2 = 0.22
-        let frames = AVAudioFrameCount((seg1 + seg2) * sampleRate)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
-        buffer.frameLength = frames
-
-        let samples = buffer.floatChannelData![0]
-        let n = Int(frames)
-        let n1 = Int(seg1 * sampleRate)
-        let f1 = 783.99, f2 = 587.33 // G5, D5
-        let gain = Double(volume) * 0.6
-
-        for i in 0 ..< n {
-            let inFirst = i < n1
-            let freq = inFirst ? f1 : f2
-            let localStart = inFirst ? 0 : n1
-            let localLen = inFirst ? n1 : (n - n1)
-            let local = i - localStart
-            let localT = Double(local) / sampleRate
-            let env = envelope(sample: local, count: localLen, sampleRate: sampleRate)
-            samples[i] = Float(sin(2.0 * .pi * freq * localT) * env * gain)
-        }
-        return buffer
-    }
-
-    private func envelope(sample i: Int, count: Int, sampleRate: Double) -> Double {
-        let attack = max(1, Int(0.008 * sampleRate))
-        let release = max(1, Int(0.04 * sampleRate))
-        if i < attack { return Double(i) / Double(attack) }
-        if i > count - release { return Double(count - i) / Double(release) }
-        return 1.0
+        return rendered.path
     }
 
     // MARK: - Mute detection

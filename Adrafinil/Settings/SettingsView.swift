@@ -22,13 +22,13 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            GeneralSettingsTab(settings: $appSettings, device: device)
+            GeneralSettingsTab(settings: $appSettings, setup: setup, device: device)
                 .tabItem { Label("General", systemImage: "gear") }
             AgentsSettingsTab(agentHooks: agentHooks)
                 .tabItem { Label("Agents", systemImage: "terminal") }
             SafetySettingsTab(settings: $appSettings, device: device)
-                .tabItem { Label("Safety", systemImage: "thermometer.medium") }
-            AboutTab(setup: setup)
+                .tabItem { Label("Safety", systemImage: "checkmark.shield") }
+            AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
         // Single source of truth: every tab edits this one binding. Persist and propagate
@@ -66,7 +66,10 @@ struct GeneralSettingsTab: View {
     /// updates `MenuBarExtra(isInserted:)` immediately; persistence is handled centrally
     /// by `SettingsView`.
     @Binding var settings: AdrafinilSettings
+    var setup: any SetupProviding = LiveSetupProvider()
     var device: DeviceCapabilities = .current
+
+    @State private var showUninstallConfirm = false
 
     private let chimeOptions: [(id: String, label: String)] = [
         ("default", "Adrafinil chime"),
@@ -89,16 +92,43 @@ struct GeneralSettingsTab: View {
                 Section {
                     Toggle("Play a sound when you close the lid", isOn: $settings.soundOnLidClose)
                     LabeledContent("Volume") {
-                        Slider(value: $settings.soundVolume, in: 0 ... 1)
-                            .frame(maxWidth: 220)
+                        Slider(
+                            value: $settings.soundVolume,
+                            in: 0 ... 1,
+                            minimumValueLabel: Image(systemName: "speaker.fill")
+                                .imageScale(.small).foregroundStyle(.secondary),
+                            maximumValueLabel: Image(systemName: "speaker.wave.3.fill")
+                                .imageScale(.small).foregroundStyle(.secondary),
+                        ) {
+                            Text("Volume")
+                        }
+                        .frame(maxWidth: 220)
                     }
                     .disabled(!settings.soundOnLidClose)
-                    Picker("Sound", selection: $settings.chimeName) {
-                        ForEach(chimeOptions, id: \.id) { option in
-                            Text(option.label).tag(option.id)
+                    LabeledContent("Sound") {
+                        HStack(spacing: Theme.Space.sm) {
+                            Picker("Sound", selection: $settings.chimeName) {
+                                ForEach(chimeOptions, id: \.id) { option in
+                                    Text(option.label).tag(option.id)
+                                }
+                            }
+                            .labelsHidden()
+                            // Hear the cue without closing the lid; the picker also previews on change.
+                            Button {
+                                ChimePreviewPlayer.shared.preview(
+                                    volume: settings.soundVolume, chimeName: settings.chimeName,
+                                )
+                            } label: {
+                                Image(systemName: "play.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Hear this sound")
                         }
                     }
                     .disabled(!settings.soundOnLidClose)
+                    .onChange(of: settings.chimeName) { _, name in
+                        ChimePreviewPlayer.shared.preview(volume: settings.soundVolume, chimeName: name)
+                    }
 
                     Toggle("Lock the screen when you close the lid", isOn: $settings.lockOnLidClose)
                 } header: {
@@ -116,8 +146,33 @@ struct GeneralSettingsTab: View {
                     Text("Adrafinil keeps it awake while your agents work — a desktop still sleeps on idle and would stall a long task. Lid and battery features are hidden because there's no lid or battery to manage.")
                 }
             }
+
+            Section {
+                Button("Uninstall and quit…", role: .destructive) { showUninstallConfirm = true }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                    .focusEffectDisabled()
+            } footer: {
+                Text("Disconnects Adrafinil from every agent, turns off its background services, removes the adrafinil command, and deletes its settings — then quits.")
+            }
         }
         .formStyle(.grouped)
+        .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
+            Button("Uninstall and Quit", role: .destructive) { performUninstall() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This disconnects Adrafinil from all your agents, turns off its background services, and removes the adrafinil command and its settings. This can't be undone.")
+        }
+    }
+
+    private func performUninstall() {
+        Task {
+            await setup.uninstallEverything()
+            // Everything is already torn down (the sleep block was released first), so exit the process
+            // directly. Routing through `NSApp.terminate` would hit the quit gate, which tries to reach
+            // the daemon we just unregistered — with no daemon to answer, that wedges the quit.
+            exit(0)
+        }
     }
 }
 
@@ -153,7 +208,7 @@ struct AgentsSettingsTab: View {
                 // lands the first-responder ring, making a secondary utility read as the main action.
                 .focusEffectDisabled()
             } footer: {
-                Text("Reopens the guided setup. Use it to connect a new agent, or to fix one that shows “Needs attention”.")
+                Text("Reopens the guided setup. Use it to connect a new agent, or to fix one that shows “Needs reconnect”.")
             }
         }
         .formStyle(.grouped)
@@ -238,7 +293,7 @@ private struct AgentInstallRow: View {
     /// wrote. Re-installing overwrites the entry with the canonical form, restoring the connection.
     private var reconnectNote: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
-            Text("\(model.kind.displayName)'s settings were changed outside Adrafinil, so the connection may no longer work.")
+            Text("\(model.kind.displayName)'s Adrafinil hook isn't in the form Adrafinil expects — likely edited by hand or left over from an update — so it may not notice when \(model.kind.displayName) is working and keep your Mac awake. Reconnect restores it without touching your other \(model.kind.displayName) settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -296,7 +351,7 @@ private struct AgentInstallRow: View {
         case .notInstalled:
             EmptyView()
         case .modifiedExternally:
-            StateChip(text: "Needs attention", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
+            StateChip(text: "Needs reconnect", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
         }
     }
 }
@@ -355,7 +410,7 @@ struct SafetySettingsTab: View {
                     isOn: $settings.idleReleaseEnabled,
                 )
                 Stepper(value: $settings.idleReleaseSeconds, in: 30 ... 600, step: 30) {
-                    LabeledContent("Consider quiet after", value: "\(settings.idleReleaseSeconds)s")
+                    LabeledContent("Consider quiet after", value: Self.friendlyDuration(settings.idleReleaseSeconds))
                 }
                 .disabled(!settings.idleReleaseEnabled)
             } header: {
@@ -369,6 +424,7 @@ struct SafetySettingsTab: View {
                     "Notice other agents while one is active",
                     isOn: $settings.processSniffingEnabled,
                 )
+                .help("Agents that run as one shared background service, like Hermes, aren't picked up this way — connect them in the Agents tab so their hooks can signal when they're actually working.")
                 Toggle(
                     "Keep the Mac awake for them too",
                     isOn: $settings.autoAcquireForKnownAgents,
@@ -377,11 +433,7 @@ struct SafetySettingsTab: View {
             } header: {
                 Text("Finding agents")
             } footer: {
-                Text("""
-                A backup to the per-agent setup: while Adrafinil is already keeping your Mac awake for one agent, it can also notice other known agents (like a second Claude Code) that are running without their hook installed.
-                
-                This only runs while an agent is already active — never as a background scan — so it costs nothing while your Mac is idle or asleep. Agents that run as one shared background service, like Hermes, aren't picked up this way; connect them in the Agents tab so their hooks can signal when they're actually working.
-                """)
+                Text("A backup to the per-agent setup: while Adrafinil is already keeping your Mac awake for one agent, it can also notice other known agents (like a second Claude Code) running without their hook installed. It only runs while an agent is already active — never a background scan — so it costs nothing while your Mac is idle or asleep.")
             }
 
             Section {
@@ -404,14 +456,17 @@ struct SafetySettingsTab: View {
         }
         .formStyle(.grouped)
     }
+
+    /// A human-facing rendering of the idle-release interval: "30 sec", "1 min", "1 min 30 sec",
+    /// "5 min" — never the developer-facing "300s". Zero-valued units are dropped automatically.
+    private static func friendlyDuration(_ seconds: Int) -> String {
+        Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
+    }
 }
 
 // MARK: - About tab
 
 struct AboutTab: View {
-    let setup: any SetupProviding
-    @State private var showUninstallConfirm = false
-
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? AdrafinilConstants.marketingVersion
     }
@@ -443,34 +498,13 @@ struct AboutTab: View {
 
             Spacer()
 
-            VStack(spacing: Theme.Space.sm) {
-                Button("Uninstall and quit…", role: .destructive) { showUninstallConfirm = true }
-                    .tint(Theme.cutout)
-
-                Text("MIT License · © 2026 kageroumado")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+            Text("MIT License · © 2026 kageroumado")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
 
             Spacer().frame(height: Theme.Space.sm)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
-            Button("Uninstall and Quit", role: .destructive) { performUninstall() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This disconnects Adrafinil from all your agents, turns off its background services, and removes the adrafinil command. This can't be undone.")
-        }
-    }
-
-    private func performUninstall() {
-        // Tell the quit gate this is an uninstall, so it doesn't try to pause a daemon we're
-        // unregistering out from under it.
-        (NSApp.delegate as? AppDelegate)?.beginUninstall()
-        Task {
-            await setup.uninstallEverything()
-            NSApp.terminate(nil)
-        }
     }
 }
 
@@ -490,6 +524,7 @@ struct AboutTab: View {
         @Previewable @State var settings = AdrafinilSettings()
         GeneralSettingsTab(
             settings: $settings,
+            setup: PreviewSetupProvider(),
             device: DeviceCapabilities(hasLid: false, hasBattery: false),
         )
         .frame(width: 520, height: 560)
@@ -512,7 +547,7 @@ struct AboutTab: View {
             .frame(width: 520, height: 560)
     }
     #Preview("Settings · About") {
-        AboutTab(setup: PreviewSetupProvider())
+        AboutTab()
             .frame(width: 520, height: 560)
     }
 #endif
