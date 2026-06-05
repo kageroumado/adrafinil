@@ -138,7 +138,8 @@ struct NestedJSONHookShape {
     private func stripAdrafinil(from hooks: inout [String: Any], event: String) {
         guard var arr = hooks[event] as? [[String: Any]] else { return }
         arr = arr.filter { !Self.entryReferencesAdrafinil($0) }
-        hooks[event] = arr
+        // Drop the event key once empty so uninstall leaves no `"<event>": []` residue.
+        if arr.isEmpty { hooks[event] = nil } else { hooks[event] = arr }
     }
 
     private static func entryReferencesAdrafinil(_ entry: [String: Any]) -> Bool {

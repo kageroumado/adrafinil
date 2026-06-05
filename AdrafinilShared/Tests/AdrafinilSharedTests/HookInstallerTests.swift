@@ -131,8 +131,8 @@ struct HookInstallerTests {
         let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
         #expect(hooks["UserPromptSubmit"] != nil)
         #expect(hooks["Stop"] != nil)
-        #expect((hooks["SessionStart"] as? [[String: Any]])?.isEmpty == true)
-        #expect((hooks["SessionEnd"] as? [[String: Any]])?.isEmpty == true)
+        #expect(hooks["SessionStart"] == nil, "obsolete event dropped entirely, not left as an empty array")
+        #expect(hooks["SessionEnd"] == nil, "obsolete event dropped entirely, not left as an empty array")
         #expect(installer.installState(for: .claudeCode) == .installed)
     }
 
@@ -163,7 +163,7 @@ struct HookInstallerTests {
     }
 
     @Test
-    func `install codex writes session start only and sources id from stdin`() throws {
+    func `install codex writes user prompt submit and sources id from stdin`() throws {
         let home = try makeFakeHome(detectedDirs: [".codex"])
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -172,19 +172,25 @@ struct HookInstallerTests {
 
         let dict = try readJSON(home.path + "/.codex/hooks.json")
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        // Codex acquires on SessionStart and releases via the process-exit watcher:
-        // `Stop` fires per-turn (not session-end), so no release hook is written.
-        #expect(hooks["SessionStart"] != nil)
+        // Codex acquires on UserPromptSubmit (fires every turn, new session or resumed — unlike
+        // SessionStart, which a resume skips) and releases via the process-exit watcher + CPU-idle
+        // sweep: `Stop` fires per-turn (not session-end), so no release hook is written.
+        #expect(hooks["UserPromptSubmit"] != nil)
+        #expect(hooks["SessionStart"] == nil, "SessionStart misses resumed sessions — UserPromptSubmit instead")
         #expect(hooks["Stop"] == nil, "Stop is per-turn, not session-end — must not be used for release")
         #expect(hooks["SessionEnd"] == nil)
 
-        // Codex's shape is flat: the event maps to an array of HookHandlerConfig objects directly —
-        // `{ "type": "command", "command": … }`, NOT Claude's nested `{ "hooks": [ … ] }`. And no
-        // `_adrafinil` marker key, which Codex's strict deserializer would reject.
-        let start = try #require(hooks["SessionStart"] as? [[String: Any]])
-        let entry = try #require(start.first)
+        // Codex's shape is the nested matcher-group form (verified on-device against 0.135.0 and the
+        // official figma plugin): the event holds groups, each wrapping an inner `hooks` array of
+        // `{ "type": "command", "command": … }` handlers — same as Claude Code. The flat (no-wrapper)
+        // form is silently ignored. `matcher` is omitted (no tool to match on prompt submit) and there
+        // is no `_adrafinil` marker key, which Codex's strict deserializer may reject.
+        let start = try #require(hooks["UserPromptSubmit"] as? [[String: Any]])
+        let group = try #require(start.first)
+        #expect(group["matcher"] == nil, "no tool to match on prompt submit — no matcher")
+        let handlers = try #require(group["hooks"] as? [[String: Any]], "must be nested — inner hooks wrapper")
+        let entry = try #require(handlers.first)
         #expect(entry["type"] as? String == "command")
-        #expect(entry["hooks"] == nil, "must be flat — no inner hooks wrapper")
         #expect(entry["_adrafinil"] == nil, "no marker key — Codex may reject unknown fields")
         let cmd = try #require(entry["command"] as? String)
         // Codex exposes no session-id env var — the id comes from stdin `session_id`, so the
@@ -194,32 +200,70 @@ struct HookInstallerTests {
         #expect(cmd.contains("acquire --tool codex"))
     }
 
-    /// Codex stamps a `trusted_hash` onto a hook when the user trusts it via `/hooks`. Re-installing
-    /// must leave an already-correct entry untouched so that trust survives — overwriting it would
-    /// force the user to re-approve on every reinstall.
+    /// Trust isn't stored in hooks.json — Codex records a `trusted_hash` in config.toml keyed by the
+    /// handler's position *and* a hash of its command. So re-installing must keep our handler at a
+    /// stable index with an unchanged command (and not churn sibling keys), or the position/hash no
+    /// longer matches and the user must re-approve.
     @Test
-    func `reinstalling codex preserves a user-applied trusted_hash`() throws {
+    func `reinstalling codex keeps the handler stable so trust survives`() throws {
         let home = try makeFakeHome(detectedDirs: [".codex"])
         defer { try? FileManager.default.removeItem(at: home) }
         let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         _ = try installer.install(for: .codex, dryRun: false)
 
-        // Simulate Codex trusting our hook: stamp a trusted_hash onto our entry.
         let path = home.path + "/.codex/hooks.json"
+        // Capture our handler's command, then simulate Codex adding a sibling key to the handler.
         var dict = try readJSON(path)
         var hooks = try #require(dict["hooks"] as? [String: Any])
-        var start = try #require(hooks["SessionStart"] as? [[String: Any]])
-        start[0]["trusted_hash"] = "abc123"
-        hooks["SessionStart"] = start
+        var groups = try #require(hooks["UserPromptSubmit"] as? [[String: Any]])
+        var handlers = try #require(groups[0]["hooks"] as? [[String: Any]])
+        let originalCommand = try #require(handlers[0]["command"] as? String)
+        handlers[0]["sibling"] = "keep-me"
+        groups[0]["hooks"] = handlers
+        hooks["UserPromptSubmit"] = groups
         dict["hooks"] = hooks
         try writeJSON(dict, to: path)
 
         _ = try installer.install(for: .codex, dryRun: false)
 
         let after = try readJSON(path)
-        let entries = try #require((after["hooks"] as? [String: Any])?["SessionStart"] as? [[String: Any]])
-        #expect(entries.count == 1, "reinstall must not duplicate the entry")
-        #expect(entries[0]["trusted_hash"] as? String == "abc123", "trust must survive a reinstall")
+        let outGroups = try #require((after["hooks"] as? [String: Any])?["UserPromptSubmit"] as? [[String: Any]])
+        #expect(outGroups.count == 1, "reinstall must not duplicate the group")
+        let outHandlers = try #require(outGroups[0]["hooks"] as? [[String: Any]])
+        #expect(outHandlers.count == 1, "reinstall must not duplicate the handler")
+        #expect(outHandlers[0]["command"] as? String == originalCommand, "command unchanged so the trust hash still matches")
+        #expect(outHandlers[0]["sibling"] as? String == "keep-me", "sibling keys preserved")
+    }
+
+    /// Upgrading from the old `SessionStart` wiring (which a resume skipped) to `UserPromptSubmit`
+    /// must strip our stale `SessionStart` handler, or it would keep double-firing on new sessions.
+    @Test
+    func `install codex strips a stale SessionStart entry`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.path + "/.codex/hooks.json"
+
+        // Seed a legacy adrafinil SessionStart hook plus a user's own SessionStart hook.
+        try writeJSON([
+            "hooks": [
+                "SessionStart": [
+                    ["hooks": [["type": "command", "command": "/usr/local/bin/adrafinil acquire --tool codex"]]],
+                    ["hooks": [["type": "command", "command": "/usr/local/bin/user-thing"]]],
+                ],
+            ],
+        ], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .codex, dryRun: false)
+
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        // Our handler moved to UserPromptSubmit; the legacy SessionStart group is gone but the user's
+        // own SessionStart hook is left untouched.
+        #expect((hooks["UserPromptSubmit"] as? [[String: Any]])?.count == 1)
+        let sessionStart = try #require(hooks["SessionStart"] as? [[String: Any]])
+        #expect(sessionStart.count == 1, "only the user's own SessionStart group remains")
+        let userCmd = ((sessionStart[0]["hooks"] as? [[String: Any]])?.first?["command"] as? String)
+        #expect(userCmd == "/usr/local/bin/user-thing")
     }
 
     @Test

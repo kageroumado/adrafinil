@@ -1,48 +1,71 @@
 import Foundation
 
-/// Codex's `hooks.json` format (verified against the Codex 0.136.0 binary): each event maps to a
-/// flat array of `HookHandlerConfig` objects — for a command hook, `{ "type": "command", "command":
-/// … }` directly. This is **not** Claude Code's double-nested shape (`[{ "hooks": [{ "type":
-/// "command", "command": … }] }]`); Codex flattened it (a `matcher`, when present, sits on the
-/// handler itself).
+/// Codex's `hooks.json` format (verified on-device against npm `@openai/codex` 0.135.0 and the
+/// official `figma` marketplace plugin's own `hooks.json`): each event maps to an array of **matcher
+/// groups**, and each group wraps an inner `hooks` array of `{ "type": "command", "command": … }`
+/// handlers — the *same* nested shape Claude Code uses.
 ///
 /// ```json
-/// { "hooks": { "SessionStart": [ { "type": "command", "command": "adrafinil acquire …" } ] } }
+/// { "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "adrafinil acquire …" } ] } ] } }
 /// ```
+///
+/// > An earlier note claimed Codex used a *flat* `[{ "type": "command", … }]` array (no group
+/// > wrapper). That was wrong: 0.135.0 silently ignores the flat form — `/hooks` lists nothing — and
+/// > the nested matcher-group shape above is what it actually parses. `matcher` is omitted here: it
+/// > narrows *which tool* a Pre/PostToolUse hook fires for, and `SessionStart` has no tool to match.
 ///
 /// Two Codex-specific constraints shape this type:
 ///
-/// 1. **No marker key.** Codex deserializes hooks with strict, internally-tagged enums, so an extra
-///    `_adrafinil` field risks an "unexpected map key" rejection. We identify our own entry by its
-///    `command` containing `adrafinil` instead of tagging it.
-/// 2. **Preserve trust.** When the user trusts our hook via `/hooks`, Codex stamps a `trusted_hash`
-///    onto the entry. Re-installing must therefore *leave an already-correct entry untouched* rather
-///    than overwrite it — replacing it would drop the hash and force the user to re-approve. We only
-///    rewrite an entry whose command drifted (e.g. the CLI path changed), and append when absent.
+/// 1. **No marker key.** Codex deserializes handlers strictly, so an extra `_adrafinil` field risks an
+///    "unexpected key" rejection (the figma example carries only `type`+`command`). We identify our
+///    own handler by its `command` containing `adrafinil` instead of tagging it.
+/// 2. **Preserve trust.** Trust is *not* stored in `hooks.json` — when the user trusts our hook via
+///    `/hooks`, Codex records `[hooks.state."<path>:<event>:<group>:<handler>"] trusted_hash = …` in
+///    `config.toml`, keyed by the handler's position **and** a hash of its command. So re-installing
+///    must keep our handler at a stable index with an unchanged command, or the key/hash no longer
+///    matches and the user must re-approve. We therefore leave a correct handler untouched (preserving
+///    any sibling keys), only rewrite one whose command drifted, and append a fresh group when absent.
 struct CodexHookShape {
     let configPath: String
     let event: String
     let command: String
+    /// Events Adrafinil used to wire but no longer does. Install strips any adrafinil-owned handler
+    /// from them so upgrading self-heals — e.g. Codex moved from `SessionStart` (skipped on resume)
+    /// to `UserPromptSubmit`, and a lingering `SessionStart` → acquire would otherwise double-fire.
+    var obsoleteEvents: [String] = []
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         let before = ConfigFileIO.readJSON(configPath) ?? [:]
         var after = before
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
-        var arr = (hooks[event] as? [[String: Any]]) ?? []
+        var groups = (hooks[event] as? [[String: Any]]) ?? []
 
-        if let idx = arr.firstIndex(where: { Self.isOurs($0) }) {
-            // Leave a correct entry as-is so a user-applied `trusted_hash` survives; only repair a
-            // drifted command (preserving any sibling keys Codex added).
-            if (arr[idx]["command"] as? String) != command {
-                var repaired = arr[idx]
-                repaired["type"] = "command"
-                repaired["command"] = command
-                arr[idx] = repaired
+        if let gIdx = groups.firstIndex(where: { Self.groupIsOurs($0) }) {
+            var group = groups[gIdx]
+            var handlers = (group["hooks"] as? [[String: Any]]) ?? []
+            if let hIdx = handlers.firstIndex(where: { Self.handlerIsOurs($0) }) {
+                // Leave a correct handler as-is so the `config.toml` trust hash keeps matching; only
+                // repair a drifted command, preserving any sibling keys Codex may have added.
+                if (handlers[hIdx]["command"] as? String) != command {
+                    var repaired = handlers[hIdx]
+                    repaired["type"] = "command"
+                    repaired["command"] = command
+                    handlers[hIdx] = repaired
+                    group["hooks"] = handlers
+                    groups[gIdx] = group
+                }
+            } else {
+                handlers.append(Self.handler(command))
+                group["hooks"] = handlers
+                groups[gIdx] = group
             }
         } else {
-            arr.append(["type": "command", "command": command])
+            groups.append(["hooks": [Self.handler(command)]])
         }
-        hooks[event] = arr
+        hooks[event] = groups
+        for stale in obsoleteEvents where stale != event {
+            Self.stripOurHandlers(from: &hooks, event: stale)
+        }
         after["hooks"] = hooks
 
         let diff = ConfigFileIO.makeDiff(before: before, after: after)
@@ -61,9 +84,9 @@ struct CodexHookShape {
             return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
         }
         let before = dict
-        if var arr = hooks[event] as? [[String: Any]] {
-            arr.removeAll { Self.isOurs($0) }
-            hooks[event] = arr
+        // Strip our handler from the current event plus any event we've since migrated away from.
+        for ev in Set([event] + obsoleteEvents) {
+            Self.stripOurHandlers(from: &hooks, event: ev)
         }
         dict["hooks"] = hooks
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
@@ -74,14 +97,44 @@ struct CodexHookShape {
     func installState() -> HookInstallState {
         guard let dict = ConfigFileIO.readJSON(configPath),
               let hooks = dict["hooks"] as? [String: Any],
-              let arr = hooks[event] as? [[String: Any]],
-              let ours = arr.first(where: { Self.isOurs($0) }) else { return .notInstalled }
-        // Trust (`trusted_hash`) is the user's step via `/hooks`, not something we can apply, so a
-        // present-and-correct entry reads as installed regardless of trust state.
+              let groups = hooks[event] as? [[String: Any]],
+              let group = groups.first(where: { Self.groupIsOurs($0) }),
+              let handlers = group["hooks"] as? [[String: Any]],
+              let ours = handlers.first(where: { Self.handlerIsOurs($0) }) else { return .notInstalled }
+        // Trust (`trusted_hash` in config.toml) is the user's step via `/hooks`, not something we can
+        // apply, so a present-and-correct handler reads as installed regardless of trust state.
         return (ours["command"] as? String) == command ? .installed : .modifiedExternally
     }
 
-    private static func isOurs(_ entry: [String: Any]) -> Bool {
-        (entry["command"] as? String)?.contains("adrafinil") == true
+    private static func handler(_ command: String) -> [String: Any] {
+        ["type": "command", "command": command]
+    }
+
+    /// Removes our handler from every group under `event`, dropping a group left with no handlers but
+    /// keeping groups that still hold the user's own hooks. No-op when the event is absent.
+    private static func stripOurHandlers(from hooks: inout [String: Any], event: String) {
+        guard let groups = hooks[event] as? [[String: Any]] else { return }
+        let pruned: [[String: Any]] = groups.compactMap { group in
+            guard groupIsOurs(group) else { return group }
+            var g = group
+            var handlers = (g["hooks"] as? [[String: Any]]) ?? []
+            handlers.removeAll { handlerIsOurs($0) }
+            if handlers.isEmpty { return nil }
+            g["hooks"] = handlers
+            return g
+        }
+        // Drop the event key entirely once nothing is left under it, so uninstall leaves no empty
+        // `"<event>": []` residue in the user's hooks.json.
+        if pruned.isEmpty { hooks[event] = nil } else { hooks[event] = pruned }
+    }
+
+    /// A group is ours when its inner `hooks` array holds a handler whose command references our CLI.
+    private static func groupIsOurs(_ group: [String: Any]) -> Bool {
+        guard let handlers = group["hooks"] as? [[String: Any]] else { return false }
+        return handlers.contains(where: handlerIsOurs)
+    }
+
+    private static func handlerIsOurs(_ handler: [String: Any]) -> Bool {
+        (handler["command"] as? String)?.contains("adrafinil") == true
     }
 }
