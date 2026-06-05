@@ -101,9 +101,8 @@ struct InstallerView: View {
 
     private var helperStep: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            Image(systemName: "sun.max.fill")
-                .font(.system(size: 48)).foregroundStyle(Theme.awake)
-                .symbolRenderingMode(.hierarchical)
+            SpiralEyeView(closedness: 0, color: Theme.awake, pupilColor: Theme.onAwake, variant: .panel)
+                .frame(width: 88, height: 52)
             Text("Welcome to Adrafinil").font(.system(.largeTitle, design: .rounded).weight(.semibold))
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 Text("Adrafinil keeps your Mac awake — even with the lid closed — while your AI agents work.")

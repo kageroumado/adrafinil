@@ -62,7 +62,7 @@ Bundle identifiers: app `glass.kagerou.adrafinil`, daemon `…​.daemon`, helpe
 > - Public `IORegistryEntrySetCFProperty(IOPMrootDomain, "SleepDisabled", …)` — `kIOReturnNotPermitted` even as root.
 > - `IOPMSetSystemPowerSetting("SleepDisabled", …)` — the per-key call `pmset`'s disablesleep path makes; called alone it returns success but `pmset -g` still shows `SleepDisabled 0` and the Mac sleeps. `pmset` coordinates `IOPMSetPMPreferences` + activation around it, which the single call doesn't reproduce.
 >
-> Only the full `pmset -a disablesleep 1` was verified to keep the Mac awake (lid closed, no external display, on battery). It is blunt — global, also suppresses idle sleep, persists in the power-management prefs until cleared — but it is the path that works, and it's Apple's own tested implementation. It runs only on block-state flips, so the subprocess cost is negligible. Full investigation: `~/Developer/Research/macos-clamshell-sleep-private-api.md`.
+> Only the full `pmset -a disablesleep 1` was verified to keep the Mac awake (lid closed, no external display, on battery). It is blunt — global, also suppresses idle sleep, persists in the power-management prefs until cleared — but it is the path that works, and it's Apple's own tested implementation. It runs only on block-state flips, so the subprocess cost is negligible.
 
 `disablesleep` is **not** cleared on crash and can reset across a sleep/wake cycle. So the helper clears it on release and again on startup (crash recovery), and the daemon re-applies the blocking state on system wake (see §4.5).
 

@@ -475,10 +475,8 @@ struct AboutTab: View {
         VStack(spacing: Theme.Space.lg) {
             Spacer()
 
-            Image(systemName: "sun.max.fill")
-                .font(.system(size: 52))
-                .foregroundStyle(Theme.awake)
-                .symbolRenderingMode(.hierarchical)
+            SpiralEyeView(closedness: 0, color: Theme.awake, pupilColor: Theme.onAwake, variant: .panel)
+                .frame(width: 96, height: 56)
 
             VStack(spacing: Theme.Space.xs) {
                 Text("Adrafinil").font(.system(.title, design: .rounded).weight(.semibold))

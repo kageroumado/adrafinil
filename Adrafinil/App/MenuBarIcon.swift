@@ -4,9 +4,9 @@ import SwiftUI
 
 /// Menu-bar icon with three states:
 ///
-/// - **Idle** — grayscale outlined moon (template; adapts to the menu-bar appearance).
-/// - **Active** — amber filled sun. No count badge: the badge widened the status item
-///   (shifting the popover's anchor), and the live count already lives in the popover.
+/// - **Idle** — the spiral-eye wound shut (template; adapts to the menu-bar appearance).
+/// - **Active** — the spiral-eye open: the app icon's spiral pose. Also template — the
+///   open/closed eye itself is the state signal, matching the otherwise-monochrome menu bar.
 /// - **Cutout** — a red warning icon shown for 30 s after a thermal (exclamation triangle)
 ///   or low-battery (battery) cutout event, then auto-reverts to idle. The revert is driven
 ///   by a `Task` that sleeps until the 30-second boundary so the icon updates without
@@ -19,18 +19,12 @@ import SwiftUI
 /// (`GraphicsImage.makePlatformImage`), which it sets as the status button's `image`
 /// (`MenuBarExtraController.updateButton`). Every other view modifier — `.frame`,
 /// `.background`, padding — is discarded along the way; only the resolved `Image` survives.
-/// (Verified by disassembling SwiftUI; see `~/Developer/ReverseEngineering`.)
+/// That also rules out a `Canvas` or animated transitions in the label — the eye is two
+/// pre-built frames (open / closed) that swap directly with the state.
 ///
-/// The consequence: the status item's width tracks the resolved image's width. A bare
-/// `Image(systemName:)` resolves to an `NSImage` sized to *that glyph's* bounds, so the
-/// width changed between the sun (~18 pt) and the moon (~16 pt), nudging the popover anchor
-/// a few pixels on every state change. No SwiftUI-side `.frame`/`.background` could fix it,
-/// because those modifiers never reach the status button.
-///
-/// The fix is to control the `NSImage` directly: each glyph is drawn, scaled-to-fit and
-/// centered, into a **constant-size canvas**. `makePlatformImage` preserves an
-/// `Image(nsImage:)`'s declared size, so the status item is exactly ``canvasSize`` wide in
-/// every state and the popover always anchors to the same point.
+/// The consequence: the status item's width tracks the resolved image's width, so every state
+/// draws into a **constant-size canvas** (``canvasSize``) — the status item stays exactly that
+/// wide and the popover always anchors to the same point.
 struct MenuBarIcon: View {
     let status: AppStatusModel
 
@@ -46,7 +40,7 @@ struct MenuBarIcon: View {
 
     // MARK: - State machine
 
-    private enum IconState: CaseIterable, Equatable {
+    private enum IconState: Equatable {
         case idle
         case active
         case thermalCutout
@@ -72,53 +66,78 @@ struct MenuBarIcon: View {
 
     // MARK: - Rendering
 
-    /// The SF Symbol and tint for each state. A `nil` tint means "template" — drawn as a mask
-    /// and tinted by AppKit to match the menu-bar appearance (the native look for an idle item).
-    private static func spec(for state: IconState) -> (symbol: String, tint: NSColor?) {
-        switch state {
-        case .idle: ("moon", nil)
-        case .active: ("sun.max.fill", NSColor(Theme.awake))
-        case .thermalCutout: ("exclamationmark.triangle.fill", .systemRed)
-        case .lowBatteryCutout: ("battery.25percent", .systemRed)
-        }
-    }
-
-    private static let pointSize: CGFloat = 15
-    private static let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
-
-    /// Fixed status-item footprint. Sized to the steady-state glyphs (moon/sun); the transient
-    /// cutout glyphs scale to fit inside it. Constant across every state, so the popover anchor
-    /// never moves.
-    private static let canvasSize: NSSize = {
-        var maxWidth: CGFloat = 0
-        var maxHeight: CGFloat = 0
-        for name in ["moon", "sun.max.fill"] {
-            guard let size = configuredSymbol(name)?.size else { continue }
-            maxWidth = max(maxWidth, size.width)
-            maxHeight = max(maxHeight, size.height)
-        }
-        return NSSize(width: ceil(maxWidth) + 2, height: ceil(maxHeight))
-    }()
-
-    /// Rendered images are immutable and depend only on the state, so cache them. A cached
-    /// template image still adapts to light/dark — AppKit re-tints it on every draw.
-    private static var cache: [IconState: NSImage] = [:]
+    /// Fixed status-item footprint. The eye renders full-bleed horizontally (it is wider than
+    /// tall); the transient cutout glyphs scale to fit inside the same box. Constant across
+    /// every state, so the popover anchor never moves.
+    private static let canvasSize = NSSize(width: 18, height: 18)
 
     private static func image(for state: IconState) -> NSImage {
-        if let cached = cache[state] { return cached }
-        let rendered = render(state)
-        cache[state] = rendered
-        return rendered
+        switch state {
+        case .idle:
+            eyeImage(open: false)
+        case .active:
+            eyeImage(open: true)
+        case .thermalCutout, .lowBatteryCutout:
+            cutoutImage(for: state)
+        }
     }
 
-    private static func configuredSymbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+    // MARK: Eye frames
+
+    /// The two eye frames, rendered once and cached. A cached template image still adapts
+    /// to light/dark — AppKit re-tints it on every draw.
+    private static var eyeCache: [Bool: NSImage] = [:]
+
+    private static func eyeImage(open: Bool) -> NSImage {
+        if let cached = eyeCache[open] { return cached }
+
+        let closedness: Double = open ? 0 : 1
+        let image = NSImage(size: canvasSize, flipped: true) { rect in
+            guard let cg = NSGraphicsContext.current?.cgContext else { return false }
+            let pose: SpiralEyePose = open ? .menuBarOpen : .menuBarClosed
+            let k = rect.width / SpiralEyeGeometry.space
+            cg.translateBy(x: 0, y: (rect.height - rect.width) / 2)
+            cg.scaleBy(x: k, y: k)
+
+            // Each piece filled separately — a single combined fill lets opposite winding
+            // directions cancel to holes where the arms and seal overlap. Opaque black, so
+            // overlapping fills are invisible in the template mask.
+            cg.setFillColor(NSColor.black.cgColor)
+            for arm in SpiralEyeGeometry.armPaths(for: pose) {
+                cg.addPath(arm)
+                cg.fillPath()
+            }
+            if let seal = SpiralEyeGeometry.sealPath(for: pose, closedness: closedness) {
+                cg.addPath(seal)
+                cg.fillPath()
+            }
+            if pose.pupil > SpiralEyeGeometry.minimumPupil {
+                // Negative-space pupil: clear a hole so the menu bar shows through.
+                let r = pose.pupil * pose.scale
+                cg.setBlendMode(.clear)
+                cg.fillEllipse(in: CGRect(x: 512 - r, y: 512 - r, width: 2 * r, height: 2 * r))
+                cg.setBlendMode(.normal)
+            }
+            return true
+        }
+        image.isTemplate = true
+        eyeCache[open] = image
+        return image
+    }
+
+    // MARK: Cutout glyphs
+
+    private static let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+
+    private static var cutoutCache: [IconState: NSImage] = [:]
+
+    private static func cutoutImage(for state: IconState) -> NSImage {
+        if let cached = cutoutCache[state] { return cached }
+
+        let symbolName = state == .thermalCutout ? "exclamationmark.triangle.fill" : "battery.25percent"
+        guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfiguration)
-    }
-
-    private static func render(_ state: IconState) -> NSImage {
-        let (symbolName, tint) = spec(for: state)
-        guard let symbol = configuredSymbol(symbolName) else {
+        else {
             return NSImage(size: canvasSize)
         }
         symbol.isTemplate = true
@@ -132,15 +151,13 @@ struct MenuBarIcon: View {
                 height: fitted.height,
             )
             symbol.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
-            if let tint {
-                tint.set()
-                rect.fill(using: .sourceAtop)
-            }
+            NSColor.systemRed.set()
+            rect.fill(using: .sourceAtop)
             return true
         }
-        // A nil tint keeps the icon template-tinted by the menu bar; a concrete tint bakes
-        // the color in, so the image must opt out of template handling.
-        canvas.isTemplate = tint == nil
+        // The red is baked in, so the image must opt out of template handling.
+        canvas.isTemplate = false
+        cutoutCache[state] = canvas
         return canvas
     }
 

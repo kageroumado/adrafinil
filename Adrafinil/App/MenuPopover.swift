@@ -111,35 +111,46 @@ struct MenuPopover: View {
 
     // MARK: - Status card (hero)
 
-    @ViewBuilder
+    /// One stable card across the eye states so the spiral-eye icon keeps its view identity
+    /// and *animates* between open (awake) and closed (idle / paused) instead of being
+    /// swapped out; only the cutout state replaces it with a warning symbol.
     private func statusCard(_ s: DaemonStatus, state: HeroState, now _: Date) -> some View {
-        switch state {
+        let (tint, title, subtitle, dimmed): (Color, String, String, Bool) = switch state {
         case .awake:
-            heroCard(
-                icon: "sun.max.fill", tint: Theme.awake,
-                title: "Keeping your Mac awake",
-                subtitle: awakeSubtitle(s), dimmed: false,
-            )
+            (Theme.awake, "Keeping your Mac awake", awakeSubtitle(s), false)
         case .cutout:
-            heroCard(
-                icon: cutoutIcon(s), tint: Theme.cutout,
-                title: cutoutTitle(s),
-                subtitle: "Your Mac can sleep again", dimmed: false,
-            )
+            (Theme.cutout, cutoutTitle(s), "Your Mac can sleep again", false)
         case .idle:
-            heroCard(
-                icon: "moon.zzz.fill", tint: .secondary,
-                title: "Sleeping normally",
-                subtitle: device.hasLid
-                    ? "No agents active — close the lid and your Mac sleeps"
-                    : "No agents active — your Mac sleeps when idle", dimmed: true,
-            )
+            (.secondary, "Sleeping normally",
+             device.hasLid
+                 ? "No agents active — close the lid and your Mac sleeps"
+                 : "No agents active — your Mac sleeps when idle", true)
         case .paused:
-            heroCard(
-                icon: "moon.fill", tint: .secondary,
-                title: "Paused",
-                subtitle: "Agents can't keep your Mac awake until you resume", dimmed: false,
-            )
+            (.secondary, "Paused", "Agents can't keep your Mac awake until you resume", false)
+        }
+        return heroCard(tint: tint, title: title, subtitle: subtitle, dimmed: dimmed) {
+            if state == .cutout {
+                Image(systemName: cutoutIcon(s))
+                    .font(.system(size: 26))
+                    .foregroundStyle(tint)
+                    .symbolRenderingMode(.hierarchical)
+            } else {
+                let open = state == .awake
+                // The full app-icon geometry (not the simplified menu-bar pose): the hero is
+                // large enough for the eye metaphor — spiral envelope, visible dark pupil —
+                // to read. Drawn larger than the 30 pt icon slot so the eye fills the card's
+                // leading area instead of floating in padding; the canvas overflow is
+                // transparent and the slot keeps text aligned with the other cards.
+                SpiralEyeView(
+                    closedness: open ? 0 : 1, color: Theme.awake, closedColor: .secondary,
+                    pupilColor: Theme.onAwake, variant: .panel,
+                )
+                .frame(width: 48, height: 48)
+                    .animation(
+                        open ? .spring(duration: 0.85, bounce: 0.32) : .smooth(duration: 0.8),
+                        value: open,
+                    )
+            }
         }
     }
 
@@ -154,12 +165,12 @@ struct MenuPopover: View {
         return parts.isEmpty ? "Your Mac will stay awake" : parts.joined(separator: " · ")
     }
 
-    private func heroCard(icon: String, tint: Color, title: String, subtitle: String, dimmed: Bool) -> some View {
+    private func heroCard(
+        tint: Color, title: String, subtitle: String, dimmed: Bool,
+        @ViewBuilder icon: () -> some View,
+    ) -> some View {
         HStack(spacing: Theme.Space.md) {
-            Image(systemName: icon)
-                .font(.system(size: 26))
-                .foregroundStyle(tint)
-                .symbolRenderingMode(.hierarchical)
+            icon()
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(.body, design: .rounded).weight(.semibold))
@@ -263,12 +274,9 @@ struct MenuPopover: View {
         return Button {
             Task { await status.setPaused(pausing) }
         } label: {
-            Label(
-                pausing ? "Let your Mac sleep" : "Keep your Mac awake",
-                systemImage: pausing ? "moon.fill" : "sun.max.fill",
-            )
-            .frame(maxWidth: .infinity)
-            .foregroundStyle(Theme.onAwake)
+            Text(pausing ? "Let your Mac sleep" : "Keep your Mac awake")
+                .frame(maxWidth: .infinity)
+                .foregroundStyle(Theme.onAwake)
         }
         .buttonStyle(.glassProminent)
         .controlSize(.large)
@@ -289,10 +297,8 @@ struct MenuPopover: View {
     private var quitConfirmation: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             HStack(spacing: Theme.Space.md) {
-                Image(systemName: "moon.zzz.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(.secondary)
-                    .symbolRenderingMode(.hierarchical)
+                SpiralEyeView(closedness: 1, color: .secondary, variant: .panel)
+                    .frame(width: 48, height: 48)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Quit Adrafinil?").font(.system(.body, design: .rounded).weight(.semibold))

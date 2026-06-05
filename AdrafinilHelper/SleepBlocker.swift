@@ -33,7 +33,6 @@ import OSLog
 /// >
 /// > Replicating `pmset`'s full sequence in-process is fragile; `/usr/bin/pmset` is Apple's tested
 /// > implementation and runs only on rare block-state flips, so the subprocess cost is a non-issue.
-/// > Full investigation: `~/Developer/Research/macos-clamshell-sleep-private-api.md`.
 ///
 /// `disablesleep` is **not** cleared on crash and can reset across a sleep/wake cycle, so the
 /// policy clears it on construction (crash recovery) and again on release, and the daemon
