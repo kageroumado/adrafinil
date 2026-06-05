@@ -16,6 +16,22 @@ enum CLISymlinker {
         return nil
     }
 
+    /// The CLI path Adrafinil bakes into the hook commands it writes — and the one it compares
+    /// against when reporting each agent's connection state. **Deliberately the in-bundle path, not
+    /// the `installedCLIPath` symlink**, and that ordering is the whole point:
+    ///
+    /// `symlinkIfNeeded()` creates `~/.local/bin/adrafinil` (or `/usr/local/bin`) *asynchronously*,
+    /// so whether the symlink exists is timing-dependent. Hooks written during first-run setup land
+    /// before the symlink does and embed the bundle path; if `installState` later resolved to the
+    /// now-present symlink, it would compare two *different absolute paths for the very same binary*
+    /// and falsely report every connected agent as "modified externally" — exactly the bug this
+    /// fixes. Anchoring both write and inspect to the stable bundle path makes the comparison
+    /// deterministic regardless of when the symlink appears. The symlink stays purely a convenience
+    /// for a human typing `adrafinil` in a terminal; agents always invoke the real binary in place.
+    static var hookCLIPath: String {
+        bundledCLIPath ?? installedCLIPath ?? "adrafinil"
+    }
+
     /// The CLI binary inside the app bundle. It ships in `Contents/Helpers` — *not*
     /// `Contents/MacOS`, where a file named `adrafinil` collides case-insensitively with the
     /// app's own executable `Adrafinil` and shadows it (launching the app would run the CLI and

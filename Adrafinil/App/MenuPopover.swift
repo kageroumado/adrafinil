@@ -30,6 +30,9 @@ struct MenuPopover: View {
         // Reset the quit confirmation when the popover closes, so reopening always lands on the
         // status view rather than a stale "Quit Adrafinil?" prompt.
         .onDisappear { confirmingQuit = false }
+        // Recompute connected-agent hook health each time the popover opens (a few small file reads),
+        // so a drifted agent surfaces here and not only in the Agents settings tab.
+        .task { status.refreshAgentHealth() }
     }
 
     @ViewBuilder
@@ -54,6 +57,10 @@ struct MenuPopover: View {
                             pauseToggleButton(state: hero).transition(.popoverSection)
                         }
 
+                        if !status.driftedAgents.isEmpty {
+                            agentDriftCard(status.driftedAgents).transition(.popoverSection)
+                        }
+
                         if !live.assertions.isEmpty {
                             agentList(live.assertions, now: now).transition(.popoverSection)
                         }
@@ -76,7 +83,7 @@ struct MenuPopover: View {
     /// A compact, order-stable key for the popover's layout: which sections are visible and how
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(confirmingQuit)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)"
+        "\(confirmingQuit)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -207,6 +214,43 @@ struct MenuPopover: View {
         // A top-level card in the popover, sibling to the hero — so it shares the hero's `card`
         // radius (the `glassCard` default), not the smaller `inner` radius meant for nesting.
         .glassCard()
+    }
+
+    // MARK: - Agent drift warning
+
+    /// A tappable warning shown when one or more connected agents' hooks have drifted from Adrafinil's
+    /// canonical form — meaning the daemon may no longer notice when they work, so the Mac quietly
+    /// stops staying awake for them. Tapping opens Settings, where the Agents tab offers "Reconnect".
+    private func agentDriftCard(_ agents: [AgentKind]) -> some View {
+        let single = agents.count == 1
+        let title = single
+            ? "\(agents[0].displayName) may not be tracked"
+            : "\(agents.count) agents may not be tracked"
+        let subject = single ? "Its" : "Their"
+        let verb = single ? "it works" : "they work"
+        return SettingsLink {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(Theme.warn)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(.body, design: .rounded).weight(.semibold))
+                    Text("\(subject) Adrafinil hook changed, so your Mac might not stay awake while \(verb). Open Settings to reconnect.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Theme.Space.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(tint: Theme.warn.opacity(0.18))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Primary action (pause / resume)
@@ -485,6 +529,9 @@ struct AssertionRow: View {
     }
     #Preview("Popover · thermal cutout") {
         MenuPopover(status: AppStatusModel(previewStatus: Fixtures.thermalCutout))
+    }
+    #Preview("Popover · agent drift") {
+        MenuPopover(status: AppStatusModel(previewStatus: Fixtures.oneAgent, driftedAgents: [.claudeCode]))
     }
     #Preview("Popover · paused") {
         var paused = Fixtures.idle

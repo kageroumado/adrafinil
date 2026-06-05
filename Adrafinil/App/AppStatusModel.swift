@@ -26,11 +26,18 @@ final class AppStatusModel {
     /// panel is dismissed (either by the user or the 8-second auto-dismiss timer).
     var awaySummary: AwaySummary?
 
+    /// Connected agents whose Adrafinil hook has drifted from the canonical form, so the daemon may
+    /// no longer notice when they work. Surfaced as a warning in the popover (not just buried in the
+    /// Agents settings tab) because a silent drift means the Mac quietly stops staying awake for that
+    /// agent. Recomputed by `refreshAgentHealth()` when the popover opens.
+    var driftedAgents: [AgentKind] = []
+
     @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTimer: Timer?
     /// Guards against firing overlapping summary consumes if pushes arrive while one is in flight.
     @ObservationIgnored private var consumingSummary = false
     @ObservationIgnored private let provider: any StatusProviding
+    @ObservationIgnored private let agentHooks: any AgentHooksProviding
 
     /// How often the heartbeat re-fetches as a safety net behind the push stream. Push handles every
     /// real change instantly; this only guards a wedged connection and refreshes a stale temperature.
@@ -41,8 +48,13 @@ final class AppStatusModel {
     ///     and the gallery inject a `PreviewStatusProvider`.
     ///   - poll: when `true` (production), subscribes to pushes + runs the heartbeat. Previews pass
     ///     `false` for a fixed snapshot.
-    init(provider: any StatusProviding = DaemonClient.shared, poll: Bool = true) {
+    init(
+        provider: any StatusProviding = DaemonClient.shared,
+        agentHooks: any AgentHooksProviding = LiveAgentHooksProvider(),
+        poll: Bool = true,
+    ) {
         self.provider = provider
+        self.agentHooks = agentHooks
         if poll {
             // Set up the push subscription synchronously (the AsyncStream builder runs now), so the
             // connection is established with its callback before the initial refresh reuses it.
@@ -97,6 +109,15 @@ final class AppStatusModel {
         }
     }
 
+    /// Recomputes which connected agents have drifted from Adrafinil's canonical hook. A few small
+    /// config-file reads; called when the popover opens rather than on the heartbeat, since hook
+    /// configs only change when the user (or an update) edits them, not on daemon activity.
+    func refreshAgentHealth() {
+        driftedAgents = agentHooks.detectedAgents().filter {
+            agentHooks.installState(for: $0) == .modifiedExternally
+        }
+    }
+
     func forceReleaseAll() async {
         try? await provider.forceReleaseAll()
         await refresh()
@@ -118,14 +139,24 @@ final class AppStatusModel {
     #if DEBUG
         /// Fixed-snapshot model for previews and the gallery: seeds `status`/`awaySummary` synchronously
         /// and does not poll, so a scenario renders deterministically without a daemon.
-        convenience init(previewStatus: DaemonStatus, awaySummary: AwaySummary? = nil, error: (any Error)? = nil) {
-            self.init(provider: PreviewStatusProvider(status: previewStatus, awaySummary: awaySummary, error: error), poll: false)
+        convenience init(
+            previewStatus: DaemonStatus,
+            awaySummary: AwaySummary? = nil,
+            error: (any Error)? = nil,
+            driftedAgents: [AgentKind] = [],
+        ) {
+            self.init(
+                provider: PreviewStatusProvider(status: previewStatus, awaySummary: awaySummary, error: error),
+                agentHooks: PreviewAgentHooksProvider(driftedAgents.map { ($0, .modifiedExternally) }),
+                poll: false,
+            )
             if let error {
                 self.lastError = error.localizedDescription
             } else {
                 self.status = previewStatus
             }
             self.awaySummary = awaySummary
+            self.driftedAgents = driftedAgents
         }
     #endif
 }

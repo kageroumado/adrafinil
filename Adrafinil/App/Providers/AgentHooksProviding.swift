@@ -24,7 +24,7 @@ protocol AgentHooksProviding {
 @MainActor
 struct LiveAgentHooksProvider: AgentHooksProviding {
     private var installer: HookInstaller {
-        HookInstaller(cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil")
+        HookInstaller(cliPath: CLISymlinker.hookCLIPath)
     }
 
     func detectedAgents() -> [AgentKind] {
