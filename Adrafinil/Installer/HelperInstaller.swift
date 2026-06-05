@@ -18,6 +18,13 @@ enum HelperInstaller {
         UserDefaults.standard.set(true, forKey: "AdrafinilDidCompleteFirstRun")
     }
 
+    /// Clears the first-run flag so a later relaunch re-runs guided setup. Called by uninstall: once
+    /// the services are unregistered and hooks/CLI removed, the app is back to a pristine state, so
+    /// relaunching the bundle should walk Setup again rather than come up as a half-configured app.
+    static func resetFirstRun() {
+        UserDefaults.standard.removeObject(forKey: "AdrafinilDidCompleteFirstRun")
+    }
+
     /// Outcome of a registration attempt, surfaced to the installer UI.
     enum RegistrationResult: Equatable {
         case enabled

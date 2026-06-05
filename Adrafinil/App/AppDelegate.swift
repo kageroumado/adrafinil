@@ -17,9 +17,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Drives the Dock icon: shown only while a real window (Settings, Setup) is open.
     private let dockVisibility = DockVisibilityController()
 
-    /// Set by the uninstall flow so its own teardown isn't gated/paused by `applicationShouldTerminate`.
-    private var isUninstalling = false
-
     func applicationDidFinishLaunching(_: Notification) {
         // Single instance. macOS blocks double-launch from Finder, but launching via Xcode (or a
         // different build path) bypasses that — and Xcode's Stop doesn't reliably kill a menu-bar
@@ -92,20 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// while its app is open" holds. Centralizing here means every quit path (the popover's power
     /// button, ⌘Q from a window, logout) stops the daemon, not just the button.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-        // Uninstall tears everything down itself (and unregisters the daemon), so don't gate it.
-        if isUninstalling { return .terminateNow }
         // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable.
+        // (The uninstall flow doesn't come through here — it tears everything down and `exit()`s
+        // directly, since there'd be no daemon left for this to reach.)
         Task {
             try? await DaemonClient.shared.setPaused(true)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
-    }
-
-    /// Marks the impending termination as an uninstall so `applicationShouldTerminate` doesn't try
-    /// to pause a daemon that's being removed. Called by the About tab's uninstall flow.
-    func beginUninstall() {
-        isUninstalling = true
     }
 
     /// Force-quit any other running copy of this app, leaving only this instance. Force (not

@@ -64,9 +64,7 @@ struct LiveSetupProvider: SetupProviding {
         // component left to fix it. forceReleaseAll drives the helper to clear it and awaits that.
         try? await DaemonClient.shared.forceReleaseAll()
 
-        let installer = HookInstaller(
-            cliPath: CLISymlinker.installedCLIPath ?? CLISymlinker.bundledCLIPath ?? "adrafinil",
-        )
+        let installer = HookInstaller(cliPath: CLISymlinker.hookCLIPath)
         for kind in AgentKind.allCases {
             try? installer.uninstall(for: kind)
             // Also pull our MCP server from agents that have it, so we don't leave an `adrafinil`
@@ -80,6 +78,15 @@ struct LiveSetupProvider: SetupProviding {
         if let path = CLISymlinker.installedCLIPath {
             try? FileManager.default.removeItem(atPath: path)
         }
+
+        // Remove Adrafinil's own data directory — config.json, events.log, and the CLI socket — now
+        // that nothing is left to use it (done after unregistering the daemon, which owns the socket,
+        // and after forceReleaseAll above, which needed it). Leaves no settings or logs behind.
+        try? FileManager.default.removeItem(at: AdrafinilConstants.appSupportURL)
+
+        // Reset first-run so relaunching the bundle walks guided Setup fresh, rather than coming up as
+        // a half-configured app with no services registered.
+        HelperInstaller.resetFirstRun()
     }
 }
 
