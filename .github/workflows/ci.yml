@@ -14,7 +14,7 @@ jobs:
     name: Swift (format + lint)
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: brew install swiftformat swiftlint
       - name: SwiftFormat (check only)
         run: swiftformat --lint .
@@ -25,7 +25,7 @@ jobs:
     name: Shared package tests
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Select latest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
       - name: Run AdrafinilShared unit tests
@@ -35,7 +35,7 @@ jobs:
     name: App build (headless, unsigned)
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Select latest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
       # Compile-only check — no signing identities on CI. The daemon/helper/CLI are embedded in the
