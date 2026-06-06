@@ -70,7 +70,7 @@ final class ProcessWatcher {
                 guard n > 0 else { continue }
                 if event.filter == Int16(EVFILT_PROC), event.fflags & UInt32(NOTE_EXIT) != 0 {
                     let pid = pid_t(event.ident)
-                    mutex.withLock { _ in watched.remove(pid) }
+                    mutex.withLock { _ in _ = watched.remove(pid) }
                     notify(pid)
                 }
             }

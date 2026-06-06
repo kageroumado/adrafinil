@@ -177,7 +177,7 @@ struct InstallerView: View {
             )
             installItem(
                 icon: "terminal",
-                title: Text("The ") + Text("adrafinil").monospaced() + Text(" command"),
+                title: Text("The \(Text("adrafinil").monospaced()) command"),
                 detail: "Lets your agents tell Adrafinil when they start and stop working.",
             )
         }
