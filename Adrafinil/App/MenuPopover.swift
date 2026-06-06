@@ -121,10 +121,14 @@ struct MenuPopover: View {
         case .cutout:
             (Theme.cutout, cutoutTitle(s), "Your Mac can sleep again", false)
         case .idle:
-            (.secondary, "Sleeping normally",
-             device.hasLid
-                 ? "No agents active — close the lid and your Mac sleeps"
-                 : "No agents active — your Mac sleeps when idle", true)
+            (
+                .secondary,
+                "Sleeping normally",
+                device.hasLid
+                    ? "No agents active — close the lid and your Mac sleeps"
+                    : "No agents active — your Mac sleeps when idle",
+                true,
+            )
         case .paused:
             (.secondary, "Paused", "Agents can't keep your Mac awake until you resume", false)
         }
@@ -146,10 +150,10 @@ struct MenuPopover: View {
                     pupilColor: Theme.onAwake, variant: .panel,
                 )
                 .frame(width: 48, height: 48)
-                    .animation(
-                        open ? .spring(duration: 0.85, bounce: 0.32) : .smooth(duration: 0.8),
-                        value: open,
-                    )
+                .animation(
+                    open ? .spring(duration: 0.85, bounce: 0.32) : .smooth(duration: 0.8),
+                    value: open,
+                )
             }
         }
     }

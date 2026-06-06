@@ -16,7 +16,7 @@ import SwiftUI
 /// `y = sy·r·sign(sin t)·|sin t|^(1+almond)` flattens y near the horizontal extremes, giving
 /// lens-shaped rings with pointed canthi — the wound turns nest like eyelid contours, which
 /// is what makes the closed pose read as *eyelids* rather than a squashed coil.
-nonisolated struct SpiralEyePose: Sendable {
+nonisolated struct SpiralEyePose {
     /// Total log-spiral wrap in radians; the pitch is derived as `b = ln(rOut/rJoin)/span`.
     var span: Double
     /// Radius at the arm tip (1024-space).
@@ -95,7 +95,9 @@ nonisolated struct SpiralEyePose: Sendable {
     /// popping the pupil wider before it settles — the most visible part of the overshoot
     /// at menu-bar size.
     static func at(_ closedness: Double, from open: Self, to closed: Self) -> Self {
-        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * closedness }
+        func mix(_ a: Double, _ b: Double) -> Double {
+            a + (b - a) * closedness
+        }
         return Self(
             span: mix(open.span, closed.span),
             rOut: mix(open.rOut, closed.rOut),
@@ -121,7 +123,7 @@ nonisolated struct SpiralEyePose: Sendable {
 /// on (512, 512) with y pointing down. Renderers scale this into their target rect.
 nonisolated enum SpiralEyeGeometry {
     /// Logical canvas the paths are expressed in.
-    static let space: CGFloat = 1024
+    static let space: CGFloat = 1_024
     private static let center = CGPoint(x: 512, y: 512)
     /// Sample counts: inner connector + log-spiral segment per arm. Sized for smooth curves
     /// at hero scale while keeping per-frame path construction cheap during animation.
@@ -165,7 +167,7 @@ nonisolated enum SpiralEyeGeometry {
         let a = pose.rOut / exp(b * th1)
         let th0 = th1 - pose.span
 
-        // Almond ring profile: flatten y near the horizontal extremes → pointed canthi.
+        /// Almond ring profile: flatten y near the horizontal extremes → pointed canthi.
         func almondY(_ t: Double) -> Double {
             let s = sin(t)
             return (s < 0 ? -1 : 1) * pow(abs(s), 1 + pose.almond)
@@ -232,8 +234,12 @@ nonisolated enum SpiralEyeGeometry {
 
         let path = CGMutablePath()
         path.move(to: inner[0])
-        for p in inner.dropFirst() { path.addLine(to: p) }
-        for p in outer.reversed() { path.addLine(to: p) }
+        for p in inner.dropFirst() {
+            path.addLine(to: p)
+        }
+        for p in outer.reversed() {
+            path.addLine(to: p)
+        }
         path.closeSubpath()
         return path
     }
@@ -286,8 +292,12 @@ struct SpiralEyeView: View, Animatable {
         case menuBar
         case panel
 
-        var open: SpiralEyePose { self == .menuBar ? .menuBarOpen : .panelOpen }
-        var closed: SpiralEyePose { self == .menuBar ? .menuBarClosed : .panelClosed }
+        var open: SpiralEyePose {
+            self == .menuBar ? .menuBarOpen : .panelOpen
+        }
+        var closed: SpiralEyePose {
+            self == .menuBar ? .menuBarClosed : .panelClosed
+        }
     }
 
     nonisolated var animatableData: Double {
@@ -308,7 +318,7 @@ struct SpiralEyeView: View, Animatable {
             let pieces = (
                 SpiralEyeGeometry.armPaths(for: pose).map { Path($0) }
                     + [SpiralEyeGeometry.sealPath(for: pose, closedness: closedness).map(Path.init)]
-                    .compactMap(\.self)
+                    .compactMap(\.self),
             ).map { $0.applying(transform) }
 
             let pupil: Path? = if pose.pupil > SpiralEyeGeometry.minimumPupil {
@@ -326,7 +336,9 @@ struct SpiralEyeView: View, Animatable {
             // uniform coverage even for translucent colors (`.secondary`) and overlapping
             // pieces.
             context.drawLayer { layer in
-                for piece in pieces { layer.fill(piece, with: .color(.black)) }
+                for piece in pieces {
+                    layer.fill(piece, with: .color(.black))
+                }
                 if let pupil, pupilColor == nil {
                     layer.blendMode = .destinationOut
                     layer.fill(pupil, with: .color(.black))
