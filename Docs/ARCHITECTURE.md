@@ -64,7 +64,13 @@ Bundle identifiers: app `glass.kagerou.adrafinil`, daemon `…​.daemon`, helpe
 >
 > Only the full `pmset -a disablesleep 1` was verified to keep the Mac awake (lid closed, no external display, on battery). It is blunt — global, also suppresses idle sleep, persists in the power-management prefs until cleared — but it is the path that works, and it's Apple's own tested implementation. It runs only on block-state flips, so the subprocess cost is negligible.
 
-`disablesleep` is **not** cleared on crash and can reset across a sleep/wake cycle. So the helper clears it on release and again on startup (crash recovery), and the daemon re-applies the blocking state on system wake (see §4.5).
+`disablesleep` is **not** cleared on crash and can reset across a sleep/wake cycle. Several layers make sure it can never be stranded:
+
+- the helper clears it on release, on startup (crash recovery; `RunAtLoad` so this runs at boot, before any login), and on **SIGTERM** (machine shutdown / unregister);
+- the daemon clears it on its own SIGTERM (`launchctl bootout`, logout) with a bounded wait;
+- the helper has a **dead-man switch**: if the last daemon connection drops while blocked and none returns within 60 s (daemon SIGKILLed at logout), it clears the block itself;
+- while blocking, the daemon **re-pushes the blocked state every 60 s** (the helper's `set(true)` re-runs the full mechanism), healing a failed `pmset`, a raced helper relaunch, or a kernel reset that the wake notification missed;
+- `pmset` itself runs under a 10 s watchdog so a wedged invocation can't deadlock the helper's policy lock.
 
 **Failure mode**: if the helper crashes while sleep is blocked, the daemon detects it (XPC invalidation) and respawns it; on respawn the helper clears any stale `disablesleep` before re-applying the current state. Worst case: a brief window where sleep is allowed. Acceptable.
 
@@ -167,6 +173,8 @@ A periodic check (every 30s) releases an assertion when: its owning PID is gone;
 
 While the lid is closed AND ≥1 assertion is held, the daemon polls the SMC (sensor `TC0P`, CPU proximity; threshold 80°C default, configurable 70–95°C). On crossing it releases **all** assertions, logs a `thermalCutout` event, allows sleep, and records a cutout entry for the lid-open summary — so a bag-bound Mac can't cook itself. SMC access is public API (open `AppleSMC`, keyed read), no entitlements.
 
+A fired cutout (thermal or low-battery) **latches** (`CutoutLatch`): the still-running agent's next hook event would otherwise re-acquire within seconds and the system would oscillate acquire → cutout → release → re-acquire. While latched, acquires are rejected (with the reason on the wire). The latch clears when the hazard genuinely recedes — temperature at least 5°C under the threshold, back on AC or charge 5% over the threshold — or when the lid opens.
+
 ### 4.4 Lid-close audio cue
 
 Lid-state changes are observed via IORegistry notifications on `AppleClamshellState`. On open → closed with `isBlocking == true`, a short synthesized two-tone descending chime (G5 → D5, ~0.4s) plays — recognizably intentional rather than a system error sound, generated at runtime (no bundled audio file). It respects system volume and skips if muted; the user can instead pick a built-in macOS system sound. On closed → open after a held period, the lid-open summary is shown.
@@ -220,7 +228,7 @@ adrafinil version
 `~/Library/Application Support/Adrafinil/`:
 - `config.json` — user settings.
 - `cli.sock` — daemon socket.
-- `state.json` — current assertions, so the daemon resumes after a crash without losing live agent sessions.
+- `state.json` — current assertions plus the paused bit (`PersistedDaemonState`; legacy bare-array files still decode), so the daemon resumes after a crash without losing live agent sessions — and without silently un-pausing a paused Adrafinil. Restored assertions are validated (`RestoreFilter`): anything acquired before the current boot, or whose PID no longer resolves to a plausibly-matching executable, is dropped — a reboot recycles PIDs densely, and a stale entry landing on a busy system process would otherwise pin `disablesleep` for up to the 24 h backstop.
 - `events.log` — append-only JSON-lines log (acquire, release, cutouts, lid open/close). Rotated at 10MB to `events.log.1`. Feeds the lid-open summary.
 
 ---
