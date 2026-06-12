@@ -43,8 +43,8 @@ public enum DurationParser {
         let s = input.trimmingCharacters(in: .whitespaces).lowercased()
         guard !s.isEmpty else { return nil }
 
-        // Bare number → seconds.
-        if let bare = TimeInterval(s) { return bare >= 0 ? bare : nil }
+        // Bare number → seconds. "inf"/"nan" parse as TimeInterval but are not durations.
+        if let bare = TimeInterval(s) { return (bare.isFinite && bare >= 0) ? bare : nil }
 
         let units: [Character: TimeInterval] = ["s": 1, "m": 60, "h": 3_600, "d": 86_400]
         var total: TimeInterval = 0

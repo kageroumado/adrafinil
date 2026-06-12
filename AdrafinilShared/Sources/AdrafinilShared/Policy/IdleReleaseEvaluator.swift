@@ -118,6 +118,15 @@ public final class IdleReleaseEvaluator {
             // change, because an idle `claude` TUI still burns ~1% CPU — an absolute-delta rule treats
             // that as "active" forever and never releases.
             if config.enabled, a.origin != .manual, a.pid > 0, let cpu = cpuTime(a.pid) {
+                // A baseline that predates this assertion is stale: polling stops whenever nothing
+                // is held, so a re-acquire on the same PID (a new turn after a quiet stretch, or a
+                // resumed session) would otherwise compute its first rate across the whole gap —
+                // diluted toward zero — and read a brand-new turn as long-idle. Re-seed instead.
+                if let prevAt = lastSampleAt[a.pid], prevAt < a.acquiredAt {
+                    lastCpuTime[a.pid] = nil
+                    lastSampleAt[a.pid] = nil
+                    lastActiveAt[a.pid] = nil
+                }
                 if let prev = lastCpuTime[a.pid], let prevAt = lastSampleAt[a.pid] {
                     let dt = now.timeIntervalSince(prevAt)
                     let rate = dt > 0 ? (cpu - prev) / dt : 0
@@ -130,8 +139,17 @@ public final class IdleReleaseEvaluator {
                     // stays ESTABLISHED across idle turns, so it would pin the hold forever.)
                     if rate >= config.cpuRateThreshold || treeHoldsWakeAssertion(a.pid) {
                         lastActiveAt[a.pid] = now
-                    } else if now.timeIntervalSince(lastActiveAt[a.pid] ?? a.acquiredAt) > config.idleThresholdSeconds {
-                        releases.append(Release(key: a.key, reason: .cpuIdle))
+                    } else {
+                        // The idle clock is floored at acquisition AND at the assertion's own
+                        // activity stamp: a hook re-acquire is an explicit "the agent just did
+                        // something" signal, at least as authoritative as a CPU sample.
+                        let idleSince = max(
+                            lastActiveAt[a.pid] ?? .distantPast,
+                            max(a.acquiredAt, a.lastActivityAt),
+                        )
+                        if now.timeIntervalSince(idleSince) > config.idleThresholdSeconds {
+                            releases.append(Release(key: a.key, reason: .cpuIdle))
+                        }
                     }
                 } else {
                     lastCpuTime[a.pid] = cpu

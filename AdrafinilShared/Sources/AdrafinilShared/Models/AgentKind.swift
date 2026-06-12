@@ -46,6 +46,13 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     /// Every known binary name across all agents. Cached: the mapping is static.
     public static let allBinaryNames: Set<String> = Set(allCases.flatMap(\.binaryNames))
 
+    /// Binary names that may also match a *directory component* of an executable path, not just
+    /// its basename. Reserved for versioned install layouts where the basename is a version
+    /// string (`…/claude/versions/2.1.156`). Generic names must never component-match — `pi`
+    /// would claim anything under a Raspberry Pi project folder, and any executable inside a
+    /// user's `~/src/cline/` would read as that agent.
+    public static let componentMatchedBinaryNames: Set<String> = ["claude"]
+
     /// Reverse lookup from a binary name to its agent. Cached: the mapping is static.
     public static let byBinaryName: [String: AgentKind] = {
         var map: [String: AgentKind] = [:]
@@ -57,12 +64,13 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         return map
     }()
 
-    /// Identify the agent owning a running process, matching the basename first and then any
-    /// path component — so versioned installs (e.g. `…/claude/versions/2.1.156`, basename
-    /// `2.1.156`) are still recognized by their `claude` path segment. Returns nil if unknown.
+    /// Identify the agent owning a running process: by basename first, then — only for the
+    /// agents in `componentMatchedBinaryNames` — by path component, so versioned installs
+    /// (e.g. `…/claude/versions/2.1.156`, basename `2.1.156`) are still recognized by their
+    /// `claude` path segment. Returns nil if unknown.
     public static func forRunningProcess(name: String, path: String) -> AgentKind? {
         if let kind = byBinaryName[name] { return kind }
-        for component in (path as NSString).pathComponents {
+        for component in (path as NSString).pathComponents where componentMatchedBinaryNames.contains(component) {
             if let kind = byBinaryName[component] { return kind }
         }
         return nil

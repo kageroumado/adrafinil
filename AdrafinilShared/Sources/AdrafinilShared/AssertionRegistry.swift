@@ -32,14 +32,27 @@ public actor AssertionRegistry {
         Array(assertions.values).sorted { $0.acquiredAt < $1.acquiredAt }
     }
 
-    /// Adds an assertion. Returns `true` if it was newly added, `false` if a duplicate
-    /// (same key) — in which case it is a no-op for the count, but the existing
-    /// assertion's `lastActivityAt` is refreshed so the idle sweep treats it as active.
+    /// Adds an assertion. Returns `true` if it was newly added, `false` if a duplicate (same
+    /// key) — a no-op for the count, but the existing assertion is refreshed: its
+    /// `lastActivityAt` advances (the idle sweep treats a re-acquire as activity), and the
+    /// incoming `pid`/`processName`/TTL are adopted. A resumed session reuses its session key
+    /// under a NEW process — keeping the original pid would leave the exit-watcher and the
+    /// dead-PID rule bound to a process that no longer exists.
     @discardableResult
     public func acquire(_ assertion: Assertion) -> Bool {
-        if var existing = assertions[assertion.key] {
-            existing.lastActivityAt = Date()
-            assertions[assertion.key] = existing
+        if let existing = assertions[assertion.key] {
+            var updated = Assertion(
+                key: existing.key,
+                tool: existing.tool,
+                reason: assertion.reason ?? existing.reason,
+                pid: assertion.pid > 0 ? assertion.pid : existing.pid,
+                processName: assertion.pid > 0 ? assertion.processName : existing.processName,
+                acquiredAt: existing.acquiredAt,
+                origin: existing.origin,
+            )
+            updated.lastActivityAt = Date()
+            updated.expiresAt = assertion.expiresAt ?? existing.expiresAt
+            assertions[assertion.key] = updated
             return false
         }
         assertions[assertion.key] = assertion

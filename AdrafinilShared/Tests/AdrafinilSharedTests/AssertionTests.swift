@@ -69,7 +69,7 @@ struct AssertionTests {
         let opened = Date()
         let summary = AwaySummary(
             closedAt: closed, openedAt: opened,
-            finished: [FinishedAgentSummary(tool: "claude-code", displayName: "Claude Code", duration: 250)],
+            finished: [FinishedAgentSummary(key: "claude-code:s1", tool: "claude-code", displayName: "Claude Code", duration: 250)],
             stillActive: [],
             peakTemperatureCelsius: nil,
             thermalCutout: true,
@@ -84,9 +84,16 @@ struct AssertionTests {
     }
 
     @Test
-    func `finished agent summary identifier is tool`() {
-        let f = FinishedAgentSummary(tool: "codex", displayName: "Codex", duration: 10)
-        #expect(f.id == "codex")
+    func `finished agent summary identifier is its session key`() {
+        let f = FinishedAgentSummary(key: "codex:s1", tool: "codex", displayName: "Codex", duration: 10)
+        #expect(f.id == "codex:s1")
+    }
+
+    @Test
+    func `finished agent summary decodes without a key by falling back to tool`() throws {
+        let legacy = Data(#"{"tool": "codex", "displayName": "Codex", "duration": 10}"#.utf8)
+        let f = try JSONDecoder().decode(FinishedAgentSummary.self, from: legacy)
+        #expect(f.key == "codex")
     }
 
     @Test

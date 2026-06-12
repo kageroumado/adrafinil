@@ -28,15 +28,18 @@ public enum ProcessResolver {
         return -1
     }
 
-    /// Whether an executable path belongs to a known agent. Matches if **any path component** is in
-    /// `names`, not just the basename — agents are commonly installed under versioned paths whose
-    /// basename is a version string (e.g. `~/.local/share/claude/versions/2.1.156`, whose basename
-    /// `2.1.156` matches nothing, but whose component `claude` does). Component matching against the
-    /// specific agent-name set (claude, codex, gemini, …) is safe: those names don't collide with
-    /// generic path segments. Basename-only matching missed Claude entirely (pid resolved to -1),
-    /// leaving its assertion unwatchable.
+    /// Whether an executable path belongs to a known agent. The basename is checked against
+    /// `names`; path *components* are additionally checked, but only for the agents in
+    /// `AgentKind.componentMatchedBinaryNames` — versioned installs have a version string as
+    /// their basename (e.g. `~/.local/share/claude/versions/2.1.156`, recognizable only by its
+    /// `claude` segment; basename-only matching missed Claude entirely, leaving its assertion
+    /// unwatchable), while generic names like `pi` would otherwise claim any executable under a
+    /// same-named project directory.
     public static func pathMatchesAgent(_ path: String, names: Set<String>) -> Bool {
-        (path as NSString).pathComponents.contains { names.contains($0) }
+        if names.contains((path as NSString).lastPathComponent) { return true }
+        let componentNames = names.intersection(AgentKind.componentMatchedBinaryNames)
+        guard !componentNames.isEmpty else { return false }
+        return (path as NSString).pathComponents.contains { componentNames.contains($0) }
     }
 
     /// All currently running processes as `(pid, basename, fullPath)`. Used by the daemon's periodic

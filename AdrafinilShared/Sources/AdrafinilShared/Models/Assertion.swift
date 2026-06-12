@@ -105,6 +105,11 @@ public struct DaemonStatus: Codable, Sendable {
     /// only when this is set, rather than polling for it on every refresh.
     public var awaySummaryPending: Bool
 
+    /// Degraded-protection notices for the UI: a clamshell block that couldn't be fully applied,
+    /// an unreadable temperature while the thermal cutout is enabled, an active cutout latch.
+    /// The user trusts a closed lid to a working safety net — when part of it is down, say so.
+    public var warnings: [String]
+
     public init(
         isBlocking: Bool,
         assertions: [Assertion],
@@ -115,6 +120,7 @@ public struct DaemonStatus: Codable, Sendable {
         lastEventAt: Date? = nil,
         paused: Bool = false,
         awaySummaryPending: Bool = false,
+        warnings: [String] = [],
     ) {
         self.isBlocking = isBlocking
         self.assertions = assertions
@@ -125,23 +131,52 @@ public struct DaemonStatus: Codable, Sendable {
         self.lastEventAt = lastEventAt
         self.paused = paused
         self.awaySummaryPending = awaySummaryPending
+        self.warnings = warnings
+    }
+
+    /// Tolerant decode: a status from a build without `warnings` still decodes.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.isBlocking = try c.decode(Bool.self, forKey: .isBlocking)
+        self.assertions = try c.decode([Assertion].self, forKey: .assertions)
+        self.lidClosed = try c.decode(Bool.self, forKey: .lidClosed)
+        self.helperConnected = try c.decode(Bool.self, forKey: .helperConnected)
+        self.cpuTemperatureCelsius = try c.decodeIfPresent(Double.self, forKey: .cpuTemperatureCelsius)
+        self.lastEvent = try c.decodeIfPresent(DaemonEvent.self, forKey: .lastEvent)
+        self.lastEventAt = try c.decodeIfPresent(Date.self, forKey: .lastEventAt)
+        self.paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+        self.awaySummaryPending = try c.decodeIfPresent(Bool.self, forKey: .awaySummaryPending) ?? false
+        self.warnings = try c.decodeIfPresent([String].self, forKey: .warnings) ?? []
     }
 }
 
 /// One agent's line in the "while you were away" summary.
 public struct FinishedAgentSummary: Codable, Sendable, Identifiable, Hashable {
+    /// The assertion key — unique per session, unlike `tool` (two sessions of the same tool
+    /// would otherwise collide as `Identifiable` rows).
+    public let key: String
     public let tool: String
     public let displayName: String
     public let duration: TimeInterval
 
     public var id: String {
-        tool
+        key
     }
 
-    public init(tool: String, displayName: String, duration: TimeInterval) {
+    public init(key: String, tool: String, displayName: String, duration: TimeInterval) {
+        self.key = key
         self.tool = tool
         self.displayName = displayName
         self.duration = duration
+    }
+
+    /// Tolerant decode for version skew across the app↔daemon boundary.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.tool = try c.decode(String.self, forKey: .tool)
+        self.key = try c.decodeIfPresent(String.self, forKey: .key) ?? tool
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.duration = try c.decode(TimeInterval.self, forKey: .duration)
     }
 }
 

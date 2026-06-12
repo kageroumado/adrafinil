@@ -55,6 +55,9 @@ public struct CLIResponse: Codable, Sendable {
     public let warning: String?
     /// The minted `hold:` key for a successful `.hold` request, so the caller can release it later.
     public let holdKey: String?
+    /// The TTL the daemon actually applied to a `.hold` (it clamps to the user's configured
+    /// cap), so the caller reports a truthful duration instead of echoing what was requested.
+    public let appliedTTLSeconds: TimeInterval?
 
     /// Wire keys match the documented protocol: `blocking` serializes as `blockingState`.
     enum CodingKeys: String, CodingKey {
@@ -64,10 +67,11 @@ public struct CLIResponse: Codable, Sendable {
         case statusJSON
         case warning
         case holdKey
+        case appliedTTLSeconds
         case blocking = "blockingState"
     }
 
-    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil) {
+    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil, appliedTTLSeconds: TimeInterval? = nil) {
         self.ok = ok
         self.error = error
         self.blocking = blocking
@@ -75,6 +79,7 @@ public struct CLIResponse: Codable, Sendable {
         self.statusJSON = statusJSON
         self.warning = warning
         self.holdKey = holdKey
+        self.appliedTTLSeconds = appliedTTLSeconds
     }
 }
 
