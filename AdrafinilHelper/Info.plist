@@ -14,9 +14,14 @@
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <!-- Team-pinned: "anchor apple generic" alone is satisfied by ANY Apple-issued developer
+         certificate, and the identifier is freely chosen by whoever signs, so without the
+         subject.OU pin any developer could ship an app authorized to manage this root helper.
+         Both Developer ID and Apple Development certificates carry the Team ID in subject.OU,
+         so team-signed dev builds still register; pure ad-hoc builds cannot. -->
     <key>SMAuthorizedClients</key>
     <array>
-        <string>identifier "glass.kagerou.adrafinil" and anchor apple generic</string>
+        <string>identifier "glass.kagerou.adrafinil" and anchor apple generic and certificate leaf[subject.OU] = "52K336H235"</string>
     </array>
 </dict>
 </plist>

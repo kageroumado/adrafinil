@@ -23,15 +23,27 @@ public enum CallerVerifier {
     /// 2. The caller is an **Adrafinil component**, not just any app from the same team
     ///    (the developer may ship others — e.g. sibling menu-bar apps — under the same team).
     ///
-    /// If neither side is team-signed (an ad-hoc local dev build), the team check is skipped and
-    /// authorization falls back to the component-identifier check alone.
+    /// Only when this process itself has no team (an ad-hoc local dev build) does authorization
+    /// fall back to the component-identifier check alone.
     public static func isAuthorized(_ connection: NSXPCConnection) -> Bool {
         guard let caller = signingInfo(for: connection) else { return false }
+        return isAuthorizedDecision(
+            ownTeam: ownTeamIdentifier(),
+            callerTeam: caller.team,
+            identifier: caller.identifier,
+        )
+    }
 
-        if let ownTeam = ownTeamIdentifier(), let callerTeam = caller.team {
+    /// The pure authorization decision, separated from the Security-framework plumbing so it is
+    /// unit-testable. When this process is team-signed, a caller without that exact team is
+    /// rejected — including a caller with **no** team at all: an ad-hoc binary can claim any code
+    /// identifier it likes (`codesign -s - --identifier …`), so the identifier is only
+    /// trustworthy once the team check has anchored the caller to a certificate we control.
+    static func isAuthorizedDecision(ownTeam: String?, callerTeam: String?, identifier: String) -> Bool {
+        if let ownTeam {
             guard callerTeam == ownTeam else { return false }
         }
-        return isAdrafinilComponent(caller.identifier)
+        return isAdrafinilComponent(identifier)
     }
 
     /// Code identifiers of the non-bundle command-line targets (the daemon and helper), which sign
