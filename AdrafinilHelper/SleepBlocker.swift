@@ -130,6 +130,12 @@ private final class RealIdleAssertion: IdleSleepAsserting {
 private final class PMSetClamshellControl: ClamshellSleepControlling {
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlocker")
 
+    /// How long `pmset` may run before it counts as wedged. It normally exits in well under a
+    /// second; the bound exists because this call runs under the helper's policy lock — an
+    /// unbounded wait would deadlock every later XPC call, and the daemon's whole blocking-drive
+    /// loop behind it.
+    private static let pmsetTimeout: TimeInterval = 10
+
     func setDisabled(_ disabled: Bool) throws {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
@@ -139,13 +145,34 @@ private final class PMSetClamshellControl: ClamshellSleepControlling {
         task.standardError = errPipe
         task.standardOutput = Pipe()
 
+        // Drain stderr while pmset runs: reading only after exit deadlocks if it ever fills the
+        // pipe, and the helper would then hold its policy lock forever.
+        let errBuffer = OSAllocatedUnfairLock(initialState: Data())
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if !chunk.isEmpty { errBuffer.withLock { $0.append(chunk) } }
+        }
+        defer { errPipe.fileHandleForReading.readabilityHandler = nil }
+
+        let exited = DispatchSemaphore(value: 0)
+        task.terminationHandler = { _ in exited.signal() }
         try task.run()
-        task.waitUntilExit()
+
+        guard exited.wait(timeout: .now() + Self.pmsetTimeout) == .success else {
+            log.error("pmset -a disablesleep \(disabled ? "1" : "0", privacy: .public) did not exit within \(Self.pmsetTimeout, privacy: .public)s — killing it")
+            task.terminate()
+            _ = exited.wait(timeout: .now() + 2)
+            throw NSError(
+                domain: "Adrafinil.Helper.SleepBlocker",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "pmset timed out"],
+            )
+        }
         log.notice("pmset -a disablesleep \(disabled ? "1" : "0", privacy: .public) exited \(task.terminationStatus, privacy: .public)")
 
         guard task.terminationStatus == 0 else {
-            let err = errPipe.fileHandleForReading.readDataToEndOfFile()
-            let msg = String(data: err, encoding: .utf8) ?? "pmset exited \(task.terminationStatus)"
+            let err = errBuffer.withLock { $0 }
+            let msg = String(data: err, encoding: .utf8).flatMap { $0.isEmpty ? nil : $0 } ?? "pmset exited \(task.terminationStatus)"
             throw NSError(
                 domain: "Adrafinil.Helper.SleepBlocker",
                 code: Int(task.terminationStatus),

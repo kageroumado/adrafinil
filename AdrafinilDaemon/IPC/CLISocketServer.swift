@@ -33,10 +33,12 @@ final class CLISocketServer {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = path.utf8CString
-        precondition(
-            pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path),
-            "Socket path too long for sockaddr_un",
-        )
+        guard pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path) else {
+            // The daemon still runs (monitors + app XPC); only the CLI surface is unavailable.
+            log.error("Socket path too long for sockaddr_un (\(pathBytes.count) bytes) — CLI socket disabled")
+            Darwin.close(fd)
+            return
+        }
         withUnsafeMutablePointer(to: &addr.sun_path) { dst in
             dst.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dstChars in
                 _ = pathBytes.withUnsafeBufferPointer { src in
@@ -45,12 +47,18 @@ final class CLISocketServer {
             }
         }
 
+        // bind() creates the socket node with `0777 & ~umask`; tightening the umask first means
+        // the node is never visible with looser permissions than its final 0600. `start()` runs
+        // once at daemon startup before any worker threads exist, so the process-global umask
+        // flip can't race another file creation.
+        let savedUmask = umask(0o177)
         let addrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
         let bindResult = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.bind(fd, $0, addrLen)
             }
         }
+        umask(savedUmask)
         guard bindResult == 0 else {
             log.error("bind() failed: \(String(cString: strerror(errno)))")
             Darwin.close(fd)
@@ -86,6 +94,12 @@ final class CLISocketServer {
     private nonisolated func acceptOne(listenFD: Int32) {
         let client = Darwin.accept(listenFD, nil, nil)
         guard client >= 0 else { return }
+        // Each connection is handled by a blocking read on a global-queue worker. Without
+        // deadlines, a client that connects and never sends (or never reads) parks that worker
+        // forever, and enough of them exhausts the dispatch thread pool.
+        var tv = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.handle(clientFD: client)
         }
@@ -116,31 +130,46 @@ final class CLISocketServer {
             guard let key = req.key, let tool = req.tool else {
                 return CLIResponse(ok: false, error: "acquire requires key and tool", blocking: nil, assertionCount: nil, statusJSON: nil)
             }
+            if let rejection = CLIRequestValidator.acquireRejection(key: key, tool: tool) {
+                return CLIResponse(ok: false, error: rejection, blocking: nil, assertionCount: nil, statusJSON: nil)
+            }
             let assertion = Assertion(
                 key: key,
                 tool: tool,
-                reason: req.reason,
+                reason: CLIRequestValidator.clampedReason(req.reason),
                 pid: req.pid ?? -1,
                 processName: req.processName ?? tool,
-                ttl: req.ttlSeconds,
+                ttl: CLIRequestValidator.clampedTTL(req.ttlSeconds),
             )
-            let snapshot = runOnMain { @MainActor in
-                await daemonRef.handleAcquire(assertion)
-                return await daemonRef.registry.snapshot()
+            let result: (outcome: Daemon.AcquireResult, snapshot: [Assertion]) = runOnMain { @MainActor in
+                let outcome = await daemonRef.handleAcquire(assertion)
+                return await (outcome, daemonRef.registry.snapshot())
             }
-            return CLIResponse(ok: true, error: nil, blocking: !snapshot.isEmpty, assertionCount: snapshot.count, statusJSON: nil)
+            switch result.outcome {
+            case .accepted:
+                return CLIResponse(ok: true, error: nil, blocking: !result.snapshot.isEmpty, assertionCount: result.snapshot.count, statusJSON: nil)
+            case .paused:
+                // A paused daemon ignoring an acquire is expected behavior, not a hook failure.
+                return CLIResponse(ok: true, error: nil, blocking: false, assertionCount: result.snapshot.count, statusJSON: nil, warning: "Adrafinil is paused — acquire ignored")
+            case .overCapacity:
+                return CLIResponse(ok: false, error: "too many active assertions", blocking: !result.snapshot.isEmpty, assertionCount: result.snapshot.count, statusJSON: nil)
+            case let .cutoutLatched(message):
+                return CLIResponse(ok: false, error: message, blocking: false, assertionCount: result.snapshot.count, statusJSON: nil)
+            }
 
         case .hold:
             let result = runOnMain { @MainActor in
                 await daemonRef.handleHold(reason: req.reason, requestedTTL: req.ttlSeconds, pid: req.pid, tool: req.tool)
             }
             switch result {
-            case let .placed(key, count):
-                return CLIResponse(ok: true, error: nil, blocking: count > 0, assertionCount: count, statusJSON: nil, holdKey: key)
+            case let .placed(key, ttl, count):
+                return CLIResponse(ok: true, error: nil, blocking: count > 0, assertionCount: count, statusJSON: nil, holdKey: key, appliedTTLSeconds: ttl)
             case .disabled:
                 return CLIResponse(ok: false, error: "Agent holds are turned off in Adrafinil settings.", blocking: nil, assertionCount: nil, statusJSON: nil)
             case .paused:
                 return CLIResponse(ok: false, error: "Adrafinil is paused — resume it to place a hold.", blocking: nil, assertionCount: nil, statusJSON: nil)
+            case let .rejected(message):
+                return CLIResponse(ok: false, error: message, blocking: nil, assertionCount: nil, statusJSON: nil)
             }
 
         case .release:

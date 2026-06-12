@@ -22,8 +22,11 @@
     <key>KeepAlive</key>
     <true/>
 
+    <!-- Launch at boot so the constructor's crash-recovery clear of `disablesleep` runs
+         immediately: a Mac shut down (or that panicked) while blocked must be able to sleep at
+         the login window, not only after the first user logs in and the daemon connects. -->
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 
     <key>ProcessType</key>
     <string>Background</string>

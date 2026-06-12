@@ -62,6 +62,17 @@ final class IdleMonitor {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        // Bookkeeping frozen across a stopped stretch would poison the next blocking period:
+        // the first rate would span the whole gap (diluted toward zero) and a stale
+        // `lastActiveAt` would read a brand-new turn as long-idle.
+        evaluator.forget(keeping: [])
+    }
+
+    /// Drops the CPU baselines so the next sweep re-seeds. Called on system wake: wall-clock
+    /// time advanced through sleep, so a pre-sleep sample would otherwise produce a gap-spanning
+    /// rate and an instantly-expired idle clock for an agent that was mid-work.
+    func resetBaselines() {
+        evaluator.forget(keeping: [])
     }
 
     private func sweep() async {

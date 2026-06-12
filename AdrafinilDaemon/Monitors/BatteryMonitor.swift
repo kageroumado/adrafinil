@@ -62,7 +62,7 @@ final class BatteryMonitor {
             MainActor.assumeIsolated { monitor.tick() }
         }
         guard let source = IOPSNotificationCreateRunLoopSource(callback, context)?.takeRetainedValue() else {
-            log.error("Failed to create power-source notification source — battery cutout disabled")
+            log.error("Failed to create power-source notification source — battery cutout relies on the lid/blocking poll only")
             return
         }
         runLoopSource = source

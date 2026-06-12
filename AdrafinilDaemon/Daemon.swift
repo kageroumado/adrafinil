@@ -14,7 +14,8 @@ final class Daemon {
     var settings: AdrafinilSettings = .load()
 
     /// User-controlled master switch. While paused, all holds are released and agent acquires are
-    /// ignored, so the Mac sleeps normally. In-memory: a daemon restart resumes (fresh) by default.
+    /// ignored, so the Mac sleeps normally. Persisted: the user quit the app expecting their Mac
+    /// to sleep, and a daemon relaunch or reboot must not silently un-pause behind their back.
     private(set) var isPaused = false
 
     let lidMonitor = LidStateMonitor()
@@ -34,15 +35,31 @@ final class Daemon {
     let statusBroadcaster = StatusBroadcaster()
 
     private var sweepTimer: Timer?
+    private var reconcileTimer: Timer?
     private var blockingObserver: Task<Void, Never>?
+
+    /// Latches fired cutouts so the agent that was just cut off can't immediately re-pin a hot
+    /// or draining Mac (see `CutoutLatch`). While latched, `handleAcquire` rejects.
+    private var cutoutLatch = CutoutLatch()
+    /// Re-checks the thermal latch while it's held. The thermal monitor only polls while
+    /// blocking — which a cutout just ended — so without this the "has it cooled?" question
+    /// would never be asked again until the lid opens.
+    private var latchRecheckTimer: Timer?
 
     /// Whether any assertion is currently held. Mirrors the registry's blocking state (kept in sync by
     /// `observeBlockingState`) so the periodic timers can be gated on it without an async hop.
     private var isBlocking = false
 
+    /// PIDs of sniffed assertions that were released (by the user or the idle sweep) and must
+    /// not be re-acquired by the sniff sweep while their process lives.
+    private var sniffSuppressedPids: Set<pid_t> = []
+
     // "While you were away" tracking.
     private var lidClosedAt: Date?
-    private var heldAtClose: [(tool: String, displayName: String, acquiredAt: Date)] = []
+    private var heldAtClose: [(key: String, tool: String, displayName: String, acquiredAt: Date)] = []
+    /// When each lid-close-held key released while the lid was closed, so the summary reports
+    /// real run durations rather than "until lid-open". Stamped by `recordAwayReleases`.
+    private var awayReleasedAt: [String: Date] = [:]
     private var peakTempWhileClosed: Double?
     private var thermalCutoutWhileClosed = false
     private var lowBatteryCutoutWhileClosed = false
@@ -51,10 +68,22 @@ final class Daemon {
     func start() async {
         log.info("Adrafinil daemon starting")
 
-        // Restore previous assertions (in case of daemon restart while agents were live).
+        // Restore previous state (daemon restart while agents were live). Assertions are
+        // validated first: after a reboot every stored PID is stale and recycled, and restoring
+        // one that now names a busy system process would re-block sleep with no agent behind it.
         if let restored = stateStore.load() {
-            await registry.replaceAll(with: restored)
-            log.info("Restored \(restored.count) assertions from state file")
+            isPaused = restored.paused
+            let outcome = RestoreFilter.partition(
+                restored.assertions,
+                bootTime: RestoreFilter.systemBootTime(),
+                pathOf: { ProcessResolver.path(of: $0) },
+            )
+            if !outcome.dropped.isEmpty {
+                log.notice("Dropped \(outcome.dropped.count) stale persisted assertion(s) (pre-boot or recycled pid)")
+            }
+            await registry.replaceAll(with: outcome.kept)
+            if !outcome.dropped.isEmpty { await persistState() }
+            log.info("Restored \(outcome.kept.count) assertions from state file (paused=\(self.isPaused))")
         }
 
         observeBlockingState()
@@ -80,8 +109,10 @@ final class Daemon {
             processWatcher.watch(pid: a.pid)
         }
         await syncHelperToRegistry()
+        helperClient.logHelperVersion()
 
         updateSweepTimer()
+        updateReconcileTimer()
     }
 
     // MARK: - Public API used by IPC servers
@@ -98,8 +129,10 @@ final class Daemon {
             await syncHelperToRegistry()
         } else {
             log.notice("Resumed — agents can keep the Mac awake again")
-            // Resume changes no assertions, so it doesn't pass through persistAndSync — push the
-            // new paused=false state explicitly so the app's hero card flips immediately.
+            // Resume changes no assertions, so it doesn't pass through persistAndSync — persist
+            // the paused bit and push the new state explicitly so the app's hero card flips
+            // immediately.
+            await persistState()
             await broadcastStatus()
         }
     }
@@ -107,11 +140,13 @@ final class Daemon {
     /// Outcome of an agent-hold request, so the CLI/MCP can report precisely why a hold did or
     /// didn't take.
     enum HoldResult {
-        case placed(key: String, count: Int)
+        case placed(key: String, ttl: TimeInterval, count: Int)
         /// Agent holds are disabled in settings.
         case disabled
         /// The app is paused, so nothing can keep the Mac awake right now.
         case paused
+        /// The acquire was refused (e.g. registry at capacity).
+        case rejected(String)
     }
 
     /// Places an explicit agent hold: clamps the TTL to the configured cap, mints a `hold:` key,
@@ -138,16 +173,54 @@ final class Daemon {
             ttl: ttl,
             origin: .manual,
         )
-        await handleAcquire(assertion)
+        switch await handleAcquire(assertion) {
+        case .accepted:
+            break
+        case .paused:
+            return .paused
+        case .overCapacity:
+            return .rejected("Too many active assertions — hold not placed.")
+        case let .cutoutLatched(message):
+            return .rejected(message)
+        }
         let count = await registry.snapshot().count
         log.notice("hold placed key='\(key, privacy: .public)' ttl=\(Int(ttl), privacy: .public)s pid=\(pid ?? -1, privacy: .public) reason='\(reason ?? "", privacy: .public)'")
-        return .placed(key: key, count: count)
+        return .placed(key: key, ttl: ttl, count: count)
     }
 
-    func handleAcquire(_ assertion: Assertion) async {
+    /// Hard ceilings on registry size. Agent hooks produce a handful of live assertions; hundreds
+    /// means a runaway or hostile local caller, and every new key rewrites state.json in full —
+    /// unbounded growth is a disk/CPU sink.
+    static let maxAssertions = 128
+    static let maxAssertionsPerPid = 32
+
+    enum AcquireResult: Equatable {
+        case accepted
+        case paused
+        case overCapacity
+        case cutoutLatched(String)
+    }
+
+    @discardableResult
+    func handleAcquire(_ assertion: Assertion) async -> AcquireResult {
         guard !isPaused else {
             log.notice("acquire ignored — Adrafinil is paused (key='\(assertion.key, privacy: .public)')")
-            return
+            return .paused
+        }
+        if let message = cutoutLatch.rejectionMessage {
+            log.notice("acquire rejected — cutout latched (key='\(assertion.key, privacy: .public)')")
+            return .cutoutLatched(message)
+        }
+        let snapshot = await registry.snapshot()
+        if !snapshot.contains(where: { $0.key == assertion.key }) {
+            guard snapshot.count < Self.maxAssertions else {
+                log.error("acquire rejected — \(snapshot.count) assertions already active (key='\(assertion.key, privacy: .public)')")
+                return .overCapacity
+            }
+            if assertion.pid > 0, snapshot.count(where: { $0.pid == assertion.pid }) >= Self.maxAssertionsPerPid {
+                log.error("acquire rejected — pid \(assertion.pid) already holds \(Self.maxAssertionsPerPid) assertions")
+                return .overCapacity
+            }
         }
         let isNew = await registry.acquire(assertion)
         // Watch the owning process so the assertion is force-released if the agent dies without
@@ -158,11 +231,20 @@ final class Daemon {
         log.notice("acquire key='\(assertion.key, privacy: .public)' tool='\(assertion.tool, privacy: .public)' pid=\(assertion.pid, privacy: .public) new=\(isNew, privacy: .public) -> \(count, privacy: .public) active")
         // Duplicate acquires are no-ops for the count — don't log/persist them.
         if isNew { await persistAndSync(event: .acquired) }
+        return .accepted
     }
 
     @discardableResult
     func handleRelease(key: String) async -> Bool {
         let existed = await registry.release(key: key)
+        // A released sniffed assertion must stay released: the sweep re-acquires any matched
+        // process it isn't already holding, so without this a user's explicit release (or an
+        // idle release) would be silently undone 30 seconds later. Suppression lasts until the
+        // process exits (pruned in `processSweep`).
+        if existed, key.hasPrefix(CLIRequestValidator.sniffedKeyPrefix),
+           let pid = key.split(separator: ":").last.flatMap({ pid_t($0) }) {
+            sniffSuppressedPids.insert(pid)
+        }
         if existed {
             let count = await registry.snapshot().count
             log.notice("release key='\(key, privacy: .public)' existed=true -> \(count, privacy: .public) active")
@@ -185,18 +267,32 @@ final class Daemon {
 
     func currentStatus() async -> DaemonStatus {
         let snapshot = await registry.snapshot()
+        // While blocking, the monitor polls and `lastReadingCelsius` is current. While idle the
+        // poll is stopped (no wakeups), so read once on demand for callers that want a live temp.
+        let temperature = thermalMonitor.isBlocking ? thermalMonitor.lastReadingCelsius : thermalMonitor.readNow()
+
+        var warnings: [String] = []
+        if let latchMessage = cutoutLatch.rejectionMessage {
+            warnings.append(latchMessage)
+        }
+        if helperClient.lastApplyFailed, !snapshot.isEmpty {
+            warnings.append("The sleep block couldn't be fully applied — your Mac may still sleep when the lid closes. Retrying.")
+        }
+        if settings.thermalCutoutEnabled, !snapshot.isEmpty, temperature == nil {
+            warnings.append("CPU temperature is unreadable, so the thermal cutout can't trigger.")
+        }
+
         return DaemonStatus(
             isBlocking: !snapshot.isEmpty,
             assertions: snapshot,
             lidClosed: lidMonitor.isLidClosed,
             helperConnected: helperClient.isConnected,
-            // While blocking, the monitor polls and `lastReadingCelsius` is current. While idle the
-            // poll is stopped (no wakeups), so read once on demand for callers that want a live temp.
-            cpuTemperatureCelsius: thermalMonitor.isBlocking ? thermalMonitor.lastReadingCelsius : thermalMonitor.readNow(),
+            cpuTemperatureCelsius: temperature,
             lastEvent: eventLog.last,
             lastEventAt: eventLog.lastAt,
             paused: isPaused,
             awaySummaryPending: pendingAwaySummary != nil,
+            warnings: warnings,
         )
     }
 
@@ -242,8 +338,44 @@ final class Daemon {
                 // CPU wakeups exactly when the Mac would otherwise be asleep.
                 idleMonitor.isBlocking = blocking
                 updateSweepTimer()
+                updateReconcileTimer()
                 await helperClient.setBlocked(blocking)
             }
+        }
+    }
+
+    /// While blocking, re-push the blocked state to the helper once a minute. The helper's
+    /// `set(true)` re-runs the full mechanism (the policy is deliberately not short-circuited),
+    /// so this heals every way the block can silently rot: a `pmset` invocation that failed once,
+    /// a helper relaunch whose reapply raced, or the kernel resetting `disablesleep` outside the
+    /// wake notification. Costs one `pmset` fork per minute, only while an agent is held.
+    private func updateReconcileTimer() {
+        if isBlocking, reconcileTimer == nil {
+            reconcileTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isBlocking else { return }
+                    await self.syncHelperToRegistry()
+                }
+            }
+        } else if !isBlocking, let timer = reconcileTimer {
+            timer.invalidate()
+            reconcileTimer = nil
+        }
+    }
+
+    /// Best-effort cleanup on SIGTERM (launchctl bootout, logout, shutdown): clear the helper's
+    /// sleep block, bounded by a deadline so a wedged helper can't stall the exit past launchd's
+    /// patience. Without this, `disablesleep` survives the daemon with nothing left to clear it.
+    func shutdown() async {
+        log.notice("SIGTERM — clearing sleep block before exit")
+        await persistState()
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            let once = OnceResumer<Void> { cont.resume() }
+            Task { @MainActor [helperClient] in
+                await helperClient.setBlocked(false)
+                once.resume(())
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { once.resume(()) }
         }
     }
 
@@ -259,9 +391,14 @@ final class Daemon {
     private func wirePowerMonitor() {
         systemPowerMonitor.onWake = { [weak self] in
             guard let self else { return }
-            // The helper's private clamshell-disable bit can be reset across a sleep/wake
-            // cycle, so re-push the current blocking state — the helper re-applies it.
-            Task { @MainActor in await self.syncHelperToRegistry() }
+            Task { @MainActor in
+                // The helper's clamshell-disable bit can be reset across a sleep/wake cycle, so
+                // re-push the current blocking state — the helper re-applies it. The idle
+                // baselines are dropped too: wall-clock advanced through sleep, and a pre-sleep
+                // CPU sample would read a mid-work agent as long-idle on the first sweep.
+                self.idleMonitor.resetBaselines()
+                await self.syncHelperToRegistry()
+            }
         }
     }
 
@@ -272,6 +409,9 @@ final class Daemon {
                 self.eventLog.append(closed ? .lidClosed : .lidOpened)
                 self.thermalMonitor.lidClosed = closed
                 self.batteryMonitor.lidClosed = closed
+                // Opening the lid clears any cutout latch — the user is present, and open-lid
+                // thermals/drain are macOS's problem.
+                self.reevaluateCutoutLatch()
                 if closed {
                     let decision = await LidActionDecider().onLidClose(
                         isBlocking: self.registry.isBlocking,
@@ -290,10 +430,13 @@ final class Daemon {
                     if decision.shouldLock {
                         self.screenLocker.lock()
                     }
-                    if decision.shouldBeginAwayTracking {
+                    // The awaits above can interleave with a rapid re-open; beginning
+                    // away-tracking for a lid that is already open again would dangle until the
+                    // NEXT open and report a summary spanning the whole intervening period.
+                    if decision.shouldBeginAwayTracking, self.lidMonitor.isLidClosed {
                         await self.beginAwayTracking(snapshot: self.registry.snapshot())
                     }
-                } else {
+                } else if !self.lidMonitor.isLidClosed {
                     await self.finishAwayTracking()
                 }
                 // Push the lid-state change (and any freshly-pending away summary) to the app.
@@ -349,6 +492,8 @@ final class Daemon {
             Task { @MainActor in
                 self.log.warning("Thermal cutout triggered — releasing all assertions")
                 if self.lidClosedAt != nil { self.thermalCutoutWhileClosed = true }
+                self.cutoutLatch.trip(.thermal)
+                self.updateLatchRecheckTimer()
                 await self.registry.removeAll()
                 await self.persistAndSync(event: .thermalCutout)
             }
@@ -359,16 +504,61 @@ final class Daemon {
     private func wireBatteryMonitor() {
         batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
+        batteryMonitor.onReading = { [weak self] _, _ in
+            // IOKit power-source events keep firing while idle (plug/unplug, charge), so this is
+            // the battery latch's recovery path: plugging in clears it immediately.
+            MainActor.assumeIsolated { self?.reevaluateCutoutLatch() }
+        }
         batteryMonitor.onCutout = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
                 self.log.warning("Low-battery cutout triggered — releasing all assertions")
                 if self.lidClosedAt != nil { self.lowBatteryCutoutWhileClosed = true }
+                self.cutoutLatch.trip(.lowBattery)
+                self.updateLatchRecheckTimer()
                 await self.registry.removeAll()
                 await self.persistAndSync(event: .lowBatteryCutout)
             }
         }
         batteryMonitor.start()
+    }
+
+    /// Re-evaluates the cutout latch against current readings, clearing causes whose hazard
+    /// receded (with hysteresis) and broadcasting so the UI drops its warning.
+    private func reevaluateCutoutLatch() {
+        guard cutoutLatch.isLatched else { return }
+        let cleared = cutoutLatch.update(
+            temperatureCelsius: thermalMonitor.lastReadingCelsius,
+            thermalThresholdCelsius: settings.thermalThresholdCelsius,
+            batteryPercent: batteryMonitor.lastPercent,
+            onBattery: batteryMonitor.lastOnBattery,
+            batteryThresholdPercent: settings.lowBatteryThresholdPercent,
+            lidClosed: lidMonitor.isLidClosed,
+        )
+        if !cleared.isEmpty {
+            log.notice("Cutout latch cleared: \(cleared.map(\.rawValue).joined(separator: ","), privacy: .public)")
+            updateLatchRecheckTimer()
+            Task { @MainActor in await self.broadcastStatus() }
+        }
+    }
+
+    /// While the thermal latch is held, sample the temperature once a minute so "has it cooled?"
+    /// gets asked — the thermal monitor's own poll is gated on blocking, which the cutout ended.
+    /// The battery latch needs no timer: IOKit power events fire regardless of blocking.
+    private func updateLatchRecheckTimer() {
+        let needed = cutoutLatch.active.contains(.thermal)
+        if needed, latchRecheckTimer == nil {
+            latchRecheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    _ = self.thermalMonitor.readNow()
+                    self.reevaluateCutoutLatch()
+                }
+            }
+        } else if !needed, let timer = latchRecheckTimer {
+            timer.invalidate()
+            latchRecheckTimer = nil
+        }
     }
 
     /// Starts or stops the agent-detection sweep. The sweep auto-acquires for **name-matched** agents
@@ -404,15 +594,16 @@ final class Daemon {
         guard isBlocking, settings.processSniffingEnabled, settings.autoAcquireForKnownAgents else { return }
         let snapshot = await registry.snapshot()
         let watchedPids = Set(snapshot.map(\.pid))
+        sniffSuppressedPids = sniffSuppressedPids.filter { kill($0, 0) == 0 || errno == EPERM }
 
         for proc in ProcessResolver.runningProcesses() {
-            guard !watchedPids.contains(proc.pid) else { continue }
+            guard !watchedPids.contains(proc.pid), !sniffSuppressedPids.contains(proc.pid) else { continue }
             // Name/path match only — gateway agents (argv-matched) are deliberately not sniff-acquired.
             guard let kind = AgentKind.forRunningProcess(name: proc.name, path: proc.path),
                   !kind.isGatewayScoped else { continue }
 
             let assertion = Assertion(
-                key: "sniffed:\(kind.rawValue):\(proc.pid)",
+                key: "\(CLIRequestValidator.sniffedKeyPrefix)\(kind.rawValue):\(proc.pid)",
                 tool: kind.rawValue,
                 reason: "auto (process sniffing)",
                 pid: proc.pid,
@@ -427,27 +618,40 @@ final class Daemon {
     private func beginAwayTracking(snapshot: [Assertion]) {
         lidClosedAt = Date()
         heldAtClose = snapshot.map {
-            ($0.tool, AgentKind(rawValue: $0.tool)?.displayName ?? $0.tool, $0.acquiredAt)
+            ($0.key, $0.tool, AgentKind(rawValue: $0.tool)?.displayName ?? $0.tool, $0.acquiredAt)
         }
+        awayReleasedAt = [:]
         peakTempWhileClosed = thermalMonitor.lastReadingCelsius
         thermalCutoutWhileClosed = false
         lowBatteryCutoutWhileClosed = false
     }
 
+    /// Stamps the release time for any lid-close-held key that has disappeared from the
+    /// registry. Called on every persisted mutation, so it catches every release path — hooks,
+    /// idle sweep, process exit, cutouts — without each of them knowing about away-tracking.
+    private func recordAwayReleases(currentKeys: Set<String>) {
+        guard lidClosedAt != nil else { return }
+        for held in heldAtClose where awayReleasedAt[held.key] == nil && !currentKeys.contains(held.key) {
+            awayReleasedAt[held.key] = Date()
+        }
+    }
+
     private func finishAwayTracking() async {
-        guard let closedAt = lidClosedAt, !heldAtClose.isEmpty else {
+        defer {
             lidClosedAt = nil
             heldAtClose = []
-            return
+            awayReleasedAt = [:]
         }
+        guard let closedAt = lidClosedAt, !heldAtClose.isEmpty else { return }
         let openedAt = Date()
-        let activeTools = await Set(registry.snapshot().map(\.tool))
+        let activeKeys = await Set(registry.snapshot().map(\.key))
         let held = heldAtClose.map {
-            AwaySummaryBuilder.HeldAgent(tool: $0.tool, displayName: $0.displayName, acquiredAt: $0.acquiredAt)
+            AwaySummaryBuilder.HeldAgent(key: $0.key, tool: $0.tool, displayName: $0.displayName, acquiredAt: $0.acquiredAt)
         }
         let summary = AwaySummaryBuilder().build(
             heldAtClose: held,
-            activeTools: activeTools,
+            activeKeys: activeKeys,
+            releasedAt: awayReleasedAt,
             closedAt: closedAt,
             openedAt: openedAt,
             peakTemperatureCelsius: peakTempWhileClosed,
@@ -458,17 +662,20 @@ final class Daemon {
         if let summary {
             log.info("Away summary: \(summary.finished.count) finished, \(summary.stillActive.count) still active")
         }
-        lidClosedAt = nil
-        heldAtClose = []
     }
 
     private func persistAndSync(event: DaemonEvent) async {
         eventLog.append(event)
-        let snapshot = await registry.snapshot()
-        stateStore.save(snapshot)
+        await persistState()
         // Helper sync is edge-triggered via the registry's blockingStateChanges stream —
         // no redundant XPC round-trip on every acquire/release here.
         await broadcastStatus()
+    }
+
+    private func persistState() async {
+        let snapshot = await registry.snapshot()
+        recordAwayReleases(currentKeys: Set(snapshot.map(\.key)))
+        stateStore.save(PersistedDaemonState(assertions: snapshot, paused: isPaused))
     }
 
     private func syncHelperToRegistry() async {

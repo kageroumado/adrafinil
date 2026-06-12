@@ -1,7 +1,8 @@
 import AdrafinilShared
 import Foundation
 
-/// Persists the current assertion set to disk so daemon restarts don't drop live agent sessions.
+/// Persists the daemon's state (live assertions + the paused bit) so restarts don't drop live
+/// agent sessions or silently un-pause a paused Adrafinil.
 final class StateStore: @unchecked Sendable {
     private let url: URL
 
@@ -9,14 +10,14 @@ final class StateStore: @unchecked Sendable {
         self.url = url
     }
 
-    func load() -> [Assertion]? {
+    func load() -> PersistedDaemonState? {
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode([Assertion].self, from: data)
+        return PersistedDaemonState.decode(from: data)
     }
 
-    func save(_ assertions: [Assertion]) {
+    func save(_ state: PersistedDaemonState) {
         do {
-            let data = try JSONEncoder().encode(assertions)
+            let data = try JSONEncoder().encode(state)
             try data.write(to: url, options: .atomic)
         } catch {
             // best-effort persistence

@@ -90,7 +90,10 @@ final class SMCReader: @unchecked Sendable {
                 keys.append(k)
             }
         }
-        cpuSensorKeys = keys
+        // Cache only a successful discovery. A transient SMC hiccup yielding zero sensors must
+        // retry on the next read — caching the empty list would silently kill the thermal cutout
+        // for the daemon's whole (indefinite) lifetime.
+        if !keys.isEmpty { cpuSensorKeys = keys }
         return keys
     }
 

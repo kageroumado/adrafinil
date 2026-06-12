@@ -34,8 +34,10 @@ final class ProcessWatcher {
         private var kq: Int32 = -1
         private var watched: Set<pid_t> = []
         private let mutex = OSAllocatedUnfairLock(initialState: ())
+        private var notify: (@Sendable (pid_t) -> Void)?
 
         func start(notify: @escaping @Sendable (pid_t) -> Void) {
+            self.notify = notify
             kq = kqueue()
             guard kq >= 0 else { return }
             Thread { [self] in
@@ -60,7 +62,15 @@ final class ProcessWatcher {
                 data: 0,
                 udata: nil,
             )
-            _ = kevent(kq, &event, 1, nil, 0, nil)
+            let result = kevent(kq, &event, 1, nil, 0, nil)
+            if result < 0 {
+                // ESRCH: the process exited between the hook firing and this registration —
+                // NOTE_EXIT will never come, so treat it as already exited. Leaving the pid in
+                // `watched` would also suppress the watch when the pid is later recycled by a
+                // new agent.
+                mutex.withLock { _ in _ = watched.remove(pid) }
+                notify?(pid)
+            }
         }
 
         private func runLoop(notify: @escaping @Sendable (pid_t) -> Void) {
