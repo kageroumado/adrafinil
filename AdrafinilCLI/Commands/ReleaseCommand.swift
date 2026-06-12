@@ -15,9 +15,9 @@ enum ReleaseCommand {
             fullKey = "\(tool):gateway"
         } else {
             // Prefer the hook's stdin `session_id` over the positional env-var expansion (see acquire).
-            guard let key = CLIStdin.sessionID() ?? parser.positional(0) else {
-                FileHandle.standardError.write(Data("release: requires <session-key>\n".utf8))
-                exit(2)
+            let positional = parser.positional(0)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let key = CLIStdin.sessionID() ?? (positional?.isEmpty == false ? positional : nil) else {
+                AcquireCommand.hookFailure("release: no session key (stdin payload or positional) — ignored")
             }
             // An agent-hold id (`hold:…`) is already the full registry key — release it verbatim. Hook
             // sessions, by contrast, are keyed `<tool>:<session>`, so those get the tool prefix.
@@ -43,8 +43,11 @@ enum ReleaseCommand {
                 FileHandle.standardError.write(Data("adrafinil: \(warning)\n".utf8))
             }
             exit(0)
-        } catch DaemonSocketClient.ClientError.daemonUnreachable {
-            exit(0) // never fail the agent's hook
+        } catch {
+            // Never fail the agent's hook, whatever the transport failure. A missed release is
+            // recovered by the daemon's idle sweep and process-exit watcher.
+            FileHandle.standardError.write(Data("adrafinil: release failed (\(error.localizedDescription)) — ignored\n".utf8))
+            exit(0)
         }
     }
 }

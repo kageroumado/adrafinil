@@ -21,12 +21,20 @@ enum DaemonSocketClient {
         let path = AdrafinilConstants.cliSocketURL.path
 
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw ClientError.io("socket() failed") }
+        guard fd >= 0 else { throw ClientError.io("socket() failed: \(errnoString())") }
         defer { Darwin.close(fd) }
 
-        var tv = timeval(tv_sec: 0, tv_usec: 50_000)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        var noSigpipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
+        // Sending is local and instant, but the reply waits on the daemon's main actor, which can
+        // be busy with a helper round-trip or a state write — the receive deadline only exists to
+        // bound the wedged-daemon case, so it must comfortably exceed normal daemon latency. A
+        // timeout after the request was delivered means the operation may have APPLIED; treating
+        // it as "not placed" would orphan a minted hold key.
+        var sendTV = timeval(tv_sec: 0, tv_usec: 250_000)
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendTV, socklen_t(MemoryLayout<timeval>.size))
+        var recvTV = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &recvTV, socklen_t(MemoryLayout<timeval>.size))
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -69,7 +77,10 @@ enum DaemonSocketClient {
             let n = data.withUnsafeBytes { ptr -> Int in
                 Darwin.write(fd, ptr.baseAddress!.advanced(by: written), data.count - written)
             }
-            guard n > 0 else { throw ClientError.io("write short or failed") }
+            if n <= 0 {
+                if errno == EINTR { continue }
+                throw ClientError.io("write failed: \(errnoString())")
+            }
             written += n
         }
     }
@@ -81,9 +92,16 @@ enum DaemonSocketClient {
             let n = buf.withUnsafeMutableBufferPointer { ptr -> Int in
                 Darwin.read(fd, ptr.baseAddress!.advanced(by: read), count - read)
             }
-            guard n > 0 else { throw ClientError.io("read short or failed") }
+            if n <= 0 {
+                if n < 0, errno == EINTR { continue }
+                throw ClientError.io(n == 0 ? "connection closed by daemon" : "read failed: \(errnoString())")
+            }
             read += n
         }
         return Data(buf)
+    }
+
+    private static func errnoString() -> String {
+        String(cString: strerror(errno))
     }
 }

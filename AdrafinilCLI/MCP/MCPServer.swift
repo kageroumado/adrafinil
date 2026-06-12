@@ -9,8 +9,10 @@ import Foundation
 /// line on stdout. All diagnostics go to stderr so they never corrupt the protocol stream. Tool
 /// calls are synchronous round-trips to the daemon over the same Unix socket the CLI uses.
 enum MCPServer {
-    /// MCP revision we implement. We echo the client's requested version when it sends one.
+    /// MCP revision we implement, and the revisions close enough that echoing them is honest
+    /// (newline-delimited JSON-RPC stdio, text tool results).
     private static let defaultProtocolVersion = "2024-11-05"
+    private static let supportedProtocolVersions: Set<String> = ["2024-11-05", "2025-03-26"]
     private static let serverVersion = AdrafinilConstants.marketingVersion
 
     static func run(args: [String]) {
@@ -23,8 +25,14 @@ enum MCPServer {
         while let line = readLine(strippingNewline: true) {
             if line.isEmpty { continue }
             guard let data = line.data(using: .utf8),
-                  let msg = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                logErr("dropping unparseable line")
+                  let parsed = try? JSONSerialization.jsonObject(with: data) else {
+                // A client awaiting a reply to a request id would otherwise sit on its own
+                // timeout; JSON-RPC defines -32700 for exactly this.
+                send(id: nil, error: -32_700, message: "Parse error")
+                continue
+            }
+            guard let msg = parsed as? [String: Any] else {
+                send(id: nil, error: -32_600, message: "Invalid request: expected a JSON-RPC object")
                 continue
             }
             handle(msg, toolLabel: toolLabel)
@@ -40,7 +48,11 @@ enum MCPServer {
 
         switch method {
         case "initialize":
-            let version = (params["protocolVersion"] as? String) ?? defaultProtocolVersion
+            // Echo a requested revision only if it's one this server actually implements; for an
+            // unknown revision the spec says to answer with our own latest, never to claim
+            // support for semantics (structured tool results, batches) we don't have.
+            let requested = params["protocolVersion"] as? String
+            let version = supportedProtocolVersions.contains(requested ?? "") ? requested! : defaultProtocolVersion
             send(id: id, result: [
                 "protocolVersion": version,
                 "capabilities": ["tools": [String: Any]()],
@@ -130,7 +142,9 @@ enum MCPServer {
             return
         }
         let ttl: TimeInterval? = (arguments["minutes"] as? NSNumber).map { $0.doubleValue * 60 }
-        let pid: pid_t? = (arguments["pid"] as? NSNumber).map { pid_t(truncating: $0) }
+        // `exactly:` — a wrapped out-of-range pid would tie the hold's lifetime to whatever
+        // unrelated process the truncated value happens to name.
+        let pid: pid_t? = (arguments["pid"] as? NSNumber).flatMap { pid_t(exactly: $0) }
 
         let req = CLIRequest(
             op: .hold,
@@ -148,12 +162,13 @@ enum MCPServer {
                 return
             }
             var text = "Keeping the Mac awake (hold id: \(key))."
+            // The daemon clamps the TTL to the user's cap — report what was applied, not what
+            // was asked for, so the agent doesn't plan around time it won't get.
+            let applied = resp.appliedTTLSeconds ?? ttl ?? ManualHold.defaultTTL
             if let pid, pid > 0 {
-                text += " Releases when process \(pid) exits"
-            } else if let ttl {
-                text += " Expires in about \(Int((ttl / 60).rounded())) min"
+                text += " Releases when process \(pid) exits, or in about \(Int((applied / 60).rounded())) min"
             } else {
-                text += " Expires in about 60 min"
+                text += " Expires in about \(Int((applied / 60).rounded())) min"
             }
             text += " — call release_awake with this id when the task finishes."
             sendToolResult(id: id, text: text)
@@ -235,7 +250,9 @@ enum MCPServer {
     private static func write(_ payload: [String: Any]) {
         guard var data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         data.append(0x0A) // newline-delimited transport
-        FileHandle.standardOutput.write(data)
+        // A client that closed stdout while keeping stdin open must not crash the server with an
+        // ObjC exception — the throwing variant surfaces EPIPE as a catchable error instead.
+        try? FileHandle.standardOutput.write(contentsOf: data)
     }
 
     private static func logErr(_ message: String) {

@@ -26,6 +26,8 @@ enum DaemonStatusCommand {
             }
         } catch DaemonSocketClient.ClientError.daemonUnreachable {
             print("daemon: not running (open the Adrafinil app to start it)")
+        } catch {
+            print("daemon: unreachable (\(error.localizedDescription))")
         }
     }
 }

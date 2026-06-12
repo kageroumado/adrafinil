@@ -5,11 +5,25 @@ import OSLog
 private let cliLog = Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
 
 enum AcquireCommand {
+    /// `acquire`/`release` run inside agent hooks, where a nonzero exit is interpreted by the
+    /// agent — Claude Code treats a `UserPromptSubmit` hook exiting 2 as "block and erase the
+    /// user's prompt". A missed acquire costs at most one un-protected turn; a blocked prompt
+    /// destroys the user's input. So every failure here warns on stderr and exits 0. Exit 2 is
+    /// reserved for a human at a TTY misusing the command.
+    static func hookFailure(_ message: String) -> Never {
+        FileHandle.standardError.write(Data("adrafinil: \(message)\n".utf8))
+        exit(isatty(FileHandle.standardInput.fileDescriptor) != 0 ? 2 : 0)
+    }
+
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
         let tool = parser.option("--tool") ?? "unknown"
         let reason = parser.option("--reason")
-        let ttl = parser.option("--ttl").flatMap { Double($0) }
+        let ttlRaw = parser.option("--ttl")
+        let ttl = ttlRaw.flatMap { Double($0) }.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        if ttlRaw != nil, ttl == nil {
+            FileHandle.standardError.write(Data("adrafinil: ignoring invalid --ttl '\(ttlRaw!)'\n".utf8))
+        }
 
         let fullKey: String
         let watchedPID: pid_t?
@@ -32,9 +46,11 @@ enum AcquireCommand {
             // Prefer the session id from the hook's stdin JSON over the positional arg (which is a
             // shell env-var expansion in the hook command, fragile across agents). Falls back to the
             // positional when stdin has none (manual invocation, or an agent that doesn't pipe JSON).
-            guard let key = CLIStdin.sessionID() ?? parser.positional(0) else {
-                FileHandle.standardError.write(Data("acquire: requires <session-key>\n".utf8))
-                exit(2)
+            // An empty positional is a real failure mode — a hook command whose shell env-var
+            // expansion came up empty — and must read as "no key", not as the key "".
+            let positional = parser.positional(0)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let key = CLIStdin.sessionID() ?? (positional?.isEmpty == false ? positional : nil) else {
+                hookFailure("acquire: no session key (stdin payload or positional) — ignored")
             }
             fullKey = "\(tool):\(key)"
             // Walk up the process tree to find the real agent PID.
@@ -61,12 +77,16 @@ enum AcquireCommand {
         do {
             let resp = try DaemonSocketClient.send(req)
             if !resp.ok {
-                FileHandle.standardError.write(Data("acquire failed: \(resp.error ?? "?")\n".utf8))
+                FileHandle.standardError.write(Data("adrafinil: acquire refused: \(resp.error ?? "?")\n".utf8))
             }
-            exit(resp.ok ? 0 : 1)
+            exit(0)
         } catch DaemonSocketClient.ClientError.daemonUnreachable {
-            // Don't fail the agent's hook if the daemon isn't running.
             FileHandle.standardError.write(Data("adrafinil: daemon not running (acquire ignored)\n".utf8))
+            exit(0)
+        } catch {
+            // Any transport failure — timeout, short read, malformed response — must not fail
+            // the agent's hook either.
+            FileHandle.standardError.write(Data("adrafinil: acquire failed (\(error.localizedDescription)) — ignored\n".utf8))
             exit(0)
         }
     }

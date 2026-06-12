@@ -53,9 +53,10 @@ enum HoldCommand {
                 FileHandle.standardError.write(Data("hold failed: \(resp.error ?? "unknown error")\n".utf8))
                 exit(1)
             }
-            // Machine-readable id on stdout; human summary on stderr.
+            // Machine-readable id on stdout; human summary on stderr. The daemon clamps the TTL
+            // to the configured cap, so the summary reports what was actually applied.
             print(key)
-            FileHandle.standardError.write(Data(summary(key: key, ttl: ttl, pid: pid).utf8))
+            FileHandle.standardError.write(Data(summary(key: key, ttl: resp.appliedTTLSeconds ?? ttl, pid: pid).utf8))
             exit(0)
         } catch {
             // A hold must report failure — unlike a hook acquire, the agent needs to know it did
