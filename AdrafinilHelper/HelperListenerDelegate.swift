@@ -11,6 +11,11 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
     /// instead of orphaning it — see `SleepBlocker`.
     let blocker = SleepBlocker()
 
+    /// Records the helper's on-disk binary at launch (this delegate is built once, at process
+    /// start), so an in-place app update can be detected and adopted by relaunching — see
+    /// `HelperXPCService`.
+    let staleness = ExecutableStaleness()
+
     /// Live-connection count plus a generation counter that invalidates pending dead-man checks
     /// whenever the picture changes. Lock-guarded: connection handlers fire on XPC's queues.
     private let connectionState = OSAllocatedUnfairLock(initialState: (connections: 0, generation: 0))
@@ -36,7 +41,7 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
             $0.generation += 1
         }
         newConnection.exportedInterface = NSXPCInterface(with: HelperXPCProtocol.self)
-        newConnection.exportedObject = HelperXPCService(blocker: blocker)
+        newConnection.exportedObject = HelperXPCService(blocker: blocker, staleness: staleness)
         newConnection.invalidationHandler = { [weak self] in
             self?.log.notice("XPC connection invalidated")
             self?.connectionEnded()

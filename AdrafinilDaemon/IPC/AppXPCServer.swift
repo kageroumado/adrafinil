@@ -113,6 +113,9 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
             } catch {
                 r.call(nil, error)
             }
+            // A newly launched app subscribing is the most likely moment for an in-place update to
+            // have just replaced our binary — adopt it now rather than waiting for the next idle edge.
+            daemon.relaunchIfUpdatedWhenIdle()
         }
     }
 

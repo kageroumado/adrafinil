@@ -50,6 +50,10 @@ final class Daemon {
     /// `observeBlockingState`) so the periodic timers can be gated on it without an async hop.
     private var isBlocking = false
 
+    /// Records this daemon's on-disk binary at launch so an in-place app update can be detected and
+    /// adopted by relaunching (see `relaunchIfUpdatedWhenIdle`).
+    private let executableStaleness = ExecutableStaleness()
+
     /// PIDs of sniffed assertions that were released (by the user or the idle sweep) and must
     /// not be re-acquired by the sniff sweep while their process lives.
     private var sniffSuppressedPids: Set<pid_t> = []
@@ -340,8 +344,26 @@ final class Daemon {
                 updateSweepTimer()
                 updateReconcileTimer()
                 await helperClient.setBlocked(blocking)
+                // Going idle is the safe moment to adopt a binary an update swapped in while we
+                // were holding.
+                relaunchIfUpdatedWhenIdle()
             }
         }
+    }
+
+    /// Adopts a binary that an in-place app update has swapped onto disk by exiting so `launchd`
+    /// (KeepAlive) relaunches the daemon from the new image. Gated on being idle: restarting while
+    /// holding would briefly disconnect the helper, and there's no reason to take that blip when the
+    /// blocking→idle edge and every app reconnect re-check this. A no-op unless the on-disk binary
+    /// actually changed, so it never fires in normal operation.
+    func relaunchIfUpdatedWhenIdle() {
+        guard executableStaleness.hasBeenReplaced() else { return }
+        guard !isBlocking else {
+            log.notice("Daemon binary replaced by an update — deferring relaunch until idle")
+            return
+        }
+        log.notice("Daemon binary replaced by an update — exiting so launchd relaunches the new daemon")
+        exit(0)
     }
 
     /// While blocking, re-push the blocked state to the helper once a minute. The helper's
