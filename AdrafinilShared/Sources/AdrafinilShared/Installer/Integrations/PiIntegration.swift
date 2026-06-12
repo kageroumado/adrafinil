@@ -11,6 +11,9 @@ struct PiIntegration: AgentIntegration {
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.pi")
     }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.pi/agent/extensions/adrafinil.ts"
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try plugin(ctx).install(dryRun: dryRun)
@@ -59,7 +62,15 @@ struct PiIntegration: AgentIntegration {
 }
 
 private extension DefaultStringInterpolation {
+    /// Emits `item` as a double-quoted JS string literal with proper escaping (JSON string
+    /// encoding is a subset of JS), so quotes or backslashes in the bundle path can't break the
+    /// generated extension.
     mutating func appendInterpolation(swiftStringLiteral item: String) {
-        appendInterpolation("\"\(item)\"")
+        if let data = try? JSONSerialization.data(withJSONObject: item, options: .fragmentsAllowed),
+           let literal = String(data: data, encoding: .utf8) {
+            appendInterpolation(literal)
+        } else {
+            appendInterpolation("\"\(item)\"")
+        }
     }
 }

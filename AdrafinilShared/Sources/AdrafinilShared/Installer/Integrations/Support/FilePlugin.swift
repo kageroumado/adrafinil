@@ -17,11 +17,19 @@ struct FilePlugin {
     }
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
+        let canonical = content()
+        let existing = try? String(contentsOfFile: filePath, encoding: .utf8)
+        if existing == canonical {
+            return HookInstaller.InstallResult(summary: "already installed", diff: "(unchanged)")
+        }
         if !dryRun {
             try FileManager.default.createDirectory(atPath: pluginRoot, withIntermediateDirectories: true)
-            try content().write(toFile: filePath, atomically: true, encoding: .utf8)
+            try ConfigFileIO.writeString(canonical, to: filePath)
         }
-        return HookInstaller.InstallResult(summary: installSummary, diff: "+ \(filePath)")
+        // The file is wholly ours, so overwriting a modified copy is intended — but the diff
+        // must say so rather than pretend a fresh create.
+        let diff = existing == nil ? "+ \(filePath)" : "~ \(filePath) (rewritten to canonical content)"
+        return HookInstaller.InstallResult(summary: installSummary, diff: diff)
     }
 
     func uninstall(dryRun: Bool) throws -> HookInstaller.InstallResult {

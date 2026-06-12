@@ -28,6 +28,9 @@ struct ClaudeCodeIntegration: AgentIntegration {
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.claude")
     }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.claude/settings.json"
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try shape(ctx).install(dryRun: dryRun)

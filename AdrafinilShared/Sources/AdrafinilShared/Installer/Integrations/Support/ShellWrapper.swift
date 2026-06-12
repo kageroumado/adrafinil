@@ -2,8 +2,13 @@ import Foundation
 
 /// Shell-alias integration for agents with no hook system (Aider, Cline). Writes a standalone
 /// wrapper script (`~/.local/bin/<agent>-adrafinil`) that brackets the real tool with
-/// `acquire`/`release`, and an alias in both `~/.zshrc` and `~/.bashrc` so the wrapper runs
-/// regardless of which shell the user's terminal launches.
+/// `acquire`/`release`, and an alias in the user's shell rc files so the wrapper runs in place
+/// of the bare tool.
+///
+/// rc files are the highest-value files this code touches, so every mutation is line-scoped and
+/// recognizer-based: only lines that are provably ours (our markers, our alias) are ever removed.
+/// In particular, a damaged block — the user deleted the end marker — must never cause everything
+/// after the start marker to be treated as ours; that would truncate their rc file.
 ///
 /// > Cline note: this misses in-editor VS Code sessions — only terminal `cline` invocations are
 /// > wrapped. Cline's native `~/Documents/Cline/Rules/Hooks/` would be the proper path for those.
@@ -17,7 +22,8 @@ struct ShellWrapper {
         "\(homeRoot)/.local/bin/\(toolName)-adrafinil"
     }
 
-    /// Shell rc files that receive the alias.
+    /// Shell rc files that receive the alias. Only existing files are modified; when neither
+    /// exists, `.zshrc` (the macOS default shell) is created.
     private var shellRCPaths: [String] {
         ["\(homeRoot)/.zshrc", "\(homeRoot)/.bashrc"]
     }
@@ -31,11 +37,16 @@ struct ShellWrapper {
     private var endMarker: String {
         "# end-adrafinil-\(toolName)"
     }
+    private var aliasLine: String {
+        "alias \(toolName)='\(wrapperScriptPath)'"
+    }
+    private var rcBlock: String {
+        "\(marker)\n\(aliasLine)\n\(endMarker)"
+    }
 
-    func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let scriptPath = wrapperScriptPath
-        // The wrapper script: acquire → run the real tool → release.
-        let script = """
+    /// The wrapper script: acquire → run the real tool → release.
+    private var canonicalScript: String {
+        """
         #!/usr/bin/env bash
         \(quotedCLI) acquire $$ --tool \(toolName)
         \(toolName) "$@"
@@ -43,29 +54,36 @@ struct ShellWrapper {
         \(quotedCLI) release $$ --tool \(toolName)
         exit $status
         """
+    }
 
-        let alias = "alias \(toolName)='\(scriptPath)'"
-        let block = "\(marker)\n\(alias)\n\(endMarker)"
-
+    func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         var diff = ""
         var changed = false
 
-        for rcPath in shellRCPaths {
-            var current = (try? String(contentsOfFile: rcPath, encoding: .utf8)) ?? ""
-            if current.contains(marker) { continue }
-            current += "\n" + block + "\n"
-            if !dryRun { try current.write(toFile: rcPath, atomically: true, encoding: .utf8) }
-            diff += "+ \(rcPath): \(alias)\n"
+        let existingRCs = shellRCPaths.filter { FileManager.default.fileExists(atPath: $0) }
+        let targets = existingRCs.isEmpty ? [shellRCPaths[0]] : existingRCs
+        for rcPath in targets {
+            let current = (try? String(contentsOfFile: rcPath, encoding: .utf8)) ?? ""
+            if current.contains(marker), current.contains(aliasLine) { continue }
+            // Repair a drifted block (edited alias, stale wrapper path) by removing our lines
+            // and appending a fresh block.
+            var updated = current.contains(marker) ? removingOurLines(from: current) : current
+            updated += "\n" + rcBlock + "\n"
+            if !dryRun { try ConfigFileIO.writeString(updated, to: rcPath) }
+            diff += "+ \(rcPath): \(aliasLine)\n"
             changed = true
         }
 
-        if !FileManager.default.fileExists(atPath: scriptPath) {
-            diff += "+ \(scriptPath) (wrapper script)\n"
+        let script = canonicalScript
+        let existingScript = try? String(contentsOfFile: wrapperScriptPath, encoding: .utf8)
+        if existingScript != script {
+            // Covers both a missing script and one whose embedded CLI path drifted (the app
+            // moved); the script is wholly ours, so rewriting is always safe.
+            diff += "+ \(wrapperScriptPath) (wrapper script)\n"
             if !dryRun {
-                let dir = (scriptPath as NSString).deletingLastPathComponent
-                try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                try script.write(toFile: scriptPath, atomically: true, encoding: .utf8)
-                chmod(scriptPath, 0o755)
+                try ConfigFileIO.ensureParentDir(of: wrapperScriptPath)
+                try ConfigFileIO.writeString(script, to: wrapperScriptPath)
+                chmod(wrapperScriptPath, 0o755)
             }
             changed = true
         }
@@ -78,20 +96,10 @@ struct ShellWrapper {
         var diff = ""
         for rcPath in shellRCPaths {
             guard let current = try? String(contentsOfFile: rcPath, encoding: .utf8) else { continue }
-            var out: [String] = []
-            var inBlock = false
-            for line in current.components(separatedBy: "\n") {
-                if line.hasPrefix(marker) { inBlock = true; continue }
-                if line.hasPrefix(endMarker) { inBlock = false; continue }
-                if inBlock { continue }
-                // Legacy single-line marker support (no end marker).
-                if line.hasPrefix("# adrafinil-"), line.contains(toolName) { continue }
-                out.append(line)
-            }
-            let updated = out.joined(separator: "\n")
+            let updated = removingOurLines(from: current)
             if updated != current {
                 diff += "- \(rcPath): removed alias block\n"
-                if !dryRun { try updated.write(toFile: rcPath, atomically: true, encoding: .utf8) }
+                if !dryRun { try ConfigFileIO.writeString(updated, to: rcPath) }
             }
         }
 
@@ -105,15 +113,33 @@ struct ShellWrapper {
     }
 
     func installState() -> HookInstallState {
-        let scriptExists = FileManager.default.fileExists(atPath: wrapperScriptPath)
-        let markerInAnyRC = shellRCPaths.contains { rcContains(marker, at: $0) }
-        guard markerInAnyRC || scriptExists else { return .notInstalled }
-        // Both rc files should carry the marker and the wrapper script should exist.
-        let allRCsHaveMarker = shellRCPaths.allSatisfy { rcContains(marker, at: $0) }
-        guard allRCsHaveMarker && scriptExists else { return .modifiedExternally }
-        let expectedAlias = "alias \(toolName)='\(wrapperScriptPath)'"
-        let aliasCorrect = shellRCPaths.allSatisfy { rcContains(expectedAlias, at: $0) }
-        return aliasCorrect ? .installed : .modifiedExternally
+        let scriptContent = try? String(contentsOfFile: wrapperScriptPath, encoding: .utf8)
+        let existingRCs = shellRCPaths.filter { FileManager.default.fileExists(atPath: $0) }
+        let rcsWithMarker = existingRCs.filter { rcContains(marker, at: $0) }
+
+        guard !rcsWithMarker.isEmpty || scriptContent != nil else { return .notInstalled }
+
+        // The wrapper script must match what we'd write (a drifted embedded CLI path silently
+        // invokes a dead binary), at least one rc file must carry the alias, and every rc file
+        // that has our marker must still have the alias intact.
+        guard scriptContent == canonicalScript, !rcsWithMarker.isEmpty else { return .modifiedExternally }
+        let aliasIntact = rcsWithMarker.allSatisfy { rcContains(aliasLine, at: $0) }
+        return aliasIntact ? .installed : .modifiedExternally
+    }
+
+    /// Removes only lines that are provably ours: the markers, our alias (current or with a
+    /// stale wrapper path), and the legacy single-line marker. User content always survives —
+    /// even inside a damaged block whose end marker was deleted.
+    private func removingOurLines(from content: String) -> String {
+        let lines = content.components(separatedBy: "\n").filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix(marker) || trimmed.hasPrefix(endMarker) { return false }
+            // Legacy single-line marker support (no end marker).
+            if trimmed.hasPrefix("# adrafinil-"), trimmed.contains(toolName) { return false }
+            if trimmed.hasPrefix("alias \(toolName)="), trimmed.contains("-adrafinil") { return false }
+            return true
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func rcContains(_ needle: String, at path: String) -> Bool {

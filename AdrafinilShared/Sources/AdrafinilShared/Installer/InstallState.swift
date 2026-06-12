@@ -8,4 +8,8 @@ public enum HookInstallState: String, Codable, Sendable {
     case notInstalled
     /// An Adrafinil entry exists but has been edited externally / no longer matches.
     case modifiedExternally
+    /// The agent's config file exists but can't be parsed, so the install state is unknowable
+    /// — and installing would risk the user's content. Surfaced so the UI doesn't offer a
+    /// "Connect" that is guaranteed to fail.
+    case configUnreadable
 }

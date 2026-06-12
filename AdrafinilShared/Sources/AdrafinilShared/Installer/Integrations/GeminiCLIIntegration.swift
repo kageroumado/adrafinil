@@ -9,6 +9,9 @@ struct GeminiCLIIntegration: AgentIntegration {
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.gemini")
     }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.gemini/settings.json"
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try shape(ctx).install(dryRun: dryRun)

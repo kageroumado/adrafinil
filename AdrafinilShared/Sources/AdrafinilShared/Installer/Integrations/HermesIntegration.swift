@@ -18,11 +18,17 @@ import Foundation
 /// hold was released is re-protected), coalesced onto a fixed `hermes:gateway` hold carrying the
 /// gateway PID. Release on `on_session_end` is the fast path back to sleep; the daemon's CPU-idle and
 /// dead-process nets on the gateway tree are what actually make a missed/asymmetric end hook safe.
+///
+/// YAML is mutated with line-scoped string surgery, never a parse/serialize round-trip (which would
+/// reorder and reformat the user's whole file). Every removal is recognizer-based so user content
+/// survives even a damaged marker block.
 struct HermesIntegration: AgentIntegration {
     let agent = AgentKind.hermes
 
     private static let markerStart = "  # >>> adrafinil (managed)"
     private static let markerEnd = "  # <<< adrafinil"
+    /// Event keys our managed block declares, used to recognize our own lines during removal.
+    private static let managedEventKeys = ["on_session_start:", "pre_gateway_dispatch:", "on_session_end:"]
 
     private func configPath(_ ctx: HookContext) -> String {
         "\(ctx.homeRoot)/.hermes/config.yaml"
@@ -33,6 +39,9 @@ struct HermesIntegration: AgentIntegration {
 
     func isDetected(_ ctx: HookContext) -> Bool {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.hermes")
+    }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        configPath(ctx)
     }
 
     /// The post-YAML command string — also the exact string stored in the allowlist. The CLI path
@@ -65,27 +74,50 @@ struct HermesIntegration: AgentIntegration {
         let existing = (try? String(contentsOfFile: cfgPath, encoding: .utf8)) ?? ""
         var summary = "wired Hermes on_session_start/on_session_end shell hooks"
         var diff = ""
+        var wroteHooks = false
 
-        if existing.contains(Self.markerStart) {
+        let intact = existing.contains(Self.markerStart)
+            && Self.activeLines(of: existing).contains { $0.contains(command("acquire", cliPath: ctx.cliPath)) }
+
+        if intact {
             summary = "already installed"
-        } else if existing.contains("hooks: {}") {
-            // Fresh/default config: replace the empty hooks map with our block.
-            let updated = existing.replacingOccurrences(of: "hooks: {}", with: hookBlock(cliPath: ctx.cliPath))
-            if !dryRun { try updated.write(toFile: cfgPath, atomically: true, encoding: .utf8) }
-            diff += "~ \(cfgPath): set hooks.on_session_start/on_session_end\n"
-        } else if !existing.contains("\nhooks:"), !existing.hasPrefix("hooks:") {
-            // No hooks map yet: append one.
-            let updated = (existing.isEmpty ? "" : existing + "\n") + hookBlock(cliPath: ctx.cliPath) + "\n"
-            if !dryRun { try ConfigFileIO.ensureParentDir(of: cfgPath); try updated.write(toFile: cfgPath, atomically: true, encoding: .utf8) }
-            diff += "+ \(cfgPath): hooks block\n"
+            wroteHooks = true // Approvals may still need a top-up (e.g. a wiped allowlist).
         } else {
-            // An existing populated `hooks:` map — don't risk a blind YAML merge.
-            summary = "Hermes config already has a hooks: section — add on_session_start/on_session_end manually (see docs)"
+            // A stale block (the app moved, so the embedded CLI path drifted) is removed first,
+            // then reinstalled fresh through the same paths as a clean config.
+            var working = existing.contains(Self.markerStart) ? Self.removingManagedBlock(from: existing) : existing
+            var lines = working.components(separatedBy: "\n")
+
+            if let idx = lines.firstIndex(of: "hooks: {}") {
+                // Fresh/default config: replace the empty top-level hooks map with our block.
+                // Exact-line match only — a nested/indented `hooks: {}` or a `python_hooks: {}`
+                // must never be rewritten.
+                lines[idx] = hookBlock(cliPath: ctx.cliPath)
+                working = lines.joined(separator: "\n")
+                if !dryRun { try ConfigFileIO.writeString(working, to: cfgPath) }
+                diff += "~ \(cfgPath): set hooks.on_session_start/on_session_end\n"
+                wroteHooks = true
+            } else if !lines.contains(where: { $0.hasPrefix("hooks:") }) {
+                // No top-level hooks map yet: append one.
+                let updated = (working.isEmpty ? "" : working + "\n") + hookBlock(cliPath: ctx.cliPath) + "\n"
+                if !dryRun {
+                    try ConfigFileIO.ensureParentDir(of: cfgPath)
+                    try ConfigFileIO.writeString(updated, to: cfgPath)
+                }
+                diff += "+ \(cfgPath): hooks block\n"
+                wroteHooks = true
+            } else {
+                // An existing populated `hooks:` map — don't risk a blind YAML merge.
+                summary = "Hermes config already has a hooks: section — add on_session_start/on_session_end manually (see docs)"
+            }
         }
 
-        // Allowlist both commands so the hooks run without a first-use TTY prompt (JSON — safe to merge).
-        if !dryRun { try addAllowlistApprovals(ctx) }
-        diff += "~ \(allowlistPath(ctx)): approve acquire/release"
+        // Approvals are written only alongside hooks that exist — an approval for a command that
+        // isn't in config.yaml is dead weight that survives uninstalls confusingly.
+        if wroteHooks {
+            if !dryRun { try reconcileAllowlistApprovals(ctx) }
+            diff += "~ \(allowlistPath(ctx)): approve acquire/release"
+        }
         return HookInstaller.InstallResult(summary: summary, diff: diff)
     }
 
@@ -93,29 +125,8 @@ struct HermesIntegration: AgentIntegration {
         let cfgPath = configPath(ctx)
         var diff = ""
         if let text = try? String(contentsOfFile: cfgPath, encoding: .utf8), text.contains(Self.markerStart) {
-            // Line-based removal of our marked block, then normalise the now-childless `hooks:` line
-            // we owned back to `hooks: {}`. Line-scoped on purpose: a global string replace of
-            // "hooks:\n" risked rewriting any *other* `hooks:` occurrence in the user's YAML. We only
-            // ever take over an empty/absent hooks map (install bails on a populated one), so our
-            // block is its sole child and restoring the empty map is safe.
-            var lines = text.components(separatedBy: "\n")
-            var kept: [String] = []
-            var inBlock = false
-            for line in lines {
-                if line.contains(Self.markerStart) { inBlock = true; continue }
-                if line.contains(Self.markerEnd) { inBlock = false; continue }
-                if inBlock { continue }
-                kept.append(line)
-            }
-            // Restore `hooks: {}` only for a `hooks:` line left genuinely childless (next line is not
-            // indented), so a populated hooks map elsewhere is never touched.
-            for i in kept.indices where kept[i] == "hooks:" {
-                let next = i + 1 < kept.count ? kept[i + 1] : ""
-                if next.isEmpty || !next.hasPrefix(" ") { kept[i] = "hooks: {}" }
-            }
-            lines = kept
-            let updated = lines.joined(separator: "\n")
-            if !dryRun { try updated.write(toFile: cfgPath, atomically: true, encoding: .utf8) }
+            let updated = Self.removingManagedBlock(from: text)
+            if !dryRun { try ConfigFileIO.writeString(updated, to: cfgPath) }
             diff += "~ \(cfgPath): removed adrafinil hooks\n"
         }
         if !dryRun { try removeAllowlistApprovals(ctx) }
@@ -126,13 +137,59 @@ struct HermesIntegration: AgentIntegration {
 
     func installState(_ ctx: HookContext) -> HookInstallState {
         guard let text = try? String(contentsOfFile: configPath(ctx), encoding: .utf8) else { return .notInstalled }
-        let hasAcquire = text.contains(command("acquire", cliPath: ctx.cliPath))
-        let hasRelease = text.contains(command("release", cliPath: ctx.cliPath))
-        guard hasAcquire || hasRelease else { return .notInstalled }
+        let active = Self.activeLines(of: text)
+        let hasAcquire = active.contains { $0.contains(command("acquire", cliPath: ctx.cliPath)) }
+        let hasRelease = active.contains { $0.contains(command("release", cliPath: ctx.cliPath)) }
+        if !hasAcquire, !hasRelease {
+            // Our marker block, or any adrafinil hook command (e.g. with a stale CLI path after
+            // the app moved), means our wiring is present-but-broken — never `.notInstalled`,
+            // which would offer "Connect" while dead hooks linger.
+            let anyOurs = text.contains(Self.markerStart)
+                || active.contains { ConfigFileIO.commandInvokesAdrafinilCLI($0) && $0.contains("--tool hermes") }
+            return anyOurs ? .modifiedExternally : .notInstalled
+        }
         // Installed iff the commands are present AND every (event, command) pair is allowlisted
         // (else that hook is silently skipped).
         let allowed = approvals(ctx).allSatisfy { isAllowlisted($0.command, event: $0.event, ctx) }
         return (hasAcquire && hasRelease && allowed) ? .installed : .modifiedExternally
+    }
+
+    // MARK: - YAML surgery
+
+    /// Lines that Hermes would actually evaluate — comment lines (which include our own markers)
+    /// don't count when checking whether a hook command is wired.
+    private static func activeLines(of text: String) -> [String] {
+        text.components(separatedBy: "\n").filter {
+            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#")
+        }
+    }
+
+    /// Removes our managed block. Bounded by both markers when they're intact; when the end
+    /// marker was deleted, only lines recognizably ours (our event keys, our command lines) are
+    /// removed and removal stops at the first foreign line — the user's YAML after a damaged
+    /// block is never swallowed. A `hooks:` line left genuinely childless (next line not
+    /// indented) is restored to `hooks: {}`; a populated hooks map elsewhere is never touched.
+    static func removingManagedBlock(from text: String) -> String {
+        var kept: [String] = []
+        var inBlock = false
+        for line in text.components(separatedBy: "\n") {
+            if line.contains(markerStart) { inBlock = true; continue }
+            if line.contains(markerEnd) { inBlock = false; continue }
+            if inBlock {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                let isOurs = managedEventKeys.contains { trimmed.hasPrefix($0) }
+                    || (trimmed.hasPrefix("- command:") && trimmed.contains("adrafinil"))
+                    || trimmed.isEmpty
+                if isOurs { continue }
+                inBlock = false
+            }
+            kept.append(line)
+        }
+        for i in kept.indices where kept[i] == "hooks:" {
+            let next = i + 1 < kept.count ? kept[i + 1] : ""
+            if next.isEmpty || !next.hasPrefix(" ") { kept[i] = "hooks: {}" }
+        }
+        return kept.joined(separator: "\n")
     }
 
     // MARK: - Allowlist: {"approvals": [{"event": …, "command": …}, …]}
@@ -145,33 +202,54 @@ struct HermesIntegration: AgentIntegration {
         ]
     }
 
-    private func loadAllowlist(_ ctx: HookContext) -> [[String: Any]] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: allowlistPath(ctx))),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let approvals = obj["approvals"] as? [[String: Any]] else { return [] }
-        return approvals
+    /// The full allowlist document. Hermes owns this file and may add top-level keys beyond
+    /// `approvals`; round-tripping the whole object preserves them.
+    private func loadAllowlistDocument(_ ctx: HookContext) throws -> [String: Any] {
+        try ConfigFileIO.readJSONForUpdate(allowlistPath(ctx)) ?? [:]
+    }
+
+    private func approvalEntries(of document: [String: Any]) -> [[String: Any]] {
+        (document["approvals"] as? [[String: Any]]) ?? []
     }
 
     private func isAllowlisted(_ command: String, event: String, _ ctx: HookContext) -> Bool {
-        loadAllowlist(ctx).contains { ($0["event"] as? String) == event && ($0["command"] as? String) == command }
-    }
-
-    private func writeAllowlist(_ approvals: [[String: Any]], _ ctx: HookContext) throws {
-        try ConfigFileIO.ensureParentDir(of: allowlistPath(ctx))
-        let data = try JSONSerialization.data(withJSONObject: ["approvals": approvals], options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: URL(fileURLWithPath: allowlistPath(ctx)), options: .atomic)
-    }
-
-    private func addAllowlistApprovals(_ ctx: HookContext) throws {
-        var current = loadAllowlist(ctx)
-        for a in approvals(ctx) where !isAllowlisted(a.command, event: a.event, ctx) {
-            current.append(["event": a.event, "command": a.command])
+        guard let document = try? loadAllowlistDocument(ctx) else { return false }
+        return approvalEntries(of: document).contains {
+            ($0["event"] as? String) == event && ($0["command"] as? String) == command
         }
-        try writeAllowlist(current, ctx)
+    }
+
+    private func writeAllowlist(document: [String: Any], replacing before: [String: Any]?, _ ctx: HookContext) throws {
+        try ConfigFileIO.ensureParentDir(of: allowlistPath(ctx))
+        try ConfigFileIO.writeJSON(document, to: allowlistPath(ctx), replacing: before)
+    }
+
+    /// Adds approvals for the current commands and prunes ours that no longer match (a stale CLI
+    /// path), leaving the user's own approvals untouched.
+    private func reconcileAllowlistApprovals(_ ctx: HookContext) throws {
+        let before = try ConfigFileIO.readJSONForUpdate(allowlistPath(ctx))
+        var document = before ?? [:]
+        let wanted = approvals(ctx)
+        var entries = approvalEntries(of: document).filter { entry in
+            guard let cmd = entry["command"] as? String,
+                  ConfigFileIO.commandInvokesAdrafinilCLI(cmd), cmd.contains("--tool hermes") else { return true }
+            return wanted.contains { $0.event == (entry["event"] as? String) && $0.command == cmd }
+        }
+        for a in wanted where !entries.contains(where: { ($0["event"] as? String) == a.event && ($0["command"] as? String) == a.command }) {
+            entries.append(["event": a.event, "command": a.command])
+        }
+        document["approvals"] = entries
+        try writeAllowlist(document: document, replacing: before, ctx)
     }
 
     private func removeAllowlistApprovals(_ ctx: HookContext) throws {
-        let filtered = loadAllowlist(ctx).filter { ($0["command"] as? String)?.contains("--tool hermes") != true }
-        try writeAllowlist(filtered, ctx)
+        let before = try ConfigFileIO.readJSONForUpdate(allowlistPath(ctx))
+        guard let before else { return }
+        var document = before
+        document["approvals"] = approvalEntries(of: document).filter { entry in
+            guard let cmd = entry["command"] as? String else { return true }
+            return !(ConfigFileIO.commandInvokesAdrafinilCLI(cmd) && cmd.contains("--tool hermes"))
+        }
+        try writeAllowlist(document: document, replacing: before, ctx)
     }
 }

@@ -11,6 +11,9 @@ struct ClineIntegration: AgentIntegration {
     func isDetected(_: HookContext) -> Bool {
         binaryOnPath("cline")
     }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.zshrc"
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try wrapper(ctx).install(dryRun: dryRun)

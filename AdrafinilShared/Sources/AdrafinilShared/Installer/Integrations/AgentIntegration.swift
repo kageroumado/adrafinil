@@ -7,9 +7,14 @@ struct HookContext {
     let cliPath: String
     let homeRoot: String
 
-    /// The CLI path, shell-quoted if it contains spaces (it lives inside the `.app` bundle).
+    /// The CLI path, shell-quoted unless it is plain enough to need none. POSIX single quotes
+    /// neutralize every shell metacharacter (spaces, `$`, quotes, backticks) — the path lives
+    /// inside the `.app` bundle, wherever the user put or renamed it.
     var quotedCLI: String {
-        cliPath.contains(" ") ? "\"\(cliPath)\"" : cliPath
+        if cliPath.range(of: "^[A-Za-z0-9_/.-]+$", options: .regularExpression) != nil {
+            return cliPath
+        }
+        return "'" + cliPath.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Builds an `acquire`/`release` hook command. When `sessionVar` is nil the positional session
@@ -49,6 +54,11 @@ protocol AgentIntegration {
     /// Whether the agent appears installed on this system. Heuristic — checks for the config dir
     /// or the binary on PATH.
     func isDetected(_ ctx: HookContext) -> Bool
+
+    /// The config file this integration writes its hooks into — the file a "reveal in Finder"
+    /// affordance should show. Single source of truth: a UI-side copy of these paths would drift
+    /// the moment an integration moves its config.
+    func primaryConfigPath(_ ctx: HookContext) -> String
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult
     func uninstall(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult

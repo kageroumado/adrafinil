@@ -12,6 +12,9 @@ struct OpenCodeIntegration: AgentIntegration {
     func isDetected(_: HookContext) -> Bool {
         binaryOnPath("opencode")
     }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.config/opencode/plugins/adrafinil.ts"
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try plugin(ctx).install(dryRun: dryRun)
@@ -44,11 +47,18 @@ struct OpenCodeIntegration: AgentIntegration {
     /// (plural), `({ $ })` and `({ event })` destructuring work, and this exact plugin fired
     /// `acquire ses_… --tool opencode` on `session.created`.
     private static func pluginTS(cliPath: String) -> String {
-        """
+        // The path lands inside a JS template literal AND a shell double-quoted string, so
+        // backslashes, backticks, `$` (template interpolation), and quotes all need escaping.
+        let escaped = cliPath
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return """
         export const Adrafinil = async ({ $ }) => {
           return {
             event: async ({ event }) => {
-              if (event.type === "session.created") await $`"\(cliPath)" acquire ${event.properties.info.id} --tool opencode`
+              if (event.type === "session.created") await $`"\(escaped)" acquire ${event.properties.info.id} --tool opencode`
             }
           }
         }

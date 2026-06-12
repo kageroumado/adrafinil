@@ -11,6 +11,8 @@ import Foundation
 ///
 /// Adrafinil's own entries are tagged with `_adrafinil: true` so install is self-healing (it
 /// replaces a stale entry in place) and uninstall removes only ours, leaving the user's hooks intact.
+/// Repairs operate on the inner *handler*, never the whole group, so user handlers sharing a group
+/// with ours survive every install/uninstall.
 struct NestedJSONHookShape {
     /// An extra release hook on its own event, narrowed by a `matcher`. Claude Code uses one for
     /// `Notification` matched to `idle_prompt`: an Esc-interrupt skips `Stop`, so without this the
@@ -38,7 +40,8 @@ struct NestedJSONHookShape {
     var extraReleases: [MatchedRelease] = []
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let before = ConfigFileIO.readJSON(configPath) ?? [:]
+        let existing = try ConfigFileIO.readJSONForUpdate(configPath)
+        let before = existing ?? [:]
         var after = before
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
         merge(into: &hooks, event: startEvent, command: acquireCommand)
@@ -55,7 +58,7 @@ struct NestedJSONHookShape {
         let diff = ConfigFileIO.makeDiff(before: before, after: after)
         if !dryRun {
             try ConfigFileIO.ensureParentDir(of: configPath)
-            try ConfigFileIO.writeJSON(after, to: configPath)
+            try ConfigFileIO.writeJSON(after, to: configPath, replacing: existing)
         }
         let releaseEvents = ([endEvent].compactMap(\.self) + extraReleases.map(\.event)).joined(separator: "+")
         let summary = releaseEvents.isEmpty
@@ -65,29 +68,50 @@ struct NestedJSONHookShape {
     }
 
     func uninstall(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        guard var dict = ConfigFileIO.readJSON(configPath), var hooks = dict["hooks"] as? [String: Any] else {
+        guard let existing = try ConfigFileIO.readJSONForUpdate(configPath),
+              var hooks = existing["hooks"] as? [String: Any] else {
             return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
         }
+        var dict = existing
         let before = dict
-        // Clean our entry from this agent's current events, the events it has since migrated away
-        // from (`obsoleteEvents`), plus the legacy `SessionEnd`/`Stop` events an earlier version may
-        // have written.
-        let events = Set([startEvent, endEvent].compactMap(\.self) + extraReleases.map(\.event) + obsoleteEvents + ["SessionEnd", "Stop"])
-        for event in events {
+        // Clean our entry from every event that has one — including events the user may have
+        // moved our entry to — not just the ones we currently manage.
+        for event in hooks.keys {
             stripAdrafinil(from: &hooks, event: event)
         }
         dict["hooks"] = hooks
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
-        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath) }
+        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath, replacing: existing) }
         return HookInstaller.InstallResult(summary: "removed hook entries", diff: diff)
     }
 
     func installState() -> HookInstallState {
-        guard let dict = ConfigFileIO.readJSON(configPath),
-              let hooks = dict["hooks"] as? [String: Any] else { return .notInstalled }
+        switch ConfigFileIO.read(configPath) {
+        case .missing:
+            .notInstalled
+        case .unparseable:
+            .configUnreadable
+        case let .object(dict):
+            installState(of: dict)
+        }
+    }
+
+    private func installState(of dict: [String: Any]) -> HookInstallState {
+        guard let hooks = dict["hooks"] as? [String: Any] else { return .notInstalled }
+
+        // Any adrafinil entry anywhere — under managed events, obsolete events, or an event the
+        // user moved it to — means our hooks are (partially) present. A partial or drifted set
+        // must never read as `.notInstalled`: live entries would be invisible to the UI, with no
+        // "Disconnect" offered for them.
+        let anyOurs = hooks.values.contains { value in
+            guard let arr = value as? [[String: Any]] else { return false }
+            return arr.contains { Self.entryReferencesAdrafinil($0) }
+        }
 
         guard let startArr = hooks[startEvent] as? [[String: Any]],
-              let installedAcquire = Self.command(in: startArr) else { return .notInstalled }
+              let installedAcquire = Self.command(in: startArr) else {
+            return anyOurs ? .modifiedExternally : .notInstalled
+        }
 
         // A leftover Adrafinil entry under an event we've migrated away from means the config is in
         // a stale, mixed state — report it as externally modified so the UI nudges a reinstall, which
@@ -107,7 +131,7 @@ struct NestedJSONHookShape {
             return ok ? .installed : .modifiedExternally
         }
         guard let endArr = hooks[endEvent] as? [[String: Any]],
-              let installedRelease = Self.command(in: endArr) else { return .notInstalled }
+              let installedRelease = Self.command(in: endArr) else { return .modifiedExternally }
 
         let matches = installedAcquire == acquireCommand && installedRelease == releaseCommand
             && extrasInstalled && !hasObsolete
@@ -116,44 +140,66 @@ struct NestedJSONHookShape {
 
     // MARK: - Entry helpers
 
-    /// Inserts (or repairs) our entry under `event`. Idempotent: if an Adrafinil-tagged entry
-    /// already exists it's *replaced* with the canonical form, so re-running install upgrades a
-    /// stale command instead of leaving the broken one in place. A non-Adrafinil entry is untouched.
+    /// Inserts (or repairs) our handler under `event`. Idempotent: if an Adrafinil handler already
+    /// exists it's replaced with the canonical form *in place* — only the handler, so any user
+    /// handlers sharing the group survive — and re-running install upgrades a stale command
+    /// instead of leaving the broken one. A non-Adrafinil entry is untouched.
     private func merge(into hooks: inout [String: Any], event: String, command: String, matcher: String? = nil) {
         var arr = (hooks[event] as? [[String: Any]]) ?? []
-        var canonical: [String: Any] = [
-            "hooks": [["type": "command", "command": command, "_adrafinil": true]],
-        ]
-        if let matcher { canonical["matcher"] = matcher }
-        if let idx = arr.firstIndex(where: { Self.entryReferencesAdrafinil($0) }) {
-            arr[idx] = canonical
+        let canonicalHandler: [String: Any] = ["type": "command", "command": command, "_adrafinil": true]
+        if let gIdx = arr.firstIndex(where: { Self.entryReferencesAdrafinil($0) }) {
+            var group = arr[gIdx]
+            var inner = (group["hooks"] as? [[String: Any]]) ?? []
+            if let hIdx = inner.firstIndex(where: { Self.handlerIsOurs($0) }) {
+                inner[hIdx] = canonicalHandler
+            } else {
+                inner.append(canonicalHandler)
+            }
+            group["hooks"] = inner
+            if let matcher { group["matcher"] = matcher }
+            arr[gIdx] = group
         } else {
-            arr.append(canonical)
+            var group: [String: Any] = ["hooks": [canonicalHandler]]
+            if let matcher { group["matcher"] = matcher }
+            arr.append(group)
         }
         hooks[event] = arr
     }
 
-    /// Removes every Adrafinil-tagged entry from one event's array, leaving the user's own hooks
-    /// untouched. Shared by uninstall and install's obsolete-event cleanup.
+    /// Removes our handlers from one event's array, leaving the user's own hooks untouched — a
+    /// group is dropped only once it holds no other handlers. Shared by uninstall and install's
+    /// obsolete-event cleanup.
     private func stripAdrafinil(from hooks: inout [String: Any], event: String) {
-        guard var arr = hooks[event] as? [[String: Any]] else { return }
-        arr = arr.filter { !Self.entryReferencesAdrafinil($0) }
+        guard let arr = hooks[event] as? [[String: Any]] else { return }
+        let pruned: [[String: Any]] = arr.compactMap { entry in
+            guard Self.entryReferencesAdrafinil(entry) else { return entry }
+            var group = entry
+            var inner = (group["hooks"] as? [[String: Any]]) ?? []
+            inner.removeAll { Self.handlerIsOurs($0) }
+            if inner.isEmpty { return nil }
+            group["hooks"] = inner
+            return group
+        }
         // Drop the event key once empty so uninstall leaves no `"<event>": []` residue.
-        if arr.isEmpty { hooks[event] = nil } else { hooks[event] = arr }
+        if pruned.isEmpty { hooks[event] = nil } else { hooks[event] = pruned }
     }
 
     private static func entryReferencesAdrafinil(_ entry: [String: Any]) -> Bool {
         if let inner = entry["hooks"] as? [[String: Any]] {
-            return inner.contains { ($0["_adrafinil"] as? Bool) == true || ($0["command"] as? String)?.contains("adrafinil") == true }
+            return inner.contains { handlerIsOurs($0) }
         }
-        if let cmd = entry["command"] as? String, cmd.contains("adrafinil") { return true }
-        return false
+        return ConfigFileIO.commandInvokesAdrafinilCLI(entry["command"] as? String)
+    }
+
+    private static func handlerIsOurs(_ handler: [String: Any]) -> Bool {
+        (handler["_adrafinil"] as? Bool) == true
+            || ConfigFileIO.commandInvokesAdrafinilCLI(handler["command"] as? String)
     }
 
     private static func command(in arr: [[String: Any]]) -> String? {
         for entry in arr {
             if let inner = entry["hooks"] as? [[String: Any]],
-               let cmd = inner.first(where: { ($0["_adrafinil"] as? Bool) == true || ($0["command"] as? String)?.contains("adrafinil") == true })?["command"] as? String {
+               let cmd = inner.first(where: { handlerIsOurs($0) })?["command"] as? String {
                 return cmd
             }
         }

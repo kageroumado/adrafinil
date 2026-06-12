@@ -35,7 +35,8 @@ struct CodexHookShape {
     var obsoleteEvents: [String] = []
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let before = ConfigFileIO.readJSON(configPath) ?? [:]
+        let existing = try ConfigFileIO.readJSONForUpdate(configPath)
+        let before = existing ?? [:]
         var after = before
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
         var groups = (hooks[event] as? [[String: Any]]) ?? []
@@ -71,7 +72,7 @@ struct CodexHookShape {
         let diff = ConfigFileIO.makeDiff(before: before, after: after)
         if !dryRun {
             try ConfigFileIO.ensureParentDir(of: configPath)
-            try ConfigFileIO.writeJSON(after, to: configPath)
+            try ConfigFileIO.writeJSON(after, to: configPath, replacing: existing)
         }
         return HookInstaller.InstallResult(
             summary: "wired \(event) hook (release via process-exit watcher); trust it in Codex with /hooks",
@@ -80,30 +81,49 @@ struct CodexHookShape {
     }
 
     func uninstall(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        guard var dict = ConfigFileIO.readJSON(configPath), var hooks = dict["hooks"] as? [String: Any] else {
+        guard let existing = try ConfigFileIO.readJSONForUpdate(configPath),
+              var hooks = existing["hooks"] as? [String: Any] else {
             return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
         }
+        var dict = existing
         let before = dict
-        // Strip our handler from the current event plus any event we've since migrated away from.
-        for ev in Set([event] + obsoleteEvents) {
+        // Strip our handler from every event — including one the user may have moved it to.
+        for ev in hooks.keys {
             Self.stripOurHandlers(from: &hooks, event: ev)
         }
         dict["hooks"] = hooks
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
-        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath) }
+        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath, replacing: existing) }
         return HookInstaller.InstallResult(summary: "removed Codex hook entry", diff: diff)
     }
 
     func installState() -> HookInstallState {
-        guard let dict = ConfigFileIO.readJSON(configPath),
-              let hooks = dict["hooks"] as? [String: Any],
-              let groups = hooks[event] as? [[String: Any]],
-              let group = groups.first(where: { Self.groupIsOurs($0) }),
-              let handlers = group["hooks"] as? [[String: Any]],
-              let ours = handlers.first(where: { Self.handlerIsOurs($0) }) else { return .notInstalled }
-        // Trust (`trusted_hash` in config.toml) is the user's step via `/hooks`, not something we can
-        // apply, so a present-and-correct handler reads as installed regardless of trust state.
-        return (ours["command"] as? String) == command ? .installed : .modifiedExternally
+        switch ConfigFileIO.read(configPath) {
+        case .missing:
+            return .notInstalled
+        case .unparseable:
+            return .configUnreadable
+        case let .object(dict):
+            guard let hooks = dict["hooks"] as? [String: Any] else { return .notInstalled }
+            // Any of our handlers anywhere — under an obsolete event or one the user moved it
+            // to — is a partial install, never `.notInstalled`.
+            let anyOurs = hooks.values.contains { value in
+                guard let groups = value as? [[String: Any]] else { return false }
+                return groups.contains { Self.groupIsOurs($0) }
+            }
+            guard let groups = hooks[event] as? [[String: Any]],
+                  let group = groups.first(where: { Self.groupIsOurs($0) }),
+                  let handlers = group["hooks"] as? [[String: Any]],
+                  let ours = handlers.first(where: { Self.handlerIsOurs($0) }) else {
+                return anyOurs ? .modifiedExternally : .notInstalled
+            }
+            let hasObsolete = obsoleteEvents.contains { stale in
+                stale != event && (hooks[stale] as? [[String: Any]])?.contains { Self.groupIsOurs($0) } == true
+            }
+            // Trust (`trusted_hash` in config.toml) is the user's step via `/hooks`, not something we can
+            // apply, so a present-and-correct handler reads as installed regardless of trust state.
+            return ((ours["command"] as? String) == command && !hasObsolete) ? .installed : .modifiedExternally
+        }
     }
 
     private static func handler(_ command: String) -> [String: Any] {
@@ -135,6 +155,6 @@ struct CodexHookShape {
     }
 
     private static func handlerIsOurs(_ handler: [String: Any]) -> Bool {
-        (handler["command"] as? String)?.contains("adrafinil") == true
+        ConfigFileIO.commandInvokesAdrafinilCLI(handler["command"] as? String)
     }
 }

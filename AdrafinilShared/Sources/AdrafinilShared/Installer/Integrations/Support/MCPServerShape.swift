@@ -22,7 +22,8 @@ struct MCPServerShape {
     let entry: [String: Any]
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let before = ConfigFileIO.readJSON(configPath) ?? [:]
+        let existing = try ConfigFileIO.readJSONForUpdate(configPath)
+        let before = existing ?? [:]
         var after = before
         var servers = (after[containerKey] as? [String: Any]) ?? [:]
         servers[serverName] = entry
@@ -31,33 +32,40 @@ struct MCPServerShape {
         let diff = ConfigFileIO.makeDiff(before: before, after: after)
         if !dryRun {
             try ConfigFileIO.ensureParentDir(of: configPath)
-            try ConfigFileIO.writeJSON(after, to: configPath)
+            try ConfigFileIO.writeJSON(after, to: configPath, replacing: existing)
         }
         return HookInstaller.InstallResult(summary: "registered \(serverName) MCP server", diff: diff)
     }
 
     func uninstall(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        guard var dict = ConfigFileIO.readJSON(configPath),
-              var servers = dict[containerKey] as? [String: Any],
+        guard let existing = try ConfigFileIO.readJSONForUpdate(configPath),
+              var servers = existing[containerKey] as? [String: Any],
               servers[serverName] != nil else {
             return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
         }
+        var dict = existing
         let before = dict
         servers.removeValue(forKey: serverName)
         // Leave an emptied container in place rather than deleting it — non-destructive, and the
         // agent treats an empty `mcpServers` the same as none.
         dict[containerKey] = servers
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
-        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath) }
+        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath, replacing: existing) }
         return HookInstaller.InstallResult(summary: "removed \(serverName) MCP server", diff: diff)
     }
 
     func installState() -> HookInstallState {
-        guard let dict = ConfigFileIO.readJSON(configPath),
-              let servers = dict[containerKey] as? [String: Any],
-              let installed = servers[serverName] as? [String: Any] else { return .notInstalled }
-        // Deep-compare the on-disk entry to what we'd write; nested arrays (`args`) are handled by
-        // NSDictionary's structural equality.
-        return NSDictionary(dictionary: installed).isEqual(to: entry) ? .installed : .modifiedExternally
+        switch ConfigFileIO.read(configPath) {
+        case .missing:
+            return .notInstalled
+        case .unparseable:
+            return .configUnreadable
+        case let .object(dict):
+            guard let servers = dict[containerKey] as? [String: Any],
+                  let installed = servers[serverName] as? [String: Any] else { return .notInstalled }
+            // Deep-compare the on-disk entry to what we'd write; nested arrays (`args`) are handled by
+            // NSDictionary's structural equality.
+            return NSDictionary(dictionary: installed).isEqual(to: entry) ? .installed : .modifiedExternally
+        }
     }
 }

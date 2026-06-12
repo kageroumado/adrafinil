@@ -5,9 +5,29 @@ import Foundation
 /// Atomic per-file. Always reads → mutates → writes a copy. Preserves any
 /// non-Adrafinil hook entries the user has installed.
 public struct HookInstaller {
-    public enum SkipReason: Error {
+    public enum SkipReason: Error, LocalizedError {
         case notInstalled
         case unsupportedHere(String)
+        /// The agent's config file exists but isn't a parseable JSON object (comments, a syntax
+        /// error mid-edit, an array root). Refusing is the safe move: a read-failure treated as
+        /// an empty file would make the next write replace the user's entire config.
+        case configUnreadable(String)
+        /// The config changed on disk between read and write (agents rewrite their own configs
+        /// during sessions). Retrying re-reads the fresh content.
+        case concurrentModification(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .notInstalled:
+                "The agent isn't installed on this system."
+            case let .unsupportedHere(why):
+                why
+            case let .configUnreadable(path):
+                "\(path) exists but isn't valid JSON — fix or remove it, then retry."
+            case let .concurrentModification(path):
+                "\(path) changed while updating it (the agent may be running) — retry."
+            }
+        }
     }
 
     public struct InstallResult {
@@ -54,6 +74,11 @@ public struct HookInstaller {
     public static func detectedAgents(homeRoot: String = NSHomeDirectory()) -> [AgentKind] {
         let ctx = HookContext(cliPath: "", homeRoot: homeRoot)
         return AgentKind.allCases.filter { AgentIntegrations.integration(for: $0).isDetected(ctx) }
+    }
+
+    /// The config file Adrafinil writes `agent`'s hooks into — for "reveal in Finder".
+    public func configPath(for agent: AgentKind) -> String {
+        AgentIntegrations.integration(for: agent).primaryConfigPath(context)
     }
 
     /// Returns the hook-installation state for `agent` (used by the Settings → Agents tab).

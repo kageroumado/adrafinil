@@ -20,8 +20,9 @@ struct FlatJSONHookShape {
     var uninstallSummary: String
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        let before = ConfigFileIO.readJSON(configPath) ?? [:]
-        var after = ConfigFileIO.readJSON(configPath) ?? baseDocument
+        let existing = try ConfigFileIO.readJSONForUpdate(configPath)
+        let before = existing ?? [:]
+        var after = existing ?? baseDocument
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
         for entry in entries {
             merge(into: &hooks, event: entry.event, command: entry.command)
@@ -31,43 +32,60 @@ struct FlatJSONHookShape {
         let diff = ConfigFileIO.makeDiff(before: before, after: after)
         if !dryRun {
             try ConfigFileIO.ensureParentDir(of: configPath)
-            try ConfigFileIO.writeJSON(after, to: configPath)
+            try ConfigFileIO.writeJSON(after, to: configPath, replacing: existing)
         }
         return HookInstaller.InstallResult(summary: installSummary, diff: diff)
     }
 
     func uninstall(dryRun: Bool) throws -> HookInstaller.InstallResult {
-        guard var dict = ConfigFileIO.readJSON(configPath), var hooks = dict["hooks"] as? [String: Any] else {
+        guard let existing = try ConfigFileIO.readJSONForUpdate(configPath),
+              var hooks = existing["hooks"] as? [String: Any] else {
             return HookInstaller.InstallResult(summary: "nothing to remove", diff: "(unchanged)")
         }
+        var dict = existing
         let before = dict
-        for entry in entries {
-            if var arr = hooks[entry.event] as? [[String: Any]] {
-                arr = arr.filter { ($0["command"] as? String)?.contains("adrafinil") != true }
-                hooks[entry.event] = arr
-            }
+        // Strip our entries from every event, including one the user may have moved them to,
+        // and drop emptied event arrays so no `"<event>": []` residue is left behind.
+        for event in hooks.keys {
+            guard let arr = hooks[event] as? [[String: Any]] else { continue }
+            let pruned = arr.filter { !Self.entryIsOurs($0) }
+            hooks[event] = pruned.isEmpty ? nil : pruned
         }
         dict["hooks"] = hooks
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
-        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath) }
+        if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath, replacing: existing) }
         return HookInstaller.InstallResult(summary: uninstallSummary, diff: diff)
     }
 
     func installState() -> HookInstallState {
-        guard let dict = ConfigFileIO.readJSON(configPath),
-              let hooks = dict["hooks"] as? [String: Any] else { return .notInstalled }
-        for entry in entries {
-            guard let arr = hooks[entry.event] as? [[String: Any]],
-                  let installed = Self.command(in: arr) else { return .notInstalled }
-            if installed != entry.command { return .modifiedExternally }
+        switch ConfigFileIO.read(configPath) {
+        case .missing:
+            return .notInstalled
+        case .unparseable:
+            return .configUnreadable
+        case let .object(dict):
+            guard let hooks = dict["hooks"] as? [String: Any] else { return .notInstalled }
+            // Any adrafinil entry anywhere means our hooks are (partially) present; a partial set
+            // must read as drifted, not `.notInstalled`, so the UI can offer to clean it up.
+            let anyOurs = hooks.values.contains { value in
+                guard let arr = value as? [[String: Any]] else { return false }
+                return arr.contains { Self.entryIsOurs($0) }
+            }
+            for entry in entries {
+                guard let arr = hooks[entry.event] as? [[String: Any]],
+                      let installed = Self.command(in: arr) else {
+                    return anyOurs ? .modifiedExternally : .notInstalled
+                }
+                if installed != entry.command { return .modifiedExternally }
+            }
+            return .installed
         }
-        return .installed
     }
 
     private func merge(into hooks: inout [String: Any], event: String, command: String) {
         var arr = (hooks[event] as? [[String: Any]]) ?? []
         let canonical: [String: Any] = ["command": command, "_adrafinil": true]
-        if let idx = arr.firstIndex(where: { ($0["command"] as? String)?.contains("adrafinil") == true }) {
+        if let idx = arr.firstIndex(where: { Self.entryIsOurs($0) }) {
             arr[idx] = canonical
         } else {
             arr.append(canonical)
@@ -75,7 +93,12 @@ struct FlatJSONHookShape {
         hooks[event] = arr
     }
 
+    private static func entryIsOurs(_ entry: [String: Any]) -> Bool {
+        (entry["_adrafinil"] as? Bool) == true
+            || ConfigFileIO.commandInvokesAdrafinilCLI(entry["command"] as? String)
+    }
+
     private static func command(in arr: [[String: Any]]) -> String? {
-        arr.first(where: { ($0["command"] as? String)?.contains("adrafinil") == true })?["command"] as? String
+        arr.first(where: { entryIsOurs($0) })?["command"] as? String
     }
 }

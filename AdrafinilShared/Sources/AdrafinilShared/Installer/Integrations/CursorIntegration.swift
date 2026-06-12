@@ -11,6 +11,9 @@ struct CursorIntegration: AgentIntegration {
         FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.cursor") ||
             FileManager.default.fileExists(atPath: "/Applications/Cursor.app")
     }
+    func primaryConfigPath(_ ctx: HookContext) -> String {
+        "\(ctx.homeRoot)/.cursor/hooks.json"
+    }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
         try shape(ctx).install(dryRun: dryRun)
