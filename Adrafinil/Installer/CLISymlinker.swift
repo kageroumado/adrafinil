@@ -51,7 +51,13 @@ enum CLISymlinker {
             log.warning("CLI not found in app bundle")
             return
         }
-        if installedCLIPath != nil { return }
+        // Healthy only when the installed symlink resolves to THIS bundle's CLI. A link left
+        // pointing at an old copy of the app (moved, renamed, replaced during an update) still
+        // executes — the wrong build — and a dangling one doesn't execute at all; both repair.
+        if let installed = installedCLIPath,
+           (try? FileManager.default.destinationOfSymbolicLink(atPath: installed)) == source {
+            return
+        }
 
         let primary = AdrafinilConstants.cliInstallPath
         if (try? symlink(from: source, to: primary)) != nil { return }
@@ -65,10 +71,10 @@ enum CLISymlinker {
     }
 
     private static func symlink(from source: String, to dest: String) throws {
-        // Remove an existing symlink/file if it points to a stale location.
-        if FileManager.default.fileExists(atPath: dest) {
-            try? FileManager.default.removeItem(atPath: dest)
-        }
+        // Remove whatever occupies the destination. Checking existence first would skip a
+        // DANGLING symlink — `fileExists` follows links and reports false — and the create below
+        // would then throw EEXIST forever, leaving the broken link in place.
+        try? FileManager.default.removeItem(atPath: dest)
         try FileManager.default.createSymbolicLink(atPath: dest, withDestinationPath: source)
         log.info("CLI symlinked to \(dest)")
     }

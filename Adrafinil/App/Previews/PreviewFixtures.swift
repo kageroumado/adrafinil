@@ -113,8 +113,8 @@
             AwaySummary(
                 closedAt: Date().addingTimeInterval(-600), openedAt: Date(),
                 finished: [
-                    FinishedAgentSummary(tool: "claude-code", displayName: "Claude Code", duration: 252),
-                    FinishedAgentSummary(tool: "cursor", displayName: "Cursor", duration: 128),
+                    FinishedAgentSummary(key: "claude-code:preview", tool: "claude-code", displayName: "Claude Code", duration: 252),
+                    FinishedAgentSummary(key: "cursor:preview", tool: "cursor", displayName: "Cursor", duration: 128),
                 ],
                 stillActive: [], peakTemperatureCelsius: 67, thermalCutout: false,
             )
@@ -123,8 +123,8 @@
         static var awayWithActiveAndCutout: AwaySummary {
             AwaySummary(
                 closedAt: Date().addingTimeInterval(-1_800), openedAt: Date(),
-                finished: [FinishedAgentSummary(tool: "codex", displayName: "Codex", duration: 540)],
-                stillActive: [FinishedAgentSummary(tool: "claude-code", displayName: "Claude Code", duration: 1_700)],
+                finished: [FinishedAgentSummary(key: "codex:preview", tool: "codex", displayName: "Codex", duration: 540)],
+                stillActive: [FinishedAgentSummary(key: "claude-code:preview", tool: "claude-code", displayName: "Claude Code", duration: 1_700)],
                 peakTemperatureCelsius: 86, thermalCutout: true,
             )
         }
@@ -132,7 +132,7 @@
         static var awayLowBattery: AwaySummary {
             AwaySummary(
                 closedAt: Date().addingTimeInterval(-2_400), openedAt: Date(),
-                finished: [FinishedAgentSummary(tool: "claude-code", displayName: "Claude Code", duration: 2_100)],
+                finished: [FinishedAgentSummary(key: "claude-code:preview", tool: "claude-code", displayName: "Claude Code", duration: 2_100)],
                 stillActive: [], peakTemperatureCelsius: 61, thermalCutout: false, lowBatteryCutout: true,
             )
         }

@@ -20,7 +20,17 @@ struct AdrafinilApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra(isInserted: $settings.showInMenuBar) {
+        // The insertion binding persists on every set: removing the icon by ⌘-dragging it out
+        // flips the binding directly (never passing through SettingsView's onChange, which only
+        // exists while that window is open), and an unsaved removal would silently revert on
+        // relaunch.
+        MenuBarExtra(isInserted: Binding(
+            get: { settings.showInMenuBar },
+            set: { newValue in
+                settings.showInMenuBar = newValue
+                try? settings.save()
+            },
+        )) {
             MenuPopover(status: status)
         } label: {
             MenuBarIcon(status: status)

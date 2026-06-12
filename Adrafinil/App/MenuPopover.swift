@@ -61,6 +61,10 @@ struct MenuPopover: View {
                             agentDriftCard(status.driftedAgents).transition(.popoverSection)
                         }
 
+                        if !live.warnings.isEmpty {
+                            daemonWarningsCard(live.warnings).transition(.popoverSection)
+                        }
+
                         if !live.assertions.isEmpty {
                             agentList(live.assertions, now: now).transition(.popoverSection)
                         }
@@ -83,7 +87,7 @@ struct MenuPopover: View {
     /// A compact, order-stable key for the popover's layout: which sections are visible and how
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(confirmingQuit)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)"
+        "\(confirmingQuit)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -266,6 +270,33 @@ struct MenuPopover: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Degraded-protection warnings
+
+    /// Daemon-reported notices that part of the safety net is down — a sleep block that didn't
+    /// fully apply, an unreadable temperature with the thermal cutout enabled, an active cutout
+    /// latch. The user is about to trust a closed lid to these; silence would be a lie.
+    private func daemonWarningsCard(_ warnings: [String]) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.system(size: 26))
+                .foregroundStyle(Theme.warn)
+                .symbolRenderingMode(.hierarchical)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(warnings, id: \.self) { warning in
+                    Text(warning)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(Theme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(tint: Theme.warn.opacity(0.18))
     }
 
     // MARK: - Primary action (pause / resume)

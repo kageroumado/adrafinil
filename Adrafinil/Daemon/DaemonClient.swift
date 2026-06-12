@@ -1,6 +1,5 @@
 import AdrafinilShared
 import Foundation
-import os
 
 /// Menu bar app's client for talking to AdrafinilDaemon over XPC.
 ///
@@ -13,10 +12,9 @@ final class DaemonClient {
     static let shared = DaemonClient()
 
     private var connection: NSXPCConnection?
-    /// Set by the connection's invalidation/interruption handlers — which NSXPC fires on its
-    /// own background queue, so they capture only this Sendable flag (never `self`, whose
-    /// `@MainActor` isolation would trap when touched off the main actor).
-    private let connectionDied = OSAllocatedUnfairLock(initialState: false)
+    /// Bumped for every connection created; death handlers carry the generation they were made
+    /// for, so a late event from a replaced connection can't tear down its successor.
+    private var connectionGeneration = 0
 
     // MARK: Push subscription state
 
@@ -34,20 +32,23 @@ final class DaemonClient {
     enum ClientError: Error, LocalizedError {
         case noConnection
         case invalidResponse
+        case timedOut
         var errorDescription: String? {
             switch self {
             case .noConnection: "Couldn't reach Adrafinil's background helper."
             case .invalidResponse: "Adrafinil's background helper sent an unexpected response."
+            case .timedOut: "Adrafinil's background helper didn't respond in time."
             }
         }
     }
 
+    /// Bound on one daemon round-trip. The per-call XPC error handler only fires on
+    /// connection-level failures — a daemon that is alive but wedged produces neither a reply
+    /// nor an error, and an unbounded await would hang the caller (and on the quit path, block
+    /// logout until the system force-kills the app).
+    private static let callTimeout: Double = 10
+
     private func ensureConnection() -> NSXPCConnection {
-        // Drop a connection that died since last use, then lazily make a fresh one.
-        if connectionDied.withLock({ flag -> Bool in defer { flag = false }; return flag }) {
-            connection?.invalidate()
-            connection = nil
-        }
         if let c = connection { return c }
         let c = NSXPCConnection(machServiceName: AdrafinilConstants.daemonMachServiceName)
         c.remoteObjectInterface = NSXPCInterface(with: DaemonXPCProtocol.self)
@@ -58,13 +59,19 @@ final class DaemonClient {
             c.exportedInterface = NSXPCInterface(with: AppXPCProtocol.self)
             c.exportedObject = callback
         }
-        let died = connectionDied
-        let markDied: @Sendable () -> Void = { [weak self] in
-            died.withLock { $0 = true }
-            Task { @MainActor in self?.handleConnectionDeath() }
+        // Death handlers are bound to THIS connection's generation. NSXPC fires them on its own
+        // queue (they must not touch `@MainActor` state directly), and they can arrive late —
+        // after the connection was already replaced. Without the generation check, a stale event
+        // from an abandoned connection tears down its healthy successor, which fires another
+        // stale event when *it* is replaced… a permanent teardown/rebuild loop at the backoff
+        // floor.
+        connectionGeneration += 1
+        let generation = connectionGeneration
+        let handler: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor in self?.handleConnectionDeath(generation: generation) }
         }
-        c.invalidationHandler = markDied
-        c.interruptionHandler = markDied
+        c.invalidationHandler = handler
+        c.interruptionHandler = handler
         c.resume()
         connection = c
         return c
@@ -80,6 +87,9 @@ final class DaemonClient {
         let conn = ensureConnection()
         return try await withCheckedThrowingContinuation { cont in
             let once = OnceResumer<Result<T, Error>> { cont.resume(with: $0) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.callTimeout) {
+                once.resume(.failure(ClientError.timedOut))
+            }
             // The error handler must be @Sendable (non-isolated): NSXPC calls it on its own
             // background queue, and a @MainActor-isolated closure would trap there.
             let onError: @Sendable (any Error) -> Void = { once.resume(.failure($0)) }
@@ -179,11 +189,12 @@ final class DaemonClient {
     private func subscribeNow() {
         guard wantsSubscription else { return }
         let conn = ensureConnection()
+        let generation = connectionGeneration
         let onError: @Sendable (any Error) -> Void = { [weak self] _ in
-            Task { @MainActor in self?.handleConnectionDeath() }
+            Task { @MainActor in self?.handleConnectionDeath(generation: generation) }
         }
         guard let proxy = conn.remoteObjectProxyWithErrorHandler(onError) as? DaemonXPCProtocol else {
-            handleConnectionDeath()
+            handleConnectionDeath(generation: generation)
             return
         }
         proxy.subscribe { [weak self] data, _ in
@@ -198,10 +209,16 @@ final class DaemonClient {
         }
     }
 
-    /// Called when the connection drops while we still want pushes: reconnect after a widening
-    /// backoff (the daemon may be relaunching via launchd). `subscribeNow` resets the backoff once
-    /// the subscription is re-established.
-    private func handleConnectionDeath() {
+    /// Called when a connection drops. Events for any connection other than the current one are
+    /// stale (a replaced connection's invalidation arriving late) and ignored. For the live one:
+    /// drop it, and if a subscription is wanted, reconnect after a widening backoff (the daemon
+    /// may be relaunching via launchd). `subscribeNow` resets the backoff once the subscription
+    /// is re-established.
+    private func handleConnectionDeath(generation: Int) {
+        guard generation == connectionGeneration else { return }
+        let dead = connection
+        connection = nil
+        dead?.invalidate()
         guard wantsSubscription else { return }
         reconnectTask?.cancel()
         let delay = min(pow(2.0, Double(reconnectAttempts)), Self.maxBackoff)

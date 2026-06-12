@@ -11,20 +11,15 @@ extension Notification.Name {
 /// (`StatusProviding.statusUpdates()`) rather than polling, so neither process wakes the CPU while
 /// nothing changes. A slow heartbeat backstops a silently-wedged connection.
 ///
-/// When the daemon flags a pending `AwaySummary` (on lid-open after a kept-awake period), this model:
-/// 1. Consumes it (one call, only when flagged) and sets `awaySummary` (observable by SwiftUI views).
-/// 2. Posts `adrafinilAwaySummaryReceived` on the default `NotificationCenter`
-///    with the summary as `object` — `AppDelegate` subscribes to this and delivers
-///    a native system notification via `AwayNotifier`.
+/// When the daemon flags a pending `AwaySummary` (on lid-open after a kept-awake period), this model
+/// consumes it (one call, only when flagged) and posts `adrafinilAwaySummaryReceived` on the default
+/// `NotificationCenter` with the summary as `object` — `AppDelegate` subscribes to this and delivers
+/// a native system notification via `AwayNotifier`.
 @MainActor
 @Observable
 final class AppStatusModel {
     var status: DaemonStatus?
     var lastError: String?
-
-    /// Non-nil while a lid-open summary panel is being shown. Cleared when the
-    /// panel is dismissed (either by the user or the 8-second auto-dismiss timer).
-    var awaySummary: AwaySummary?
 
     /// Connected agents whose Adrafinil hook has drifted from the canonical form, so the daemon may
     /// no longer notice when they work. Surfaced as a warning in the popover (not just buried in the
@@ -34,6 +29,7 @@ final class AppStatusModel {
 
     @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTimer: Timer?
+    @ObservationIgnored private var revertNudgeTask: Task<Void, Never>?
     /// Guards against firing overlapping summary consumes if pushes arrive while one is in flight.
     @ObservationIgnored private var consumingSummary = false
     @ObservationIgnored private let provider: any StatusProviding
@@ -79,6 +75,7 @@ final class AppStatusModel {
     isolated deinit {
         subscriptionTask?.cancel()
         heartbeatTimer?.invalidate()
+        revertNudgeTask?.cancel()
     }
 
     func refresh() async {
@@ -95,17 +92,30 @@ final class AppStatusModel {
     private func apply(_ status: DaemonStatus) {
         self.status = status
         lastError = nil
+        scheduleCutoutRevertNudge(for: status)
         guard status.awaySummaryPending, !consumingSummary else { return }
         consumingSummary = true
         Task { @MainActor in
             defer { consumingSummary = false }
             guard let summary = await provider.consumeAwaySummary() else { return }
-            awaySummary = summary
-            NotificationCenter.default.post(
-                name: .adrafinilAwaySummaryReceived,
-                object: summary,
-                userInfo: ["model": self],
-            )
+            NotificationCenter.default.post(name: .adrafinilAwaySummaryReceived, object: summary)
+        }
+    }
+
+    /// The menu-bar icon shows a transient red state for 30 s after a cutout, but pushes only
+    /// arrive on state *changes* — and a cutout just released everything, so the daemon goes
+    /// quiet exactly then. Nudge observers right after the window closes so the icon reverts on
+    /// time, instead of lingering red until the next heartbeat.
+    private func scheduleCutoutRevertNudge(for status: DaemonStatus) {
+        revertNudgeTask?.cancel()
+        guard status.lastEvent == .thermalCutout || status.lastEvent == .lowBatteryCutout,
+              let at = status.lastEventAt else { return }
+        let remaining = 30.2 - Date().timeIntervalSince(at)
+        guard remaining > 0 else { return }
+        revertNudgeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled, let self, let current = self.status else { return }
+            self.status = current
         }
     }
 
@@ -155,7 +165,6 @@ final class AppStatusModel {
             } else {
                 self.status = previewStatus
             }
-            self.awaySummary = awaySummary
             self.driftedAgents = driftedAgents
         }
     #endif

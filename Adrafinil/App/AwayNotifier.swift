@@ -32,9 +32,27 @@ final class AwayNotifier {
             log.notice("Screen locked — holding away recap until unlock")
             pendingSummary = summary
             observeUnlock()
+            // The unlock can land between the check above and the observer registration; a recap
+            // held past a missed unlock would surface days later, stale and confusing.
+            if !screenIsLocked(), let pending = pendingSummary {
+                pendingSummary = nil
+                post(pending)
+            }
         } else {
             post(summary)
         }
+    }
+
+    /// Requests notification permission in context (during setup), rather than lazily at the
+    /// first recap — which arrives mid-unlock, the worst moment for a permission prompt.
+    func requestAuthorizationUpfront() {
+        Task { _ = await ensureAuthorized() }
+    }
+
+    /// Whether the user has denied notifications — the recap feature is silently dark then, and
+    /// Settings should say so.
+    func authorizationDenied() async -> Bool {
+        await center.notificationSettings().authorizationStatus == .denied
     }
 
     private func post(_ summary: AwaySummary) {

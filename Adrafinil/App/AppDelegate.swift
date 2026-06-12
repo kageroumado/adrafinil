@@ -42,42 +42,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Daemon-free UI gallery: launch with `-ADRAFINIL_GALLERY 1` to review every surface/state.
             if UserDefaults.standard.bool(forKey: "ADRAFINIL_GALLERY") {
                 presentGallery()
-                return
+            } else {
+                // Every DEBUG run opens the interactive control panel and skips the real first-run
+                // flow, so the UI can be exercised with mock scenarios. Flip "Use live daemon" in
+                // the panel to talk to the real daemon instead.
+                presentDebugControlPanel()
             }
-            // Every DEBUG run opens the interactive control panel and skips the real first-run flow,
-            // so the UI can be exercised with mock scenarios. Flip "Use live daemon" in the panel to
-            // talk to the real daemon instead.
-            presentDebugControlPanel()
-            return
+        #else
+            // First run: present the setup flow and nothing else. No privileged work happens
+            // until the user proceeds — helper/daemon registration, the CLI symlink, hook
+            // installation, and the login item are all triggered by explicit buttons inside
+            // InstallerView. On later launches the daemon is already registered with launchd and
+            // starts on its own; the app simply connects to it (a failed connection before setup
+            // is handled gracefully).
+            if HelperInstaller.isFirstRun {
+                presentInstaller()
+            } else {
+                // Self-heal the login item. `launchAtLogin` defaults on, but only setup and the
+                // Settings toggle register it — so after an in-place update (or if it was never
+                // registered) the menu-bar app wouldn't return on its own after a reboot.
+                // Gated on setup having run: merely launching the app to look at the installer
+                // must not register anything.
+                if AdrafinilSettings.load().launchAtLogin, SMAppService.mainApp.status != .enabled {
+                    try? SMAppService.mainApp.register()
+                }
+
+                // Adrafinil is active only while this app is open. Quitting pauses the daemon (see
+                // `applicationShouldTerminate`), so resume here to undo a previous quit-pause —
+                // reopening the app puts it back to work.
+                Task { try? await DaemonClient.shared.setPaused(false) }
+
+                // With the menu bar icon hidden the app has no visible surface at all, so a
+                // launch is the user asking for a way back in — give them Settings. (Deferred a
+                // beat so the SwiftUI scene is set up before the selector lands.)
+                if !AdrafinilSettings.load().showInMenuBar {
+                    DispatchQueue.main.async { Self.openSettingsWindow() }
+                }
+            }
         #endif
-
-        // First run: present the setup flow and nothing else. No privileged work happens
-        // until the user proceeds — helper/daemon registration, the CLI symlink, and hook
-        // installation are all triggered by explicit buttons inside InstallerView. On later
-        // launches the daemon is already registered with launchd and starts on its own; the
-        // app simply connects to it (a failed connection before setup is handled gracefully).
-        if HelperInstaller.isFirstRun {
-            presentInstaller()
-        }
-
-        // Self-heal the login item. `launchAtLogin` defaults on, but only setup and the Settings
-        // toggle register it — so after an in-place update (or if it was never registered) the
-        // menu-bar app wouldn't return on its own after a reboot. Re-register on launch when the
-        // setting is on and it isn't already enabled.
-        if AdrafinilSettings.load().launchAtLogin, SMAppService.mainApp.status != .enabled {
-            try? SMAppService.mainApp.register()
-        }
-
-        // Adrafinil is active only while this app is open. Quitting pauses the daemon (see
-        // `confirmQuit`), so resume here to undo a previous quit-pause — reopening the app puts it
-        // back to work. Skipped before setup, when there's no daemon to talk to yet.
-        if !HelperInstaller.isFirstRun {
-            Task { try? await DaemonClient.shared.setPaused(false) }
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
         false
+    }
+
+    /// Finder "re-launch" of the running instance. With the icon hidden and no windows open
+    /// there is nothing to come back to — open Settings so `showInMenuBar` can be flipped back.
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows, !AdrafinilSettings.load().showInMenuBar {
+            Self.openSettingsWindow()
+        }
+        return true
+    }
+
+    /// Opens the SwiftUI `Settings` scene from AppKit (the scene's own `SettingsLink` is only
+    /// reachable from inside SwiftUI views).
+    private static func openSettingsWindow() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// The single quit gate. Adrafinil is split across three executables (this app, the user
@@ -89,11 +111,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// while its app is open" holds. Centralizing here means every quit path (the popover's power
     /// button, ⌘Q from a window, logout) stops the daemon, not just the button.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-        // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable.
+        // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable
+        // or unresponsive — `setPaused` is bounded by DaemonClient's call timeout, and the extra
+        // race below keeps even a pathological hang from blocking logout/shutdown, where the
+        // system gives apps only a few seconds before force-killing them.
         // (The uninstall flow doesn't come through here — it tears everything down and `exit()`s
         // directly, since there'd be no daemon left for this to reach.)
         Task {
-            try? await DaemonClient.shared.setPaused(true)
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                let once = OnceResumer<Void> { cont.resume() }
+                Task { @MainActor in
+                    try? await DaemonClient.shared.setPaused(true)
+                    once.resume(())
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { once.resume(()) }
+            }
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -201,7 +233,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleAwaySummary(_ notification: Notification) {
         guard let summary = notification.object as? AwaySummary else { return }
         AwayNotifier.shared.deliver(summary)
-        (notification.userInfo?["model"] as? AppStatusModel)?.awaySummary = nil
     }
 
     // MARK: - UNUserNotificationCenterDelegate

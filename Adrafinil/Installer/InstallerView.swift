@@ -86,6 +86,29 @@ struct InstallerView: View {
         .onChange(of: needsApproval) { _, pending in
             if pending { moveWindowToLeft() }
         }
+        // While approval is pending, poll for it so the flow advances the moment the user flips
+        // the toggle in System Settings — without this, someone who denies (or forgets) can walk
+        // the rest of setup and end at "Adrafinil is set up" with neither service enabled.
+        .task(id: needsApproval) {
+            guard needsApproval else { return }
+            while !Task.isCancelled, needsApproval {
+                if setup.servicesEnabled() {
+                    withAnimation(.smooth) {
+                        needsApproval = false
+                        step = .agents
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// Gatekeeper runs a quarantined app from a randomized, ephemeral translocation point.
+    /// Setting up from there would bake that path — gone at the next launch — into every hook,
+    /// the CLI symlink, and the service registrations.
+    private var isTranslocated: Bool {
+        Bundle.main.bundlePath.contains("/AppTranslocation/")
     }
 
     private func moveWindowToLeft() {
@@ -116,6 +139,20 @@ struct InstallerView: View {
             }
 
             whatGetsInstalled
+
+            if isTranslocated {
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    Label("Move Adrafinil to Applications first", systemImage: "arrow.down.app.fill")
+                        .font(.headline)
+                        .foregroundStyle(Theme.warn)
+                    Text("Adrafinil is running from a temporary location (macOS translocation). Setting up from here would point everything at a path that disappears on the next launch. Move Adrafinil.app to your Applications folder, then open it again.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Theme.Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard(cornerRadius: Theme.Radius.inner)
+            }
 
             if !helperErrors.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
@@ -151,7 +188,7 @@ struct InstallerView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.large)
-                .disabled(registering)
+                .disabled(registering || isTranslocated)
             }
             .controlSize(.large)
         }
@@ -317,9 +354,14 @@ struct InstallerView: View {
             HStack(spacing: Theme.Space.xs) {
                 if !isInstalling {
                     Spacer()
-                    Button("Skip") { withAnimation(.smooth) { step = .done } }
-                        .buttonStyle(.glass)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
+                    Button("Skip") {
+                        // Skipping the agents only skips the agents — the CLI command was
+                        // promised on the first step and is still set up.
+                        Task { await setup.symlinkCLI() }
+                        withAnimation(.smooth) { step = .done }
+                    }
+                    .buttonStyle(.glass)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
                 }
                 Button { Task { await runInstall() } } label: {
                     if isInstalling {
@@ -354,13 +396,16 @@ struct InstallerView: View {
                 .opacity(sealPopped ? 1 : 0)
                 .onAppear {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { sealPopped = true }
+                    setup.didFinishSetup()
                 }
             Text("Adrafinil is set up").font(.system(.title, design: .rounded).weight(.semibold))
             Text("It now lives in your menu bar. Close the lid while an agent is working — your Mac stays awake. No agent running? Sleep behaves normally.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Done") { NSApp.keyWindow?.close() }
+            // The captured window, not `keyWindow` — closing via the key window is a silent
+            // no-op whenever this window isn't key (e.g. the user clicked elsewhere first).
+            Button("Done") { (window ?? NSApp.keyWindow)?.close() }
                 .buttonStyle(.glassProminent)
                 .controlSize(.large)
         }

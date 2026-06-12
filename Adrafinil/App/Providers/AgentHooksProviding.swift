@@ -54,32 +54,17 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
     }
 
     func revealConfig(for kind: AgentKind) {
+        // The path comes from the integration itself, so this can't drift from where the
+        // installer actually writes.
         let fm = FileManager.default
-        for path in Self.configPaths(for: kind, home: NSHomeDirectory()) {
-            if fm.fileExists(atPath: path) {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-                return
-            }
-            let dir = (path as NSString).deletingLastPathComponent
-            if fm.fileExists(atPath: dir) {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: dir)])
-                return
-            }
+        let path = installer.configPath(for: kind)
+        if fm.fileExists(atPath: path) {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            return
         }
-    }
-
-    /// The config file(s) Adrafinil writes for each agent — used to reveal the right file in Finder.
-    private static func configPaths(for kind: AgentKind, home: String) -> [String] {
-        switch kind {
-        case .claudeCode: ["\(home)/.claude/settings.json"]
-        case .codex: ["\(home)/.codex/hooks.json"]
-        case .cursor: ["\(home)/.cursor/hooks.json"]
-        case .geminiCLI: ["\(home)/.gemini/settings.json"]
-        case .aider: ["\(home)/.zshrc"]
-        case .hermes: ["\(home)/.hermes/config.yaml"]
-        case .openCode: ["\(home)/.config/opencode/plugins/adrafinil.ts"]
-        case .cline: ["\(home)/.zshrc"]
-        case .pi: ["\(home)/.pi/agent/extensions/adrafinil.ts"]
+        let dir = (path as NSString).deletingLastPathComponent
+        if fm.fileExists(atPath: dir) {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: dir)])
         }
     }
 }

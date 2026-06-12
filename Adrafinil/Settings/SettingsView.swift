@@ -42,6 +42,11 @@ struct SettingsView: View {
                 Task {
                     if new.launchAtLogin {
                         try? SMAppService.mainApp.register()
+                        // Verify, and reflect reality back into the toggle — a silently-failed
+                        // registration would show "on" while the app never returns after reboot.
+                        if SMAppService.mainApp.status != .enabled {
+                            appSettings.launchAtLogin = false
+                        }
                     } else {
                         try? await SMAppService.mainApp.unregister()
                     }
@@ -70,6 +75,11 @@ struct GeneralSettingsTab: View {
     var device: DeviceCapabilities = .current
 
     @State private var showUninstallConfirm = false
+    @State private var uninstallIssues: [String] = []
+    @State private var showUninstallIssues = false
+    /// Whether the user has denied notification permission — the away recap is silently dark
+    /// then, and this is the one place that says so.
+    @State private var notificationsDenied = false
 
     private let chimeOptions: [(id: String, label: String)] = [
         ("default", "Adrafinil chime"),
@@ -84,6 +94,10 @@ struct GeneralSettingsTab: View {
             Section {
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
                 Toggle("Show in menu bar", isOn: $settings.showInMenuBar)
+            } footer: {
+                if notificationsDenied {
+                    Text("Notifications are turned off for Adrafinil in System Settings, so the “while you were away” recap won't appear after you reopen the lid.")
+                }
             }
 
             // Lid-close behavior only makes sense on a portable. On a desktop Mac these controls
@@ -157,20 +171,31 @@ struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .task { notificationsDenied = await AwayNotifier.shared.authorizationDenied() }
         .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
             Button("Uninstall and Quit", role: .destructive) { performUninstall() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This disconnects Adrafinil from all your agents, turns off its background services, and removes the adrafinil command and its settings. This can't be undone.")
         }
+        .alert("Some hooks need manual cleanup", isPresented: $showUninstallIssues) {
+            Button("Quit Anyway") { exit(0) }
+        } message: {
+            Text("Adrafinil couldn't clean up everywhere — remove these by hand, or the agent will keep calling a command that no longer exists:\n\n\(uninstallIssues.joined(separator: "\n"))")
+        }
     }
 
     private func performUninstall() {
         Task {
-            await setup.uninstallEverything()
+            let issues = await setup.uninstallEverything()
             // Everything is already torn down (the sleep block was released first), so exit the process
             // directly. Routing through `NSApp.terminate` would hit the quit gate, which tries to reach
             // the daemon we just unregistered — with no daemon to answer, that wedges the quit.
+            guard issues.isEmpty else {
+                uninstallIssues = issues
+                showUninstallIssues = true
+                return
+            }
             exit(0)
         }
     }
@@ -284,9 +309,20 @@ private struct AgentInstallRow: View {
             }
 
             if model.installState == .modifiedExternally { reconnectNote }
+            if model.installState == .configUnreadable { unreadableNote }
 
             if model.mcpSupported { mcpToggle }
         }
+    }
+
+    /// Shown when the agent's config file exists but isn't parseable JSON (comments, a syntax
+    /// error mid-edit). Adrafinil refuses to touch it — writing would replace the user's content
+    /// — so connecting is blocked until the file is fixed.
+    private var unreadableNote: some View {
+        Text("\(model.kind.displayName)'s settings file couldn't be read (it may contain comments or a syntax error). Adrafinil won't modify it in this state — fix the file, then try connecting again.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Shown when the agent's config was edited outside Adrafinil so it no longer matches what we
@@ -352,6 +388,8 @@ private struct AgentInstallRow: View {
             EmptyView()
         case .modifiedExternally:
             StateChip(text: "Needs reconnect", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
+        case .configUnreadable:
+            StateChip(text: "Config unreadable", systemImage: "exclamationmark.octagon.fill", tint: Theme.warn)
         }
     }
 }
