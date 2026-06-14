@@ -69,8 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
                 // Adrafinil is active only while this app is open. Quitting pauses the daemon (see
                 // `applicationShouldTerminate`), so resume here to undo a previous quit-pause —
-                // reopening the app puts it back to work.
-                Task { try? await DaemonClient.shared.setPaused(false) }
+                // reopening the app puts it back to work. Retried, since this launch can coincide
+                // with the daemon adopting an updated binary (it restarts), and a resume lost to
+                // that restart would otherwise leave Adrafinil stuck paused.
+                Task { await DaemonClient.shared.resumeAtLaunch() }
 
                 // With the menu bar icon hidden the app has no visible surface at all, so a
                 // launch is the user asking for a way back in — give them Settings. (Deferred a

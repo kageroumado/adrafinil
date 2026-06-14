@@ -125,6 +125,26 @@ final class DaemonClient {
         }
     }
 
+    /// Resumes the daemon at app launch, surviving a daemon restart that coincides with it.
+    ///
+    /// Launch fires this alongside the status subscription, and the subscription can prompt the
+    /// daemon to adopt an updated binary — it exits and launchd relaunches it. A resume sent to the
+    /// outgoing daemon is then lost before it persists, and the fresh daemon restores the quit-time
+    /// paused state, leaving Adrafinil stuck paused with the app open. The reply to `setPaused`
+    /// arrives only after the daemon has persisted the new state, so a *successful* call is durable;
+    /// retrying until one succeeds guarantees the resume lands on whichever daemon survives. Bounded
+    /// so a genuinely-absent daemon (e.g. before setup) doesn't loop forever.
+    func resumeAtLaunch() async {
+        for _ in 0 ..< 15 {
+            do {
+                try await setPaused(false)
+                return
+            } catch {
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
     func releaseAssertion(key: String) async throws {
         _ = try await call { (proxy, done: @escaping @Sendable (Result<Bool, Error>) -> Void) in
             proxy.releaseAssertion(key: key) { done(.success($0)) }
