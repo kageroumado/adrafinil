@@ -362,6 +362,15 @@ final class Daemon {
             log.notice("Daemon binary replaced by an update — deferring relaunch until idle")
             return
         }
+        // A fired cutout releases every assertion, so the daemon reads as idle the instant it
+        // latches — exactly when this is called off the blocking→idle edge. The latch itself isn't
+        // persisted, so exiting now would relaunch with an empty latch and let the held agent
+        // re-acquire while the hazard is still present. Defer until the latch clears (lid opens or
+        // the condition recedes); its 60s re-check timer re-runs this once it does.
+        guard !cutoutLatch.isLatched else {
+            log.notice("Daemon binary replaced by an update — deferring relaunch until the safety cutout clears")
+            return
+        }
         log.notice("Daemon binary replaced by an update — exiting so launchd relaunches the new daemon")
         exit(0)
     }
@@ -561,6 +570,9 @@ final class Daemon {
             log.notice("Cutout latch cleared: \(cleared.map(\.rawValue).joined(separator: ","), privacy: .public)")
             updateLatchRecheckTimer()
             Task { @MainActor in await self.broadcastStatus() }
+            // A relaunch deferred because the latch was held can now proceed (if still idle) — the
+            // cutout that was protecting state has receded, so it's safe to adopt an updated binary.
+            relaunchIfUpdatedWhenIdle()
         }
     }
 
