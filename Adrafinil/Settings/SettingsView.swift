@@ -77,6 +77,8 @@ struct GeneralSettingsTab: View {
     @State private var showUninstallConfirm = false
     @State private var uninstallIssues: [String] = []
     @State private var showUninstallIssues = false
+    /// Notify-only check against GitHub Releases; drives the "Check for Updates" row.
+    @State private var updateCheck = UpdateCheckService()
     /// Whether the user has denied notification permission — the away recap is silently dark
     /// then, and this is the one place that says so.
     @State private var notificationsDenied = false
@@ -162,6 +164,31 @@ struct GeneralSettingsTab: View {
             }
 
             Section {
+                Button {
+                    if updateCheck.availableVersion != nil {
+                        NSWorkspace.shared.open(updateCheck.releasesPageURL)
+                    } else {
+                        Task { await updateCheck.check(manual: true) }
+                    }
+                } label: {
+                    HStack(spacing: Theme.Space.sm) {
+                        if updateCheck.isChecking {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(updateButtonTitle)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .tint(updateCheck.availableVersion != nil ? .accentColor : nil)
+                .disabled(updateCheck.isChecking)
+                .focusEffectDisabled()
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Adrafinil updates through GitHub Releases. This checks for a newer version and, if one's available, opens the download page — it never downloads or installs on its own.")
+            }
+
+            Section {
                 Button("Uninstall and quit…", role: .destructive) { showUninstallConfirm = true }
                     .buttonStyle(.bordered)
                     .tint(.red)
@@ -172,6 +199,7 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { notificationsDenied = await AwayNotifier.shared.authorizationDenied() }
+        .task { await updateCheck.checkIfDue() }
         .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
             Button("Uninstall and Quit", role: .destructive) { performUninstall() }
             Button("Cancel", role: .cancel) {}
@@ -183,6 +211,13 @@ struct GeneralSettingsTab: View {
         } message: {
             Text("Adrafinil couldn't clean up everywhere — remove these by hand, or the agent will keep calling a command that no longer exists:\n\n\(uninstallIssues.joined(separator: "\n"))")
         }
+    }
+
+    private var updateButtonTitle: String {
+        if let version = updateCheck.availableVersion { return "Update available — get version \(version)" }
+        if updateCheck.isChecking { return "Checking for updates…" }
+        if updateCheck.checkedUpToDate { return "You're up to date" }
+        return "Check for updates"
     }
 
     private func performUninstall() {
