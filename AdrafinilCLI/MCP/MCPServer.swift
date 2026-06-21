@@ -79,7 +79,7 @@ enum MCPServer {
         [
             [
                 "name": "keep_awake",
-                "description": "Keep this Mac awake for a background task that will outlive the current turn — e.g. a build, deploy, migration, or training run you just started. Returns a hold id. The hold ends when you call release_awake, when the named process exits, or when its time runs out. Use this when work continues after you finish responding; you do NOT need it for work done within your turn.",
+                "description": "Keep this Mac fully awake for a background task that will outlive the current turn — e.g. a build, deploy, migration, or training run you just started. This blocks sleep COMPLETELY, including the closed-lid (clamshell) case with the display off and on battery — unlike `caffeinate`, which only prevents idle sleep and still lets the Mac sleep when the user shuts the lid. So the task keeps running even after the user closes the laptop and walks away. Returns a hold id. The hold ends when you call release_awake, when the named process exits, or when its time runs out. Use this when work continues after you finish responding; you do NOT need it for work done within your turn.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -161,7 +161,7 @@ enum MCPServer {
                 sendToolResult(id: id, text: resp.error ?? "Could not place the hold.", isError: true)
                 return
             }
-            var text = "Keeping the Mac awake (hold id: \(key))."
+            var text = "Keeping the Mac awake, including with the lid closed (hold id: \(key))."
             // The daemon clamps the TTL to the user's cap — report what was applied, not what
             // was asked for, so the agent doesn't plan around time it won't get.
             let applied = resp.appliedTTLSeconds ?? ttl ?? ManualHold.defaultTTL
