@@ -247,4 +247,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         completionHandler([.banner, .list, .sound])
     }
+
+    /// Routes a tap on the "service unavailable" alert to the matching fix: Login Items (to approve a
+    /// registered-but-unapproved service) or the setup window (to register one that never was).
+    nonisolated func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void,
+    ) {
+        let action = response.notification.request.content.userInfo["adrafinilAction"] as? String
+        if let action {
+            Task { @MainActor in
+                switch action {
+                case "loginItems":
+                    SMAppService.openSystemSettingsLoginItems()
+                case "setup":
+                    self.presentInstaller()
+                default:
+                    break
+                }
+            }
+        }
+        completionHandler()
+    }
 }

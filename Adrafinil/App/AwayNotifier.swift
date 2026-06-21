@@ -43,6 +43,51 @@ final class AwayNotifier {
         }
     }
 
+    /// Alerts the user that Adrafinil's background service is unreachable and won't recover on its
+    /// own — never approved, never registered, or enabled-but-wedged. Without this the app retries the
+    /// daemon connection silently forever, so the user never learns their Mac isn't being kept awake.
+    /// The notification's tap action (handled in `AppDelegate`) opens the relevant fix: Login Items to
+    /// approve, or the setup window to register/repair. A stable identifier means a repeat alert
+    /// replaces the old one rather than stacking.
+    func deliverServiceUnavailable(reason: AppStatusModel.ServiceState) {
+        let body: String
+        let action: String
+        switch reason {
+        case .needsApproval:
+            body = "It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on."
+            action = "loginItems"
+        case .notRegistered:
+            body = "Its background service isn't set up. Tap to finish setting up Adrafinil."
+            action = "setup"
+        case .unreachable:
+            body = "Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it."
+            action = "loginItems"
+        case .ok:
+            return // not an outage — nothing to alert
+        }
+        Task {
+            guard await ensureAuthorized() else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Adrafinil isn't keeping your Mac awake"
+            content.body = body
+            content.userInfo = ["adrafinilAction": action]
+            content.sound = .default
+
+            let request = UNNotificationRequest(
+                identifier: "service-unavailable",
+                content: content,
+                trigger: nil,
+            )
+            do {
+                try await center.add(request)
+                log.notice("Delivered service-unavailable alert (reason=\(String(describing: reason), privacy: .public))")
+            } catch {
+                log.error("Failed to add service-unavailable alert: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     /// Requests notification permission in context (during setup), rather than lazily at the
     /// first recap — which arrives mid-unlock, the worst moment for a permission prompt.
     func requestAuthorizationUpfront() {

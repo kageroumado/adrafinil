@@ -1,4 +1,6 @@
 import AdrafinilShared
+import AppKit
+import ServiceManagement
 import SwiftUI
 
 /// The window-style popover attached to the menu-bar status item.
@@ -47,8 +49,12 @@ struct MenuPopover: View {
                     quitConfirmation.transition(.popoverSection)
                 } else {
                     // A failed poll takes precedence: if we can't reach the daemon we don't have
-                    // trustworthy status, so show the error rather than a stale snapshot.
-                    if let err = status.lastError {
+                    // trustworthy status, so show the error rather than a stale snapshot. When we know
+                    // *why* it's unreachable, the problem card offers the matching fix (approve,
+                    // repair, or — if repair can't recover it — the manual reset).
+                    if status.serviceState != .ok {
+                        serviceProblemCard().transition(.popoverSection)
+                    } else if let err = status.lastError {
                         errorCard(err).transition(.popoverSection)
                     } else if let live {
                         statusCard(live, state: hero, now: now).transition(.popoverSection)
@@ -87,7 +93,7 @@ struct MenuPopover: View {
     /// A compact, order-stable key for the popover's layout: which sections are visible and how
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(confirmingQuit)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
+        "\(confirmingQuit)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -216,6 +222,115 @@ struct MenuPopover: View {
         .padding(Theme.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
+    }
+
+    /// The card shown whenever the background service is unreachable. It walks the recovery sequence:
+    /// a repair in progress, the manual-reset guidance when repair couldn't recover it, or the
+    /// matching first action otherwise — approve in Login Items, or run a repair (re-register).
+    @ViewBuilder
+    private func serviceProblemCard() -> some View {
+        switch status.repairPhase {
+        case .repairing:
+            serviceActionCard(
+                title: "Repairing Adrafinil…",
+                message: "Re-registering its background services and checking they respond.",
+                busy: true,
+            )
+        case .failed:
+            // Re-registration couldn't clear the wedged records: the one remaining fix is removing
+            // Adrafinil's own entry in Login Items (a targeted reset, not a system-wide one).
+            serviceActionCard(
+                title: "Couldn't repair Adrafinil automatically",
+                message: "Open Login Items & Extensions, switch Adrafinil off and remove it with the “–” button, then reopen the app — or try repairing once more.",
+                primaryTitle: "Open Login Items",
+                primaryAction: { SMAppService.openSystemSettingsLoginItems() },
+                secondaryTitle: "Repair Again",
+                secondaryAction: { Task { await status.repair() } },
+            )
+        case .idle:
+            switch status.serviceState {
+            case .needsApproval:
+                serviceActionCard(
+                    title: "Adrafinil needs your approval",
+                    message: "Turn Adrafinil on under “Allow in the Background” so it can keep your Mac awake while agents work. If it won't turn on, try Repair.",
+                    primaryTitle: "Open Login Items",
+                    primaryAction: { SMAppService.openSystemSettingsLoginItems() },
+                    secondaryTitle: "Repair",
+                    secondaryAction: { Task { await status.repair() } },
+                )
+            case .notRegistered:
+                serviceActionCard(
+                    title: "Adrafinil isn't set up",
+                    message: "Its background service isn't registered, so it can't keep your Mac awake. Repair it to register it again.",
+                    primaryTitle: "Repair",
+                    primaryAction: { Task { await status.repair() } },
+                )
+            case .unreachable:
+                serviceActionCard(
+                    title: "Adrafinil's helper stopped",
+                    message: "Its background service isn't responding. Repair it to re-register and bring it back.",
+                    primaryTitle: "Repair",
+                    primaryAction: { Task { await status.repair() } },
+                )
+            case .ok:
+                EmptyView()
+            }
+        }
+    }
+
+    /// An actionable card for an unreachable background service: explains the problem and offers the
+    /// fix(es). `busy` swaps the primary action for an in-progress spinner. Tinted as a warning since
+    /// the Mac is silently no longer being kept awake.
+    private func serviceActionCard(
+        title: String,
+        message: String,
+        primaryTitle: String? = nil,
+        primaryAction: (() -> Void)? = nil,
+        secondaryTitle: String? = nil,
+        secondaryAction: (() -> Void)? = nil,
+        busy: Bool = false,
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 26)).foregroundStyle(Theme.warn)
+                    .symbolRenderingMode(.hierarchical).frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(.body, design: .rounded).weight(.semibold))
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if busy {
+                HStack(spacing: Theme.Space.sm) {
+                    ProgressView().controlSize(.small)
+                    Text("Working…").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                }
+            } else if primaryTitle != nil || secondaryTitle != nil {
+                HStack(spacing: Theme.Space.sm) {
+                    if let secondaryTitle, let secondaryAction {
+                        Button(secondaryTitle, action: secondaryAction)
+                            .buttonStyle(.glass)
+                            .controlSize(.large)
+                            .frame(maxWidth: .infinity)
+                    }
+                    if let primaryTitle, let primaryAction {
+                        Button(action: primaryAction) {
+                            Text(primaryTitle).frame(maxWidth: .infinity).foregroundStyle(Theme.onAwake)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.large)
+                        .tint(Theme.awake)
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+        }
+        .padding(Theme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(tint: Theme.warn.opacity(0.18))
     }
 
     // MARK: - Agent list
@@ -581,6 +696,33 @@ struct AssertionRow: View {
     }
     #Preview("Popover · daemon error") {
         MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable()))
+    }
+    #Preview("Popover · needs approval") {
+        MenuPopover(status: AppStatusModel(
+            previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable(), serviceState: .needsApproval,
+        ))
+    }
+    #Preview("Popover · not registered") {
+        MenuPopover(status: AppStatusModel(
+            previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable(), serviceState: .notRegistered,
+        ))
+    }
+    #Preview("Popover · unreachable") {
+        MenuPopover(status: AppStatusModel(
+            previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable(), serviceState: .unreachable,
+        ))
+    }
+    #Preview("Popover · repairing") {
+        MenuPopover(status: AppStatusModel(
+            previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable(),
+            serviceState: .unreachable, repairPhase: .repairing,
+        ))
+    }
+    #Preview("Popover · repair failed") {
+        MenuPopover(status: AppStatusModel(
+            previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable(),
+            serviceState: .unreachable, repairPhase: .failed("re-register failed"),
+        ))
     }
     #Preview("Popover · many agents (dark)") {
         MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents))

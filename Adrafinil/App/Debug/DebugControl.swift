@@ -12,6 +12,11 @@
         case thermalCutout
         case lowBatteryCutout
         case daemonError
+        case needsApproval
+        case notRegistered
+        case serviceUnreachable
+        case repairing
+        case repairFailed
 
         var id: String {
             rawValue
@@ -26,7 +31,12 @@
             case .lidClosedHot: "Lid closed (warm)"
             case .thermalCutout: "Thermal cutout"
             case .lowBatteryCutout: "Low-battery cutout"
-            case .daemonError: "Daemon unreachable"
+            case .daemonError: "Daemon unreachable (generic)"
+            case .needsApproval: "Service: needs approval"
+            case .notRegistered: "Service: not registered"
+            case .serviceUnreachable: "Service: unreachable"
+            case .repairing: "Service: repairing…"
+            case .repairFailed: "Service: repair failed"
             }
         }
 
@@ -39,12 +49,38 @@
             case .lidClosedHot: Fixtures.lidClosedHot
             case .thermalCutout: Fixtures.thermalCutout
             case .lowBatteryCutout: Fixtures.lowBatteryCutout
-            case .daemonError: Fixtures.idle
+            default: Fixtures.idle
             }
         }
 
+        /// All the service-problem scenarios throw, so the daemon reads as unreachable and the popover
+        /// shows the problem card (the state itself comes from `serviceState`/`repairPhase`).
         var error: (any Error)? {
-            self == .daemonError ? Fixtures.DaemonUnreachable() : nil
+            switch self {
+            case .daemonError, .needsApproval, .notRegistered, .serviceUnreachable, .repairing, .repairFailed:
+                Fixtures.DaemonUnreachable()
+            default:
+                nil
+            }
+        }
+
+        /// The classified service state the debug panel drives directly. `.daemonError` stays `.ok` so
+        /// it exercises the generic "isn't responding" card (an enabled-but-transient outage).
+        var serviceState: AppStatusModel.ServiceState {
+            switch self {
+            case .needsApproval: .needsApproval
+            case .notRegistered: .notRegistered
+            case .serviceUnreachable, .repairing, .repairFailed: .unreachable
+            default: .ok
+            }
+        }
+
+        var repairPhase: AppStatusModel.RepairPhase {
+            switch self {
+            case .repairing: .repairing
+            case .repairFailed: .failed("re-registration failed")
+            default: .idle
+            }
         }
     }
 
@@ -100,9 +136,25 @@
 
         private init() {}
 
-        /// Re-fetch now so a scenario switch is reflected immediately.
+        /// Re-fetch now so a scenario switch is reflected immediately. Service-problem scenarios are
+        /// driven directly (set `serviceState`/`repairPhase` and let the model's evaluator stand down)
+        /// so they render deterministically without the real `SMAppService`/repair path running.
         func apply() {
-            Task { await statusModel?.refresh() }
+            let scenario = popover
+            Task { @MainActor in
+                guard let model = statusModel else { return }
+                let driven = scenario.serviceState != .ok || scenario.repairPhase != .idle
+                model.debugOwnsServiceState = driven
+                if driven {
+                    model.serviceState = scenario.serviceState
+                    model.repairPhase = scenario.repairPhase
+                } else {
+                    // Returning to a normal scenario: hand control back and clear any stuck state.
+                    model.serviceState = .ok
+                    model.repairPhase = .idle
+                }
+                await model.refresh()
+            }
         }
     }
 
