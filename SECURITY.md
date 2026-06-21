@@ -33,4 +33,4 @@ specifically to bound that risk.
 
 ## Supported versions
 
-Adrafinil is pre-1.0; only the latest `main` / release receives fixes.
+Only the latest release and `main` receive fixes.

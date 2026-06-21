@@ -6,12 +6,9 @@
 
 **rx no. 006 ・ a·draf·i·nil /əˈdræfɪnɪl/ ・ a eugeroic for machines ♡**
 
-[![kagerou.glass](https://img.shields.io/badge/kagerou.glass-ff5fa6?style=for-the-badge&logo=safari&logoColor=white)](https://kagerou.glass)
-[![the ledger](https://img.shields.io/badge/the_ledger-c2a4f2?style=for-the-badge&logo=readthedocs&logoColor=white)](https://kagerou.glass/blog/)
+[![kagerou.glass](https://img.shields.io/badge/kagerou.glass-ff5fa6?style=for-the-badge&logo=safari&logoColor=white)](https://kagerou.glass/adrafinil/)
 [![@kageroumado](https://img.shields.io/badge/@kageroumado-76e6e0?style=for-the-badge&logo=x&logoColor=0d0a10)](https://x.com/kageroumado)
-[![ko-fi](https://img.shields.io/badge/ko--fi-ff86bf?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/kageroumado)
 [![macOS Tahoe](https://img.shields.io/badge/macOS-Tahoe_26%2B-0d0a10?style=for-the-badge&logo=apple&logoColor=white)](#requirements)
-[![MIT](https://img.shields.io/badge/license-MIT-9be7c4?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -57,7 +54,7 @@ moment that work finishes.
 
 ## Requirements
 
-- **macOS Tahoe (26.0+).** Targets `MACOSX_DEPLOYMENT_TARGET = 26.4`.
+- **macOS Tahoe 26.4.** That's what I build and test on; it likely runs on earlier 26.x, but I haven't tested it there.
 - **Xcode 26+** to build, with Swift 6 strict concurrency enabled.
 - Admin rights for the standard install (the privileged helper installs via `SMAppService`). A non-admin install path drops the CLI in `~/.local/bin` instead of `/usr/local/bin`.
 
