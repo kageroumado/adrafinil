@@ -2,6 +2,8 @@
 
 [![adrafinil](https://readme-typing-svg.demolab.com/?font=DotGothic16&weight=400&size=22&duration=3800&pause=900&color=FF5FA6&center=true&vCenter=true&width=820&height=60&lines=wakefulness%20only%20for%20machines%20with%20work%20left%20undone%20%E2%99%A1;stays%20awake%20while%20your%20agents%20work%20%E3%83%BB%20then%20sleeps;not%20caffeine%20%E3%83%BB%20the%20eugeroic;rx%20no.%20006%20%E3%83%BB%20%E6%9C%8D%E7%94%A8%E6%B3%A8%E6%84%8F%20%E3%83%BB%20best%20taken%20%40%203%20a.m.)](https://kagerou.glass)
 
+<img src=".github/adrafinil-icon.png" alt="Adrafinil icon" width="128" height="128">
+
 # adrafinil
 
 **rx no. 006 ・ a·draf·i·nil /əˈdræfɪnɪl/ ・ a eugeroic for machines ♡**
@@ -9,6 +11,13 @@
 [![kagerou.glass](https://img.shields.io/badge/kagerou.glass-ff5fa6?style=for-the-badge&logo=safari&logoColor=white)](https://kagerou.glass/adrafinil/)
 [![@kageroumado](https://img.shields.io/badge/@kageroumado-76e6e0?style=for-the-badge&logo=x&logoColor=0d0a10)](https://x.com/kageroumado)
 [![macOS Tahoe](https://img.shields.io/badge/macOS-Tahoe_26%2B-0d0a10?style=for-the-badge&logo=apple&logoColor=white)](#requirements)
+
+<table>
+  <tr>
+    <td align="center"><img src=".github/adrafinil-awake.png" alt="Awake — an agent holds an assertion" width="420"><br><sub><b>awake</b> ・ an agent is working</sub></td>
+    <td align="center"><img src=".github/adrafinil-sleeping.png" alt="Sleeping — no agents, normal sleep" width="420"><br><sub><b>sleeping</b> ・ no agents, normal sleep</sub></td>
+  </tr>
+</table>
 
 </div>
 
