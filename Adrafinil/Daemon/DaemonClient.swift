@@ -33,11 +33,15 @@ final class DaemonClient {
         case noConnection
         case invalidResponse
         case timedOut
+        /// The daemon refused a hold (disabled in settings, paused, or at capacity); carries the
+        /// daemon's human-readable reason so the popover can surface it verbatim.
+        case holdRefused(String)
         var errorDescription: String? {
             switch self {
             case .noConnection: "Couldn't reach Adrafinil's background helper."
             case .invalidResponse: "Adrafinil's background helper sent an unexpected response."
             case .timedOut: "Adrafinil's background helper didn't respond in time."
+            case let .holdRefused(reason): reason
             }
         }
     }
@@ -148,6 +152,17 @@ final class DaemonClient {
     func releaseAssertion(key: String) async throws {
         _ = try await call { (proxy, done: @escaping @Sendable (Result<Bool, Error>) -> Void) in
             proxy.releaseAssertion(key: key) { done(.success($0)) }
+        }
+    }
+
+    /// Places a manual, time-boxed hold and returns its minted `hold:` key. Throws
+    /// `ClientError.holdRefused` (with the daemon's reason) if the hold was declined.
+    func placeHold(reason: String?, ttlSeconds: Double, tool: String?) async throws -> String {
+        try await call { proxy, done in
+            proxy.placeHold(reason: reason, ttlSeconds: ttlSeconds, tool: tool) { key, errorMessage in
+                if let key { done(.success(key)); return }
+                done(.failure(ClientError.holdRefused(errorMessage ?? "Couldn't place the hold.")))
+            }
         }
     }
 

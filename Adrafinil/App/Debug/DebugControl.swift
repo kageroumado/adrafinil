@@ -163,6 +163,10 @@
     @MainActor
     final class MockStatusProvider: StatusProviding {
         private let control: DebugControl
+        /// GUI-placed holds, kept here so they survive the next `fetchStatus` (which otherwise rebuilds
+        /// a fresh fixture each call) — letting the debug panel exercise the full place → countdown →
+        /// release flow without a daemon.
+        private var extraHolds: [Assertion] = []
         init(_ control: DebugControl = .shared) {
             self.control = control
         }
@@ -175,22 +179,46 @@
                 s.paused = true
                 s.assertions = []
                 s.isBlocking = false
+            } else if !extraHolds.isEmpty {
+                s.assertions += extraHolds
+                s.isBlocking = true
             }
             return s
         }
 
         func forceReleaseAll() async throws {
             if control.useLiveDaemon { try await control.liveClient.forceReleaseAll(); return }
+            extraHolds.removeAll()
             control.popover = .idle
         }
 
         func releaseAssertion(key: String) async throws {
-            if control.useLiveDaemon { try await control.liveClient.releaseAssertion(key: key) }
+            if control.useLiveDaemon { try await control.liveClient.releaseAssertion(key: key); return }
+            extraHolds.removeAll { $0.key == key }
         }
 
         func setPaused(_ paused: Bool) async throws {
             if control.useLiveDaemon { try await control.liveClient.setPaused(paused); return }
+            if paused { extraHolds.removeAll() } // pausing releases every hold, like the daemon
             control.paused = paused
+        }
+
+        func placeHold(reason: String?, ttlSeconds: Double, tool: String?) async throws -> String {
+            if control.useLiveDaemon {
+                return try await control.liveClient.placeHold(reason: reason, ttlSeconds: ttlSeconds, tool: tool)
+            }
+            let label = (tool?.isEmpty == false) ? tool! : ManualHold.defaultTool
+            let hold = Assertion(
+                key: ManualHold.newKey(),
+                tool: label,
+                reason: reason,
+                pid: -1,
+                processName: label,
+                ttl: ttlSeconds > 0 ? ttlSeconds : nil,
+                origin: .manual,
+            )
+            extraHolds.append(hold)
+            return hold.key
         }
 
         func reloadSettings() async throws {

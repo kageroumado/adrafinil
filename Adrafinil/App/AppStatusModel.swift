@@ -316,6 +316,22 @@ final class AppStatusModel {
         await refresh()
     }
 
+    /// Tool label stored on a hold placed from the GUI "Keep awake" button. Reads as the user's own
+    /// deliberate choice ("Kept awake by you") rather than a status or the bare CLI default ("manual").
+    static let guiHoldTool = "Kept awake by you"
+
+    /// Places a manual, time-boxed hold from the GUI (the "Keep awake" button) — the same kind of hold
+    /// `adrafinil hold` / the MCP `keep_awake` tool place. The daemon clamps `minutes` to the user's
+    /// `manualHoldMaxHours` cap. Refreshes so the new hold row appears at once. Returns whether it took.
+    @discardableResult
+    func placeHold(minutes: Double, reason: String? = nil) async -> Bool {
+        let placed = (try? await provider.placeHold(
+            reason: reason, ttlSeconds: minutes * 60, tool: Self.guiHoldTool,
+        )) != nil
+        await refresh()
+        return placed
+    }
+
     #if DEBUG
         /// Fixed-snapshot model for previews and the gallery: seeds `status`/`awaySummary` synchronously
         /// and does not poll, so a scenario renders deterministically without a daemon.

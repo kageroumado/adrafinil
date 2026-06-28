@@ -10,6 +10,8 @@ protocol StatusProviding {
     func forceReleaseAll() async throws
     func releaseAssertion(key: String) async throws
     func setPaused(_ paused: Bool) async throws
+    /// Places a manual, time-boxed hold and returns its minted `hold:` key. Throws if refused.
+    func placeHold(reason: String?, ttlSeconds: Double, tool: String?) async throws -> String
     func reloadSettings() async throws
     func consumeAwaySummary() async -> AwaySummary?
     /// A live stream of status pushed by the source. The live client bridges the daemon's XPC push;
@@ -56,6 +58,22 @@ extension DaemonClient: StatusProviding {}
                 status.assertions = []
                 status.isBlocking = false
             }
+        }
+
+        func placeHold(reason: String?, ttlSeconds: Double, tool: String?) async throws -> String {
+            let label = (tool?.isEmpty == false) ? tool! : ManualHold.defaultTool
+            let hold = Assertion(
+                key: ManualHold.newKey(),
+                tool: label,
+                reason: reason,
+                pid: -1,
+                processName: label,
+                ttl: ttlSeconds > 0 ? ttlSeconds : nil,
+                origin: .manual,
+            )
+            status.assertions.append(hold)
+            status.isBlocking = true
+            return hold.key
         }
 
         func reloadSettings() async throws {}
