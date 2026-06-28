@@ -69,56 +69,63 @@ struct MenuPopover: View {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 header
 
-                if confirmingQuit {
-                    quitConfirmation.transition(.popoverSection)
-                } else {
-                    // A failed poll takes precedence: if we can't reach the daemon we don't have
-                    // trustworthy status, so show the error rather than a stale snapshot. When we know
-                    // *why* it's unreachable, the problem card offers the matching fix (approve,
-                    // repair, or — if repair can't recover it — the manual reset).
-                    if status.serviceState != .ok {
-                        serviceProblemCard().transition(.popoverSection)
-                    } else if let err = status.lastError {
-                        errorCard(err).transition(.popoverSection)
-                    } else if let live {
-                        statusCard(live, state: hero, now: now).transition(.popoverSection)
+                // A failed poll takes precedence: if we can't reach the daemon we don't have
+                // trustworthy status, so show the error rather than a stale snapshot. When we know
+                // *why* it's unreachable, the problem card offers the matching fix (approve,
+                // repair, or — if repair can't recover it — the manual reset).
+                if status.serviceState != .ok {
+                    serviceProblemCard().transition(.popoverSection)
+                } else if let err = status.lastError {
+                    errorCard(err).transition(.popoverSection)
+                } else if let live {
+                    statusCard(live, state: hero, now: now).transition(.popoverSection)
 
-                        // The cutout state is a transient 30 s banner — no action belongs under it.
-                        if hero != .cutout {
-                            actionArea(state: hero).transition(.popoverSection)
-                        }
-
-                        if !status.driftedAgents.isEmpty {
-                            agentDriftCard(status.driftedAgents).transition(.popoverSection)
-                        }
-
-                        if !live.warnings.isEmpty {
-                            daemonWarningsCard(live.warnings).transition(.popoverSection)
-                        }
-
-                        if !live.assertions.isEmpty {
-                            agentList(live.assertions, now: now).transition(.popoverSection)
-                        }
-                    } else {
-                        HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
-                            .frame(height: 64)
+                    // The cutout state is a transient 30 s banner — no action belongs under it.
+                    if hero != .cutout {
+                        actionArea(state: hero).transition(.popoverSection)
                     }
 
-                    bottomBar(status.lastError == nil ? live : nil)
+                    if !status.driftedAgents.isEmpty {
+                        agentDriftCard(status.driftedAgents).transition(.popoverSection)
+                    }
+
+                    if !live.warnings.isEmpty {
+                        daemonWarningsCard(live.warnings).transition(.popoverSection)
+                    }
+
+                    if !live.assertions.isEmpty {
+                        agentList(live.assertions, now: now).transition(.popoverSection)
+                    }
+                } else {
+                    HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
+                        .frame(height: 64)
                 }
+
+                bottomBar(status.lastError == nil ? live : nil)
             }
             .padding(Theme.Space.lg)
+        }
+        // The quit confirmation grows out of the quit button as a warning overlay rather than swapping
+        // the whole popover (which jumped its size). Anchored bottom-trailing so it appears to expand
+        // from the ✕ — covering Settings and everything above — while the popover keeps its size.
+        .overlay {
+            if confirmingQuit {
+                quitConfirmation
+                    .transition(.scale(scale: 0.18, anchor: .bottomTrailing).combined(with: .opacity))
+            }
         }
         // Animate layout (and the window's resize) whenever the set of visible sections changes —
         // hero state, hold count, or a daemon error appearing/disappearing — so clicking "Let it
         // sleep" or an agent finishing glides the panel to its new size instead of snapping.
         .animation(.smooth(duration: 0.3), value: layoutSignature(live, hero))
+        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: confirmingQuit)
     }
 
     /// A compact, order-stable key for the popover's layout: which sections are visible and how
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
+    /// Excludes `confirmingQuit` too — the confirmation is now an overlay that doesn't resize the panel.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(confirmingQuit)|\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
+        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -702,12 +709,14 @@ struct MenuPopover: View {
         return "\(mins)m"
     }
 
-    // MARK: - Quit confirmation (inline)
+    // MARK: - Quit confirmation (overlay)
 
-    /// In-popover quit confirmation, shown in place of the status when the bottom-bar ✕ is tapped.
-    /// Quitting routes through `NSApp.terminate`, which `applicationShouldTerminate` gates on pausing
-    /// the daemon first — so "off" means the Mac sleeps normally again, not that the services are torn
-    /// down. The pause-instead nudge points back at the primary button the user just bypassed.
+    /// The quit confirmation, presented by `content` as an overlay that grows from the bottom-bar ✕
+    /// (anchored bottom-trailing) rather than replacing the popover and jumping its size. It fills the
+    /// popover with a warning wash; the ✕ stays in its corner but turns red, and a Cancel is added
+    /// beside it (where Settings sat) so the pair is symmetric. Quitting routes through `NSApp.terminate`,
+    /// which `applicationShouldTerminate` gates on pausing the daemon first — so "off" means the Mac
+    /// sleeps normally again, not that the services are torn down.
     private var quitConfirmation: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             HStack(spacing: Theme.Space.md) {
@@ -722,21 +731,33 @@ struct MenuPopover: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            Spacer(minLength: 0)
+            // Mirror the bottom bar's trailing buttons: Cancel takes the Settings slot, the ✕ stays
+            // put and turns red.
             HStack(spacing: Theme.Space.sm) {
-                Button("Cancel") { confirmingQuit = false }
-                    .buttonStyle(.glass)
+                Spacer(minLength: 0)
+                GlassEffectContainer(spacing: Theme.Space.sm) {
+                    HStack(spacing: Theme.Space.sm) {
+                        Button { confirmingQuit = false } label: { utilityIcon("arrow.uturn.backward") }
+                            .buttonStyle(.glass)
+                            .help("Cancel")
+                        Button { NSApp.terminate(nil) } label: {
+                            utilityIcon("xmark").foregroundStyle(.white)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(.red)
+                        .help("Quit Adrafinil")
+                    }
                     .controlSize(.large)
-                    .frame(maxWidth: .infinity)
-                Button("Quit") { NSApp.terminate(nil) }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .tint(.red)
-                    .frame(maxWidth: .infinity)
+                }
             }
         }
-        .padding(Theme.Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Space.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Same neutral gray glass as the quit button — it reads as the button's surface expanding into
+        // a menu, not a separate red warning. The red lives only on the Quit button itself.
         .glassCard()
+        .contentShape(.rect) // absorb taps so the status controls underneath aren't reachable
     }
 
     // MARK: - Bottom bar (meta + utility actions)
