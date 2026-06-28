@@ -143,6 +143,27 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
         }
     }
 
+    func placeHold(
+        reason: String?, ttlSeconds: Double, tool: String?,
+        reply: @escaping @Sendable (String?, String?) -> Void,
+    ) {
+        let r = SendableReply(reply)
+        Task { @MainActor in
+            // A non-positive TTL means "no explicit duration" → let the daemon apply its default.
+            let ttl: TimeInterval? = ttlSeconds > 0 ? ttlSeconds : nil
+            switch await daemon.handleHold(reason: reason, requestedTTL: ttl, pid: nil, tool: tool) {
+            case let .placed(key, _, _):
+                r.call(key, nil)
+            case .disabled:
+                r.call(nil, "Manual holds are turned off in Adrafinil's settings.")
+            case .paused:
+                r.call(nil, "Adrafinil is paused — resume it first.")
+            case let .rejected(message):
+                r.call(nil, message)
+            }
+        }
+    }
+
     func reloadSettings(reply: @escaping @Sendable (Bool) -> Void) {
         let r = SendableReply(reply)
         Task { @MainActor in

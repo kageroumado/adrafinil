@@ -27,6 +27,16 @@ public protocol DaemonXPCProtocol {
     /// until resumed. Drives the menu-bar "Let it sleep" / "Resume" toggle.
     func setPaused(_ paused: Bool, reply: @escaping @Sendable (Bool) -> Void)
 
+    /// Places a manual, time-boxed hold (`origin == .manual`) — the GUI equivalent of `adrafinil
+    /// hold` / the MCP `keep_awake` tool, driving the popover's "Keep awake" button. `ttlSeconds` is
+    /// clamped by the daemon to the user's `manualHoldMaxHours` cap. Replies with the minted `hold:`
+    /// key on success, or with a `nil` key and a human-readable `error` when the hold was refused
+    /// (holds disabled in settings, the app paused, or the registry at capacity).
+    func placeHold(
+        reason: String?, ttlSeconds: Double, tool: String?,
+        reply: @escaping @Sendable (_ key: String?, _ error: String?) -> Void,
+    )
+
     /// Reapplies the user's settings (the daemon reloads from disk).
     func reloadSettings(reply: @escaping @Sendable (Bool) -> Void)
 
