@@ -16,6 +16,23 @@ struct MenuPopover: View {
     /// confirmation also keeps the choice at the cursor, where the click landed.
     @State private var confirmingQuit = false
 
+    /// The "Keep awake" duration picker is showing (in place of the action buttons).
+    @State private var pickingDuration = false
+    /// Within the picker, the free-form "Custom" sub-mode (stepper + editable field) is showing.
+    @State private var customMode = false
+    /// The custom duration, in minutes, driven by the stepper / editable field. Defaults to 2h — the
+    /// preset dropped from the row to keep it uncrowded.
+    @State private var customMinutes = 120
+    /// Editable text mirror of `customMinutes` ("1h 30m"), so the user can type a value directly.
+    @State private var customText = "2h"
+    /// The user's hold-duration cap (hours), read on appear. Bounds the presets and the custom field,
+    /// and is the duration requested by "Until I turn it off".
+    @State private var maxHoldHours = AdrafinilSettings().manualHoldMaxHours
+
+    /// Preset hold durations, in minutes. Filtered to those within the user's cap before display.
+    /// Longer holds are reachable via `∞` (the cap) or the custom stepper, so the row stays compact.
+    private static let presetMinutes = [15, 30, 60]
+
     var body: some View {
         // The model's run-loop poll timer is suspended while the menu-bar popover is open, so a
         // TimelineView drives liveness instead. The per-second hold countdown is now drawn by
@@ -29,12 +46,19 @@ struct MenuPopover: View {
                 }
         }
         .frame(width: Theme.popoverWidth)
-        // Reset the quit confirmation when the popover closes, so reopening always lands on the
-        // status view rather than a stale "Quit Adrafinil?" prompt.
-        .onDisappear { confirmingQuit = false }
+        // Reset the quit confirmation and the duration picker when the popover closes, so reopening
+        // always lands on the status view rather than a stale prompt or a half-open picker.
+        .onDisappear {
+            confirmingQuit = false
+            closePicker()
+        }
         // Recompute connected-agent hook health each time the popover opens (a few small file reads),
-        // so a drifted agent surfaces here and not only in the Agents settings tab.
-        .task { status.refreshAgentHealth() }
+        // so a drifted agent surfaces here and not only in the Agents settings tab. Also refresh the
+        // hold-duration cap so the picker reflects the user's current setting.
+        .task {
+            status.refreshAgentHealth()
+            maxHoldHours = AdrafinilSettings.load().manualHoldMaxHours
+        }
     }
 
     @ViewBuilder
@@ -59,8 +83,9 @@ struct MenuPopover: View {
                     } else if let live {
                         statusCard(live, state: hero, now: now).transition(.popoverSection)
 
-                        if hero == .awake || hero == .paused {
-                            pauseToggleButton(state: hero).transition(.popoverSection)
+                        // The cutout state is a transient 30 s banner — no action belongs under it.
+                        if hero != .cutout {
+                            actionArea(state: hero).transition(.popoverSection)
                         }
 
                         if !status.driftedAgents.isEmpty {
@@ -93,7 +118,7 @@ struct MenuPopover: View {
     /// A compact, order-stable key for the popover's layout: which sections are visible and how
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(confirmingQuit)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
+        "\(confirmingQuit)|\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -414,28 +439,267 @@ struct MenuPopover: View {
         .glassCard(tint: Theme.warn.opacity(0.18))
     }
 
-    // MARK: - Primary action (pause / resume)
+    // MARK: - Primary action (keep awake / pause / resume)
 
-    /// Shown directly under the hero so the action reads as part of it. When awake it pauses
-    /// Adrafinil ("Let your Mac sleep"); when paused it resumes ("Keep your Mac awake"). Pausing
-    /// releases every hold and ignores agents until resumed.
-    private func pauseToggleButton(state: HeroState) -> some View {
-        let pausing = state == .awake
-        return Button {
-            Task { await status.setPaused(pausing) }
-        } label: {
-            Text(pausing ? "Let your Mac sleep" : "Keep your Mac awake")
-                .frame(maxWidth: .infinity)
-                .foregroundStyle(Theme.onAwake)
+    /// Shown directly under the hero. Its contents depend on what's keeping the Mac up:
+    /// - **idle** → a single "Keep awake" button that starts a manual hold (the on-switch the idle
+    ///   state used to lack);
+    /// - **awake** → "Keep awake" (add a hold) alongside "Let it sleep" (pause everything);
+    /// - **paused** → "Keep your Mac awake" (resume).
+    /// While the duration picker is open it replaces the buttons in place.
+    @ViewBuilder
+    private func actionArea(state: HeroState) -> some View {
+        if pickingDuration {
+            durationPicker()
+        } else {
+            switch state {
+            case .awake:
+                HStack(spacing: Theme.Space.sm) {
+                    keepAwakeButton(prominent: false)
+                    Button { Task { await status.setPaused(true) } } label: {
+                        Text("Let it sleep").frame(maxWidth: .infinity).foregroundStyle(Theme.onAwake)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
+                    .tint(Theme.awake)
+                    .help("Pause Adrafinil — your Mac sleeps normally until you resume.")
+                }
+            case .idle:
+                keepAwakeButton(prominent: true)
+            case .paused:
+                Button { Task { await status.setPaused(false) } } label: {
+                    Text("Keep your Mac awake").frame(maxWidth: .infinity).foregroundStyle(Theme.onAwake)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.large)
+                .tint(Theme.awake)
+                .help("Resume Adrafinil — let agents keep your Mac awake again.")
+            case .cutout:
+                EmptyView()
+            }
         }
-        .buttonStyle(.glassProminent)
-        .controlSize(.large)
-        .tint(Theme.awake)
-        .help(
-            pausing
-                ? "Pause Adrafinil — your Mac sleeps normally until you resume."
-                : "Resume Adrafinil — let agents keep your Mac awake again.",
-        )
+    }
+
+    /// The "Keep awake" entry point. Prominent (amber) when it's the only action — i.e. the idle
+    /// state's on-switch — and glass when it sits beside "Let it sleep" in the awake state.
+    @ViewBuilder
+    private func keepAwakeButton(prominent: Bool) -> some View {
+        let action = { withAnimation(.smooth(duration: 0.3)) { openPicker() } }
+        let help = "Keep your Mac awake for a set time"
+        if prominent {
+            Button(action: action) {
+                Text("Keep awake").frame(maxWidth: .infinity).foregroundStyle(Theme.onAwake)
+            }
+            .buttonStyle(.glassProminent).controlSize(.large).tint(Theme.awake).help(help)
+        } else {
+            Button(action: action) {
+                Text("Keep awake").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glass).controlSize(.large).help(help)
+        }
+    }
+
+    // MARK: - Duration picker
+
+    /// Uniform metrics so every picker control lines up exactly. The radius is concentric with the
+    /// card by construction — card corner (`Theme.Radius.card`) minus the card's padding
+    /// (`Theme.Space.sm`) — which `.rect(corners: .concentric)` failed to resolve for a mid-row element.
+    private static let pickerControlHeight: CGFloat = 28
+    /// Width of the flanking icon controls. Compact — they're now background-less, so they don't need
+    /// the glass capsule's padding. The trailing slot shares this width across modes (plain pencil ⇄
+    /// orange play) so it stays put.
+    private static let pickerIconWidth: CGFloat = 26
+
+    /// The inline "how long?" card revealed by "Keep awake". The ✕ (leading) and the primary button
+    /// (trailing) keep their identity across modes — only the middle morphs from preset pills to the
+    /// custom stepper, so the two flanking controls stay put rather than the whole row being replaced.
+    /// `∞` holds until you stop it; the pencil opens the stepper.
+    @ViewBuilder
+    private func durationPicker() -> some View {
+        HStack(spacing: Theme.Space.xs) {
+            // Leading ✕ — persistent. Cancels the picker, or steps back out of custom mode.
+            pickerIcon("xmark", help: customMode ? "Back to presets" : "Cancel") {
+                withAnimation(.smooth(duration: 0.3)) {
+                    if customMode { customMode = false } else { closePicker() }
+                }
+            }
+
+            // Middle — the only part that swaps.
+            if customMode {
+                customStepper()
+            } else {
+                presetPills()
+            }
+
+            // Trailing primary — persistent slot. Pencil (open custom) ⇄ play (start the hold).
+            primaryPickerButton()
+        }
+        .frame(height: Self.pickerControlHeight)
+        .padding(Theme.Space.sm)
+        .frame(maxWidth: .infinity)
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private func presetPills() -> some View {
+        ForEach(availablePresets, id: \.self) { minutes in
+            durationPill(minutes: minutes) { place(minutes: Double(minutes)) }
+        }
+        // `∞` — keep awake until you stop it (requests the user's cap). An SF Symbol, so it's centered
+        // vertically rather than riding high like the "∞" text glyph did. Flexible width, like a pill.
+        durationButton { place(minutes: maxHoldHours * 60) } label: {
+            Image(systemName: "infinity").font(.system(size: 14, weight: .semibold))
+        }
+        .help("Keep awake until you turn it off")
+    }
+
+    @ViewBuilder
+    private func customStepper() -> some View {
+        HStack(spacing: 0) {
+            Button { bumpCustom(-15) } label: {
+                Image(systemName: "minus").frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 30)
+            .disabled(customMinutes <= minCustomMinutes)
+
+            // Editable: type a duration like 1h 30m. ± steps it by 15 minutes.
+            TextField("", text: $customText)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.center)
+                .font(.system(.callout, design: .rounded).weight(.semibold).monospacedDigit())
+                .frame(maxWidth: .infinity)
+                .onSubmit { commitCustomText() }
+
+            Button { bumpCustom(15) } label: {
+                Image(systemName: "plus").frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 30)
+            .disabled(customMinutes >= maxCustomMinutes)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Fixed-radius rounded rect (not `Capsule`) so the fill doesn't morph through a rectangle as
+        // the row animates between preset and custom — see `DurationPill`.
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: Self.pickerControlHeight / 2, style: .continuous))
+    }
+
+    /// The trailing slot, whose identity persists across modes so it stays put: a pencil that opens the
+    /// stepper, becoming an orange play that starts the hold. Both are flat (no fill) like the ✕.
+    @ViewBuilder
+    private func primaryPickerButton() -> some View {
+        if customMode {
+            pickerIcon("play.fill", tint: Theme.awake, help: "Start keeping awake") {
+                commitCustomText(); place(minutes: Double(customMinutes))
+            }
+        } else {
+            pickerIcon("pencil", help: "Custom duration") {
+                withAnimation(.smooth(duration: 0.3)) { enterCustomMode() }
+            }
+        }
+    }
+
+    /// A flat duration choice — orange (the awake accent) numerals, no fill, so it reads as a tappable
+    /// token consistent with the other background-less controls. The unit (`m`/`h`) is set smaller than
+    /// the numeral via an attributed run so it reads as one token (`15m`).
+    private func durationPill(minutes: Int, action: @escaping () -> Void) -> some View {
+        durationButton(action: action) {
+            Text(durationPillText(minutes))
+        }
+    }
+
+    private func durationPillText(_ minutes: Int) -> AttributedString {
+        let isHours = minutes % 60 == 0
+        var number = AttributedString(isHours ? "\(minutes / 60)" : "\(minutes)")
+        number.font = .system(size: 14, weight: .semibold, design: .rounded)
+        var unit = AttributedString(isHours ? "h" : "m")
+        unit.font = .system(size: 9.5, weight: .semibold, design: .rounded)
+        return number + unit
+    }
+
+    /// A fixed-width, background-less icon control. `.secondary` for the quiet meta-actions
+    /// (cancel · back · custom); `Theme.awake` for the orange play. Fixed width keeps the leading and
+    /// trailing slots put across modes.
+    private func pickerIcon(
+        _ system: String, tint: Color = .secondary, help: String, action: @escaping () -> Void,
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: Self.pickerIconWidth, height: Self.pickerControlHeight)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(tint)
+        .help(help)
+    }
+
+    /// An amber-*tinted* duration pill — a light amber fill with orange content and a concentric corner
+    /// radius. Lighter than a solid fill (four solids read as a wall of orange) but still a clear,
+    /// bounded, tappable choice, and it echoes the hero card's amber tint. Deepens on hover for
+    /// feedback. (The play button, by contrast, is a flat orange icon — see `pickerIcon`.)
+    private func durationButton(
+        action: @escaping () -> Void, @ViewBuilder label: @escaping () -> some View,
+    ) -> some View {
+        DurationPill(height: Self.pickerControlHeight, action: action, label: label)
+    }
+
+    // MARK: - Picker state & helpers
+
+    /// Presets within the user's cap, always offering at least the smallest so the row is never empty.
+    private var availablePresets: [Int] {
+        let capMinutes = Int((maxHoldHours * 60).rounded())
+        let within = Self.presetMinutes.filter { $0 <= capMinutes }
+        return within.isEmpty ? [Self.presetMinutes[0]] : within
+    }
+
+    private var minCustomMinutes: Int { 15 }
+    private var maxCustomMinutes: Int { max(minCustomMinutes, Int((maxHoldHours * 60).rounded())) }
+
+    private func openPicker() {
+        customMode = false
+        pickingDuration = true
+    }
+
+    private func closePicker() {
+        pickingDuration = false
+        customMode = false
+    }
+
+    private func enterCustomMode() {
+        customMinutes = clampCustom(customMinutes)
+        customText = durationLabel(customMinutes)
+        customMode = true
+    }
+
+    private func bumpCustom(_ delta: Int) {
+        customMinutes = clampCustom(customMinutes + delta)
+        customText = durationLabel(customMinutes)
+    }
+
+    /// Parse the editable field back into minutes, clamp to range, and re-format (reverting garbage).
+    private func commitCustomText() {
+        if let seconds = DurationParser.seconds(from: customText), seconds >= 60 {
+            customMinutes = clampCustom(Int((seconds / 60).rounded()))
+        }
+        customText = durationLabel(customMinutes)
+    }
+
+    private func clampCustom(_ minutes: Int) -> Int {
+        min(max(minutes, minCustomMinutes), maxCustomMinutes)
+    }
+
+    private func place(minutes: Double) {
+        withAnimation(.smooth(duration: 0.3)) { closePicker() }
+        Task { await status.placeHold(minutes: minutes) }
+    }
+
+    /// Text shown in the editable custom field: `45m`, `1h`, `1h 30m`.
+    private func durationLabel(_ minutes: Int) -> String {
+        let hours = minutes / 60, mins = minutes % 60
+        if hours > 0, mins > 0 { return "\(hours)h \(mins)m" }
+        if hours > 0 { return "\(hours)h" }
+        return "\(mins)m"
     }
 
     // MARK: - Quit confirmation (inline)
@@ -602,18 +866,19 @@ struct AssertionRow: View {
         AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 
-    /// A hold shows a live, system-managed countdown (`Text(timerInterval:)` — updates itself every
-    /// second down to 0:00 without re-rendering the popover); a live agent shows how long it's been
-    /// working, refreshed on the popover's coarse TimelineView tick.
-    @ViewBuilder
-    private var trailingView: some View {
+    /// A hold shows the time left at minute granularity (`1h 59m`, `23m`, `<1m`) — the same word style
+    /// as an agent's elapsed time, not a `1:59:59` clock; it ticks on the popover's coarse TimelineView
+    /// (a per-second countdown would be noise at minute resolution). A live agent shows how long it's
+    /// been working.
+    private var trailingText: String {
         if isHold, let exp = assertion.expiresAt {
-            // Stable range (acquiredAt…expiresAt) so the timer doesn't reset each tick; it renders
-            // the remaining time counting down.
-            Text(timerInterval: assertion.acquiredAt ... exp, countsDown: true)
-        } else {
-            Text(now.timeIntervalSince(assertion.acquiredAt).compactDurationString)
+            let remaining = max(0, Int(exp.timeIntervalSince(now)))
+            let hours = remaining / 3_600, minutes = (remaining % 3_600) / 60
+            if hours > 0 { return "\(hours)h \(minutes)m" }
+            if minutes > 0 { return "\(minutes)m" }
+            return "<1m"
         }
+        return now.timeIntervalSince(assertion.acquiredAt).compactDurationString
     }
 
     var body: some View {
@@ -624,7 +889,7 @@ struct AssertionRow: View {
                 leadingMark
                 Text(displayTool).font(.toolName)
                 Spacer()
-                trailingView
+                Text(trailingText)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 if isHold, let onRelease {
@@ -647,18 +912,43 @@ struct AssertionRow: View {
         .padding(.horizontal, Theme.Space.md)
     }
 
-    /// A pin marks a deliberate hold; a pulsing dot marks a live agent session.
-    @ViewBuilder
+    /// One filled dot for every row — holds and agents alike. A single glyph keeps every mark on the
+    /// same optical baseline (mixing a `pin.fill` with a dot left them visibly misaligned); the row's
+    /// label and the trailing ✕ already distinguish a manual hold from a live agent.
     private var leadingMark: some View {
-        if isHold {
-            Image(systemName: "pin.fill")
-                .font(.system(size: 10))
+        Image(systemName: "circle.fill")
+            .font(.system(size: 7))
+            .foregroundStyle(Theme.awake)
+            .frame(width: 14, alignment: .leading)
+    }
+}
+
+// MARK: - DurationPill
+
+/// A light amber-tinted, capsule duration choice for the picker — a soft fill that's lighter than a
+/// saturated pill yet still a clearly-bounded, tappable target. Capsule to match every other button in
+/// the app (no hover state — nothing else here hovers, in line with Apple's current button design).
+private struct DurationPill<Label: View>: View {
+    let height: CGFloat
+    let action: () -> Void
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        // A *fixed*-radius rounded rectangle, not `Capsule`: a capsule recomputes its radius from the
+        // (animating) frame every tick, so during a layout transition the fill visibly morphs
+        // capsule → rectangle → rounded. Pinning the radius to half the rest height keeps it a capsule
+        // at rest and simply lets it extend, with no corner animation.
+        let shape = RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+        return Button(action: action) {
+            label()
                 .foregroundStyle(Theme.awake)
-                .frame(width: 14, alignment: .leading)
-        } else {
-            StatusDot(color: Theme.awake, diameter: 6)
-                .frame(width: 14, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.awake.opacity(0.16), in: shape)
+                .contentShape(shape)
         }
+        .buttonStyle(.plain)
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
     }
 }
 
