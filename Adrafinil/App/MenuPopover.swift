@@ -106,9 +106,9 @@ struct MenuPopover: View {
             .padding(Theme.Space.lg)
         }
         // The quit confirmation grows out of the quit button as a warning overlay rather than swapping
-        // the whole popover (which jumped its size). Anchored bottom-trailing so it appears to expand
-        // from the ✕ — covering Settings and everything above — while the popover keeps its size.
-        .overlay {
+        // the whole popover (which jumped its size). Pinned to the bottom and scaling from the ✕, so it
+        // appears to expand from the button — a full-width strip over the bottom bar, not the whole panel.
+        .overlay(alignment: .bottom) {
             if confirmingQuit {
                 quitConfirmation
                     .transition(.scale(scale: 0.18, anchor: .bottomTrailing).combined(with: .opacity))
@@ -711,27 +711,22 @@ struct MenuPopover: View {
 
     // MARK: - Quit confirmation (overlay)
 
-    /// The quit confirmation, presented by `content` as an overlay that grows from the bottom-bar ✕
-    /// (anchored bottom-trailing) rather than replacing the popover and jumping its size. It fills the
-    /// popover with a warning wash; the ✕ stays in its corner but turns red, and a Cancel is added
-    /// beside it (where Settings sat) so the pair is symmetric. Quitting routes through `NSApp.terminate`,
-    /// which `applicationShouldTerminate` gates on pausing the daemon first — so "off" means the Mac
-    /// sleeps normally again, not that the services are torn down.
+    /// The quit confirmation, presented by `content` as an overlay pinned to the bottom that grows from
+    /// the bottom-bar ✕ rather than replacing the popover and jumping its size. A full-width strip just
+    /// tall enough for the warning + buttons — it covers the bottom bar, not the whole panel. The ✕
+    /// stays in its corner but turns red, and a Cancel is added beside it (where Settings sat) so the
+    /// pair is symmetric. Quitting routes through `NSApp.terminate`, which `applicationShouldTerminate`
+    /// gates on pausing the daemon first — so "off" means the Mac sleeps normally again, not that the
+    /// services are torn down.
     private var quitConfirmation: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
-            HStack(spacing: Theme.Space.md) {
-                SpiralEyeView(closedness: 1, color: .secondary, variant: .panel)
-                    .frame(width: 48, height: 48)
-                    .frame(width: 30)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Quit Adrafinil?").font(.system(.body, design: .rounded).weight(.semibold))
-                    Text("Your Mac goes back to sleeping normally and agents stop being tracked until you open it again.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Quit Adrafinil?").font(.system(.body, design: .rounded).weight(.semibold))
+                Text("Your Mac goes back to sleeping normally and agents stop being tracked until you open it again.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
             // Mirror the bottom bar's trailing buttons: Cancel takes the Settings slot, the ✕ stays
             // put and turns red.
             HStack(spacing: Theme.Space.sm) {
@@ -753,7 +748,7 @@ struct MenuPopover: View {
             }
         }
         .padding(Theme.Space.lg)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         // Same neutral gray glass as the quit button — it reads as the button's surface expanding into
         // a menu, not a separate red warning. The red lives only on the Quit button itself.
         .glassCard()
