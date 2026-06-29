@@ -325,7 +325,7 @@ final class AppStatusModel {
     /// `manualHoldMaxHours` cap. Refreshes so the new hold row appears at once. Returns whether it took.
     @discardableResult
     func placeHold(minutes: Double, reason: String? = nil) async -> Bool {
-        let placed = (try? await provider.placeHold(
+        let placed = await (try? provider.placeHold(
             reason: reason, ttlSeconds: minutes * 60, tool: Self.guiHoldTool,
         )) != nil
         await refresh()

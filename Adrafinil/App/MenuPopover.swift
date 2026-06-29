@@ -521,7 +521,6 @@ struct MenuPopover: View {
     /// (trailing) keep their identity across modes — only the middle morphs from preset pills to the
     /// custom stepper, so the two flanking controls stay put rather than the whole row being replaced.
     /// `∞` holds until you stop it; the pencil opens the stepper.
-    @ViewBuilder
     private func durationPicker() -> some View {
         HStack(spacing: Theme.Space.xs) {
             // Leading ✕ — persistent. Cancels the picker, or steps back out of custom mode.
@@ -560,7 +559,6 @@ struct MenuPopover: View {
         .help("Keep awake until you turn it off")
     }
 
-    @ViewBuilder
     private func customStepper() -> some View {
         HStack(spacing: 0) {
             Button { bumpCustom(-15) } label: {
@@ -660,8 +658,12 @@ struct MenuPopover: View {
         return within.isEmpty ? [Self.presetMinutes[0]] : within
     }
 
-    private var minCustomMinutes: Int { 15 }
-    private var maxCustomMinutes: Int { max(minCustomMinutes, Int((maxHoldHours * 60).rounded())) }
+    private var minCustomMinutes: Int {
+        15
+    }
+    private var maxCustomMinutes: Int {
+        max(minCustomMinutes, Int((maxHoldHours * 60).rounded()))
+    }
 
     private func openPicker() {
         customMode = false
