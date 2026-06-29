@@ -643,8 +643,8 @@ struct MenuPopover: View {
 
     /// An amber-*tinted* duration pill — a light amber fill with orange content and a concentric corner
     /// radius. Lighter than a solid fill (four solids read as a wall of orange) but still a clear,
-    /// bounded, tappable choice, and it echoes the hero card's amber tint. Deepens on hover for
-    /// feedback. (The play button, by contrast, is a flat orange icon — see `pickerIcon`.)
+    /// bounded, tappable choice, and it echoes the hero card's amber tint. (The play button, by
+    /// contrast, is a flat orange icon — see `pickerIcon`.)
     private func durationButton(
         action: @escaping () -> Void, @ViewBuilder label: @escaping () -> some View,
     ) -> some View {
