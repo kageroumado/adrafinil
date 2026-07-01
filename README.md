@@ -14,8 +14,8 @@
 
 <table>
   <tr>
-    <td align="center"><img src=".github/adrafinil-awake.png" alt="Awake — an agent holds an assertion" width="420"><br><sub><b>awake</b> ・ an agent is working</sub></td>
-    <td align="center"><img src=".github/adrafinil-sleeping.png" alt="Sleeping — no agents, normal sleep" width="420"><br><sub><b>sleeping</b> ・ no agents, normal sleep</sub></td>
+    <td align="center"><img src=".github/adrafinil-awake.png" alt="Awake — kept awake while an agent works, with Keep awake / Let it sleep controls" width="420"><br><sub><b>awake</b> ・ an agent is working — or keep it awake yourself</sub></td>
+    <td align="center"><img src=".github/adrafinil-sleeping.png" alt="Idle — no agents, normal sleep, with a Keep awake button to hold it open yourself" width="420"><br><sub><b>idle</b> ・ no agents, normal sleep — or keep it awake yourself</sub></td>
   </tr>
 </table>
 
@@ -42,6 +42,12 @@ It's the opposite of always-on wake utilities like `caffeinate` or Amphetamine. 
 intervenes when an agent (Claude Code, Codex, Cursor, …) is mid-task, and gets out of the way the
 moment that work finishes.
 
+**Three ways it stays awake:**
+
+- **Automatically** — agent hooks tell Adrafinil when a turn starts and ends, so it holds sleep only while an agent is actually working. (Optional process-sniffing can also spot a running agent that has no hooks installed.)
+- **Agent-driven** — an agent can deliberately keep the Mac awake *past its reply* for a long build or deploy, via the bundled MCP tool or the `adrafinil hold` CLI.
+- **Manually** — a menu-bar **Keep awake** button places a time-boxed hold yourself, even with **no agents running**; **Let it sleep** clears everything.
+
 > ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates
 > that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an
 > unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses
@@ -58,6 +64,7 @@ moment that work finishes.
 - **Thermal cutout.** If skin/CPU temperature crosses threshold while the lid is closed, all assertions are force-released so a bag-bound Mac can't cook itself.
 - **Idle release.** Assertions whose owning process has died or gone CPU-idle for N minutes are dropped automatically.
 - **Process sniffing (optional).** The daemon can auto-acquire when it sees a known agent binary running, even without hooks installed.
+- **Manual keep-awake (no agent needed).** A menu-bar **Keep awake** button starts a time-boxed hold on demand — for a long download, a local job, anything off-agent — then **Let it sleep** releases it.
 - **Lid-close audio + lid-open summary.** A chime confirms an assertion is held when you close the lid (the screen is off, so no notification); reopening shows what ran while you were away, peak temperature, and whether the thermal cutout fired.
 - **Clean uninstall.** Removes every hook entry it added across all agent configs.
 
@@ -125,6 +132,11 @@ agents, through the bundled MCP tool that `adrafinil mcp` serves:
 adrafinil hold --for 30m --reason "deploy"   # keep awake up to 30 min, then auto-release
 adrafinil mcp                                 # speak the Model Context Protocol on stdio (for agents)
 ```
+
+You don't need an agent at all: the menu bar's **Keep awake** button places the same kind of
+time-boxed hold by hand — for a long download or any off-agent task — and **Let it sleep** releases
+everything. So Adrafinil covers all three: it auto-detects agent activity through hooks, lets agents
+drive it explicitly over MCP/CLI, and can be flipped on manually when you need it.
 
 Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
 
