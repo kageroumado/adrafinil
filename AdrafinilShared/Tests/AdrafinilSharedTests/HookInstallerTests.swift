@@ -173,18 +173,18 @@ struct HookInstallerTests {
         let dict = try readJSON(home.path + "/.codex/hooks.json")
         let hooks = try #require(dict["hooks"] as? [String: Any])
         // Codex acquires on UserPromptSubmit (fires every turn, new session or resumed — unlike
-        // SessionStart, which a resume skips) and releases via the process-exit watcher + CPU-idle
-        // sweep: `Stop` fires per-turn (not session-end), so no release hook is written.
+        // SessionStart, which a resume skips) and releases on Stop (fires at turn completion, when
+        // control returns to the user). Per-turn bracketing, mirroring Claude Code.
         #expect(hooks["UserPromptSubmit"] != nil)
+        #expect(hooks["Stop"] != nil, "Stop fires at turn completion — the release boundary")
         #expect(hooks["SessionStart"] == nil, "SessionStart misses resumed sessions — UserPromptSubmit instead")
-        #expect(hooks["Stop"] == nil, "Stop is per-turn, not session-end — must not be used for release")
         #expect(hooks["SessionEnd"] == nil)
 
-        // Codex's shape is the nested matcher-group form (verified on-device against 0.135.0 and the
-        // official figma plugin): the event holds groups, each wrapping an inner `hooks` array of
+        // Codex's shape is the nested matcher-group form (verified on-device and against the official
+        // figma plugin): the event holds groups, each wrapping an inner `hooks` array of
         // `{ "type": "command", "command": … }` handlers — same as Claude Code. The flat (no-wrapper)
-        // form is silently ignored. `matcher` is omitted (no tool to match on prompt submit) and there
-        // is no `_adrafinil` marker key, which Codex's strict deserializer may reject.
+        // form is silently ignored. `matcher` is omitted (no tool to match on these lifecycle events)
+        // and there is no `_adrafinil` marker key, which Codex's strict deserializer may reject.
         let start = try #require(hooks["UserPromptSubmit"] as? [[String: Any]])
         let group = try #require(start.first)
         #expect(group["matcher"] == nil, "no tool to match on prompt submit — no matcher")
@@ -198,6 +198,18 @@ struct HookInstallerTests {
         #expect(!cmd.contains("CODEX_THREAD_ID"))
         #expect(!cmd.contains("$"))
         #expect(cmd.contains("acquire --tool codex"))
+
+        // The Stop handler is the symmetric release: same nested shape, no marker key, no env var.
+        let stop = try #require(hooks["Stop"] as? [[String: Any]])
+        let stopGroup = try #require(stop.first)
+        #expect(stopGroup["matcher"] == nil, "no tool to match on turn end — no matcher")
+        let stopHandlers = try #require(stopGroup["hooks"] as? [[String: Any]], "must be nested — inner hooks wrapper")
+        let stopEntry = try #require(stopHandlers.first)
+        #expect(stopEntry["type"] as? String == "command")
+        #expect(stopEntry["_adrafinil"] == nil, "no marker key — Codex may reject unknown fields")
+        let stopCmd = try #require(stopEntry["command"] as? String)
+        #expect(!stopCmd.contains("$"))
+        #expect(stopCmd.contains("release --tool codex"))
     }
 
     /// Trust isn't stored in hooks.json — Codex records a `trusted_hash` in config.toml keyed by the
@@ -264,6 +276,107 @@ struct HookInstallerTests {
         #expect(sessionStart.count == 1, "only the user's own SessionStart group remains")
         let userCmd = ((sessionStart[0]["hooks"] as? [[String: Any]])?.first?["command"] as? String)
         #expect(userCmd == "/usr/local/bin/user-thing")
+    }
+
+    @Test
+    func `fresh codex install reads as installed`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .codex, dryRun: false)
+        #expect(installer.installState(for: .codex) == .installed)
+    }
+
+    /// A config from the build that wired only `UserPromptSubmit` (no `Stop` release) is a partial
+    /// install once we manage both — it must read as externally-modified so the UI nudges a reinstall
+    /// that adds the missing release, not as `.installed`.
+    @Test
+    func `codex install missing the Stop release reads as modified`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.path + "/.codex/hooks.json"
+
+        // Only the acquire handler, exactly as the previous (release-less) build wrote it.
+        try writeJSON([
+            "hooks": [
+                "UserPromptSubmit": [
+                    ["hooks": [["type": "command", "command": "/usr/local/bin/adrafinil acquire --tool codex"]]],
+                ],
+            ],
+        ], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        #expect(installer.installState(for: .codex) == .modifiedExternally, "acquire-only is a partial install")
+
+        // Reinstalling self-heals: it adds the Stop release and the state flips to installed.
+        _ = try installer.install(for: .codex, dryRun: false)
+        #expect(installer.installState(for: .codex) == .installed)
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        #expect(hooks["Stop"] != nil)
+    }
+
+    /// Each event carries its own `config.toml` trust hash keyed by command+position, so a reinstall
+    /// must leave *both* the acquire and the release handler byte-stable (and not churn sibling keys),
+    /// or the user is forced to re-approve in `/hooks`.
+    @Test
+    func `reinstalling codex keeps both handlers stable so trust survives`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .codex, dryRun: false)
+        let path = home.path + "/.codex/hooks.json"
+
+        // Simulate Codex annotating each of our handlers with a sibling key (as it does on trust).
+        var dict = try readJSON(path)
+        var hooks = try #require(dict["hooks"] as? [String: Any])
+        for event in ["UserPromptSubmit", "Stop"] {
+            var groups = try #require(hooks[event] as? [[String: Any]])
+            var handlers = try #require(groups[0]["hooks"] as? [[String: Any]])
+            handlers[0]["sibling"] = "keep-\(event)"
+            groups[0]["hooks"] = handlers
+            hooks[event] = groups
+        }
+        dict["hooks"] = hooks
+        try writeJSON(dict, to: path)
+
+        _ = try installer.install(for: .codex, dryRun: false)
+
+        let after = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        for (event, op) in [("UserPromptSubmit", "acquire"), ("Stop", "release")] {
+            let groups = try #require(after[event] as? [[String: Any]], "\(event) present")
+            #expect(groups.count == 1, "\(event): no duplicate group")
+            let handlers = try #require(groups[0]["hooks"] as? [[String: Any]])
+            #expect(handlers.count == 1, "\(event): no duplicate handler")
+            #expect((handlers[0]["command"] as? String)?.contains("\(op) --tool codex") == true)
+            #expect(handlers[0]["sibling"] as? String == "keep-\(event)", "\(event): sibling key preserved")
+        }
+    }
+
+    /// Uninstall strips both the acquire and release handlers, leaving the user's own hooks intact.
+    @Test
+    func `uninstall codex removes both acquire and release`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.path + "/.codex/hooks.json"
+
+        // Seed a user's own Stop hook so we can prove uninstall leaves it alone.
+        try writeJSON([
+            "hooks": [
+                "Stop": [["hooks": [["type": "command", "command": "/usr/local/bin/user-stop"]]]],
+            ],
+        ], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .codex, dryRun: false)
+        _ = try installer.uninstall(for: .codex, dryRun: false)
+
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        #expect(hooks["UserPromptSubmit"] == nil, "our acquire is gone")
+        // Our Stop handler is gone but the user's own Stop hook survives in its group.
+        let stop = try #require(hooks["Stop"] as? [[String: Any]])
+        let stopCmds = stop.compactMap { ($0["hooks"] as? [[String: Any]])?.first?["command"] as? String }
+        #expect(stopCmds == ["/usr/local/bin/user-stop"], "user's own Stop hook preserved, ours removed")
+        #expect(installer.installState(for: .codex) == .notInstalled)
     }
 
     @Test

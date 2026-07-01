@@ -89,6 +89,14 @@ struct MenuPopover: View {
                         agentDriftCard(status.driftedAgents).transition(.popoverSection)
                     }
 
+                    if status.codexNeedsTrust {
+                        codexTrustCard.transition(.popoverSection)
+                    }
+
+                    if let version = status.updateCheck.availableVersion {
+                        updateAvailableCard(version).transition(.popoverSection)
+                    }
+
                     if !live.warnings.isEmpty {
                         daemonWarningsCard(live.warnings).transition(.popoverSection)
                     }
@@ -125,7 +133,7 @@ struct MenuPopover: View {
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     /// Excludes `confirmingQuit` too — the confirmation is now an overlay that doesn't resize the panel.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)"
+        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)|\(status.codexNeedsTrust)|\(status.updateCheck.availableVersion ?? "")"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -414,6 +422,82 @@ struct MenuPopover: View {
             .padding(Theme.Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard(tint: Theme.warn.opacity(0.18))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(selectAgentsTab)
+    }
+
+    /// Targets the Agents tab (reconnect / Codex-trust live there) as the SettingsLink opens. Runs
+    /// alongside the link's own tap; the `TabView` is bound to `SettingsNavigation.selection`, so it
+    /// switches reactively regardless of ordering. `SettingsLink` is what actually opens Settings — the
+    /// AppKit `showSettingsWindow:` selector isn't in a menu-bar-only app's responder chain (it logs a
+    /// failure and no-ops), so we can't set the tab then call that.
+    private var selectAgentsTab: some Gesture {
+        TapGesture().onEnded { SettingsNavigation.shared.selection = .agents }
+    }
+
+    // MARK: - Codex trust nudge
+
+    /// Codex is connected but its hooks aren't trusted, so they won't fire and the Mac won't stay
+    /// awake for it. Trust is the user's step inside Codex (`/hooks`), so this opens Settings → Agents,
+    /// where the row's "How to trust" walkthrough lives.
+    private var codexTrustCard: some View {
+        SettingsLink {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 26))
+                    .foregroundStyle(Theme.warn)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Codex needs you to trust its hooks")
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                    Text("Until you approve them in Codex with /hooks, your Mac won't stay awake while Codex works. Open Settings for the steps.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Theme.Space.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(tint: Theme.warn.opacity(0.18))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(selectAgentsTab)
+    }
+
+    // MARK: - Update available
+
+    /// A newer release exists on GitHub. Notify-only — tapping opens the releases page (Adrafinil
+    /// ships notarized DMGs / Homebrew; there's no in-app updater).
+    private func updateAvailableCard(_ version: String) -> some View {
+        Button {
+            NSWorkspace.shared.open(status.updateCheck.releasesPageURL)
+        } label: {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(Theme.awake)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Update available — \(version)")
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                    Text("A newer version of Adrafinil is out. Open the releases page to download it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Theme.Space.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(tint: Theme.awake.opacity(0.16))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

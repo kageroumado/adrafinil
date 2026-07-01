@@ -52,7 +52,7 @@ enum AcquireCommand {
             guard let key = CLIStdin.sessionID() ?? (positional?.isEmpty == false ? positional : nil) else {
                 hookFailure("acquire: no session key (stdin payload or positional) — ignored")
             }
-            fullKey = "\(tool):\(key)"
+            fullKey = ManualHold.sessionKey(tool: tool, sessionID: key)
             // Walk up the process tree to find the real agent PID.
             // getppid() is the shell (/bin/sh) that runs the hook command — it exits as soon as
             // adrafinil returns, which would cause the daemon to force-release the assertion while
@@ -61,7 +61,7 @@ enum AcquireCommand {
             // process-watching entirely (safer than watching the wrong PID).
             let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
             watchedPID = agentPID == -1 ? nil : agentPID
-            cliLog.notice("acquire \(tool, privacy: .public):\(key, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
+            cliLog.notice("acquire \(fullKey, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
         }
 
         let req = CLIRequest(

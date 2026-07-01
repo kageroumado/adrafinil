@@ -90,6 +90,20 @@ struct AgentKindTests {
         #expect(AgentKind.forRunningProcess(name: "codex", path: "/usr/local/bin/codex") == .codex)
     }
 
+    /// Homebrew's cask symlinks `codex` → a triple-suffixed real binary, and `proc_pidpath` resolves
+    /// the symlink, so the daemon sees `codex-aarch64-apple-darwin` (or the x86_64 variant) as the
+    /// process basename. Both must resolve to `.codex`, or every Homebrew install is unwatchable and
+    /// its hold never releases until the 24h backstop. (npm spawns a binary actually named `codex`.)
+    @Test
+    func `for running process matches homebrew triple-suffixed codex`() {
+        let arm = "/opt/homebrew/Caskroom/codex/0.136.0/codex-aarch64-apple-darwin"
+        #expect(AgentKind.forRunningProcess(name: "codex-aarch64-apple-darwin", path: arm) == .codex)
+        let intel = "/usr/local/Caskroom/codex/0.136.0/codex-x86_64-apple-darwin"
+        #expect(AgentKind.forRunningProcess(name: "codex-x86_64-apple-darwin", path: intel) == .codex)
+        // The owning-PID walk uses the same name set; the suffixed basename must satisfy it too.
+        #expect(ProcessResolver.pathMatchesAgent(arm, names: AgentKind.allBinaryNames))
+    }
+
     @Test
     func `for running process matches versioned path component`() {
         let kind = AgentKind.forRunningProcess(name: "2.1.156", path: "/Users/u/.local/share/claude/versions/2.1.156")

@@ -47,6 +47,49 @@ final class AppStatusModel {
     /// agent. Recomputed by `refreshAgentHealth()` when the popover opens.
     var driftedAgents: [AgentKind] = []
 
+    /// Codex hook-trust status when Codex is connected (`nil` otherwise). Codex won't fire a hook until
+    /// the user trusts it via `/hooks`, so a connected-but-untrusted Codex silently never keeps the Mac
+    /// awake. Recomputed by `refreshAgentHealth()`. See `CodexHookTrust`.
+    var codexTrustStatus: CodexHookTrust.Status?
+
+    /// Notify-only update check, owned here so the menu-bar icon and popover can surface an available
+    /// update as an attention reason (the Settings tab drives a manual check separately).
+    let updateCheck = UpdateCheckService()
+
+    /// One concrete reason the user's attention is wanted, surfaced as a menu-bar badge + popover card.
+    enum AttentionReason: Equatable {
+        case serviceProblem
+        case agentsDrifted(Int)
+        case codexNeedsTrust
+        case updateAvailable(String)
+    }
+
+    /// Whether Codex's hooks are installed but not (verifiably) trusted, so they won't fire. `.unknown`
+    /// is deliberately excluded — we couldn't read `config.toml`, so nagging would risk a false alarm.
+    var codexNeedsTrust: Bool {
+        codexTrustStatus == .untrusted || codexTrustStatus == .partiallyTrusted
+    }
+
+    /// All current attention reasons, most actionable first. Drives `needsAttention` (the menu-bar
+    /// badge) and the popover's attention cards.
+    var attentionReasons: [AttentionReason] {
+        var reasons: [AttentionReason] = []
+        if serviceState != .ok { reasons.append(.serviceProblem) }
+        if !driftedAgents.isEmpty { reasons.append(.agentsDrifted(driftedAgents.count)) }
+        if codexNeedsTrust { reasons.append(.codexNeedsTrust) }
+        if let version = updateCheck.availableVersion { reasons.append(.updateAvailable(version)) }
+        return reasons
+    }
+
+    /// Whether anything wants the user's attention — drives the menu-bar icon's badge.
+    var needsAttention: Bool {
+        !attentionReasons.isEmpty
+    }
+
+    /// Production launch maintenance: migrate hooks for a new build and check for updates. Gated off
+    /// for previews/gallery and the DEBUG menu-bar model so neither touches real configs or the network.
+    @ObservationIgnored private let enableLaunchMaintenance: Bool
+
     @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTimer: Timer?
     @ObservationIgnored private var revertNudgeTask: Task<Void, Never>?
@@ -80,6 +123,10 @@ final class AppStatusModel {
         /// and `repairPhase` directly; this stops the reachability evaluator from reclassifying them or
         /// kicking off a real (system-touching) repair.
         @ObservationIgnored var debugOwnsServiceState = false
+        /// When the debug panel drives an attention scenario, it sets `driftedAgents`/`codexTrustStatus`
+        /// (and the update version) directly; this stops `refreshAgentHealth` from reading real configs
+        /// and clobbering them.
+        @ObservationIgnored var debugOwnsAttention = false
     #endif
 
     /// How often the heartbeat re-fetches as a safety net behind the push stream. Push handles every
@@ -95,12 +142,14 @@ final class AppStatusModel {
         provider: any StatusProviding = DaemonClient.shared,
         agentHooks: any AgentHooksProviding = LiveAgentHooksProvider(),
         poll: Bool = true,
+        enableLaunchMaintenance: Bool = true,
         probeServiceState: @escaping @MainActor () -> ServiceState = AppStatusModel.liveServiceState,
     ) {
         self.provider = provider
         self.agentHooks = agentHooks
         self.probeServiceState = probeServiceState
         self.isLive = poll
+        self.enableLaunchMaintenance = enableLaunchMaintenance
         if poll {
             // Set up the push subscription synchronously (the AsyncStream builder runs now), so the
             // connection is established with its callback before the initial refresh reuses it.
@@ -120,6 +169,18 @@ final class AppStatusModel {
             self.heartbeatTimer = t
         }
         Task { @MainActor in await refresh() } // immediate first snapshot
+        if poll, enableLaunchMaintenance {
+            Task { @MainActor in await runLaunchMaintenance() }
+        }
+    }
+
+    /// One-time-per-launch upkeep: migrate hooks for a new build (so an existing user picks up a new
+    /// hook shape like Codex's Stop release without re-running setup), recompute agent health so the
+    /// menu-bar badge reflects any freshly-needed trust/reconnect, and run the throttled update check.
+    private func runLaunchMaintenance() async {
+        HookMigrator.runIfNeeded(agentHooks: agentHooks)
+        refreshAgentHealth()
+        await updateCheck.checkIfDue()
     }
 
     isolated deinit {
@@ -293,9 +354,17 @@ final class AppStatusModel {
     /// config-file reads; called when the popover opens rather than on the heartbeat, since hook
     /// configs only change when the user (or an update) edits them, not on daemon activity.
     func refreshAgentHealth() {
-        driftedAgents = agentHooks.detectedAgents().filter {
-            agentHooks.installState(for: $0) == .modifiedExternally
-        }
+        #if DEBUG
+            // The debug panel drives drift/trust directly; don't let a real config read overwrite it.
+            if debugOwnsAttention { return }
+        #endif
+        let detected = agentHooks.detectedAgents()
+        driftedAgents = detected.filter { agentHooks.installState(for: $0) == .modifiedExternally }
+        // Trust only matters once Codex's hooks are actually installed — a drifted/absent Codex is
+        // covered by the drift card / connect toggle, and trust is moot until it's reconnected.
+        codexTrustStatus = detected.contains(.codex) && agentHooks.installState(for: .codex) == .installed
+            ? agentHooks.codexTrustStatus()
+            : nil
     }
 
     func forceReleaseAll() async {

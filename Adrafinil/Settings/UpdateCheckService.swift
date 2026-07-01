@@ -82,6 +82,13 @@ final class UpdateCheckService {
         }
     }
 
+    #if DEBUG
+        /// Force an available-version for the debug control panel (no network).
+        func debugSetAvailable(_ version: String?) {
+            availableVersion = version
+        }
+    #endif
+
     /// Numeric major.minor.patch comparison; missing components are treated as 0.
     static func isNewer(_ candidate: String, than current: String) -> Bool {
         let c = candidate.split(separator: ".").compactMap { Int($0) }

@@ -11,7 +11,9 @@ struct AdrafinilApp: App {
         #if DEBUG
             // Back the menu-bar model with mock data so the debug control panel can drive scenarios
             // live. `DebugControl` keeps a reference so it can force an immediate refresh on switch.
-            let model = AppStatusModel(provider: MockStatusProvider())
+            // No launch maintenance in DEBUG: it would migrate real ~/.codex hooks and hit the network
+            // while exercising mock scenarios.
+            let model = AppStatusModel(provider: MockStatusProvider(), enableLaunchMaintenance: false)
             DebugControl.shared.statusModel = model
             _status = State(initialValue: model)
         #else

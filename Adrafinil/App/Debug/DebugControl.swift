@@ -84,6 +84,30 @@
         }
     }
 
+    /// Attention scenarios the control panel can force, to exercise the menu-bar badge + popover cards
+    /// without touching real agent configs.
+    enum AttentionScenario: String, CaseIterable, Identifiable {
+        case none
+        case codexTrust
+        case drift
+        case update
+        case all
+
+        var id: String {
+            rawValue
+        }
+
+        var title: String {
+            switch self {
+            case .none: "None"
+            case .codexTrust: "Codex needs trust"
+            case .drift: "Agent drifted"
+            case .update: "Update available"
+            case .all: "All at once"
+            }
+        }
+    }
+
     /// "While you were away" panel variants the control panel can trigger.
     enum AwayScenario: String, CaseIterable, Identifiable {
         case clean
@@ -123,6 +147,8 @@
         var useLiveDaemon = false
         /// Mirrors the daemon's paused master switch so the live preview can exercise pause/resume.
         var paused = false
+        /// Forced attention scenario for the menu-bar badge + popover attention cards.
+        var attention: AttentionScenario = .none
 
         /// The live menu-bar model, set by `AdrafinilApp` at launch. Used to force an immediate refresh
         /// when the scenario changes (instead of waiting for the heartbeat) and to render a live preview.
@@ -155,6 +181,18 @@
                 }
                 await model.refresh()
             }
+        }
+
+        /// Drives the attention state directly (drift / Codex trust / update) so the menu-bar badge and
+        /// popover cards render without real agent configs. Sets `debugOwnsAttention` so a popover-open
+        /// `refreshAgentHealth` doesn't read real state over it.
+        func applyAttention() {
+            guard let model = statusModel else { return }
+            let scenario = attention
+            model.debugOwnsAttention = scenario != .none
+            model.driftedAgents = (scenario == .drift || scenario == .all) ? [.claudeCode] : []
+            model.codexTrustStatus = (scenario == .codexTrust || scenario == .all) ? .untrusted : nil
+            model.updateCheck.debugSetAvailable((scenario == .update || scenario == .all) ? "9.9.9" : nil)
         }
     }
 

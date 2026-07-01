@@ -13,6 +13,11 @@ protocol AgentHooksProviding {
     /// Reveals the agent's hook config (or its parent dir) in Finder.
     func revealConfig(for kind: AgentKind)
 
+    /// Whether the user has trusted Adrafinil's Codex hooks (Codex gates hook execution behind a
+    /// per-handler `/hooks` approval). Best-effort, read from `~/.codex/config.toml`. Only meaningful
+    /// for Codex; callers gate on `kind == .codex`.
+    func codexTrustStatus() -> CodexHookTrust.Status
+
     // MCP server registration — a separate capability from hooks. Hooks track when an agent works;
     // the MCP server lets it deliberately hold sleep past its turn. Only verified agents support it.
     func mcpSupported(for kind: AgentKind) -> Bool
@@ -38,6 +43,10 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
     }
     func uninstall(for kind: AgentKind) throws {
         try installer.uninstall(for: kind)
+    }
+
+    func codexTrustStatus() -> CodexHookTrust.Status {
+        CodexHookTrust.status(homeRoot: NSHomeDirectory())
     }
 
     func mcpSupported(for kind: AgentKind) -> Bool {
@@ -84,6 +93,9 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
         /// package — Cursor/Gemini are gated off until verified, so only Claude Code qualifies).
         private let mcpCapable: Set<AgentKind> = [.claudeCode]
 
+        /// Canned Codex trust status for previews; the trust screen flips this on "Re-check".
+        var codexTrust: CodexHookTrust.Status = .untrusted
+
         init(_ states: [(AgentKind, HookInstallState)] = PreviewAgentHooksProvider.defaultStates) {
             self.states = states.map { (kind: $0.0, state: $0.1) }
         }
@@ -109,6 +121,10 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
             setState(.notInstalled, for: kind)
         }
         func revealConfig(for _: AgentKind) {}
+
+        func codexTrustStatus() -> CodexHookTrust.Status {
+            codexTrust
+        }
 
         func mcpSupported(for kind: AgentKind) -> Bool {
             mcpCapable.contains(kind)

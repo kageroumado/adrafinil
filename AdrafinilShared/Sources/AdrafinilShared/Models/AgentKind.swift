@@ -30,7 +30,13 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
     public var binaryNames: [String] {
         switch self {
         case .claudeCode: ["claude"]
-        case .codex: ["codex"]
+        // Homebrew's cask symlinks `codex` → the triple-suffixed real binary
+        // (`codex-aarch64-apple-darwin`), and `proc_pidpath` resolves the symlink, so the process
+        // basename the daemon sees is the suffixed name, not `codex`. Without these the owning-PID
+        // walk and sniff sweep miss every Homebrew install — the assertion is placed with no PID, so
+        // neither the process-exit watcher nor the CPU-idle sweep can release it, leaving the hold
+        // pinned until the 24h backstop. (npm spawns a native binary actually named `codex`.)
+        case .codex: ["codex", "codex-aarch64-apple-darwin", "codex-x86_64-apple-darwin"]
         case .cursor: ["cursor", "Cursor"]
         case .geminiCLI: ["gemini"]
         case .aider: ["aider"]

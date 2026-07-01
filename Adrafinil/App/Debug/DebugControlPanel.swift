@@ -12,6 +12,7 @@
             control.appDelegate ?? (NSApp.delegate as? AppDelegate)
         }
         @Environment(\.openSettings) private var openSettings
+        @State private var showCodexTrust = false
 
         var body: some View {
             HStack(alignment: .top, spacing: 0) {
@@ -26,6 +27,15 @@
                     .background(Color(nsColor: .windowBackgroundColor))
             }
             .frame(minWidth: 720, minHeight: 560)
+            .sheet(isPresented: $showCodexTrust) {
+                CodexTrustView(
+                    readStatus: { control.statusModel?.codexTrustStatus ?? .untrusted },
+                    primaryTitle: "Done",
+                    onPrimary: { showCodexTrust = false },
+                )
+                .padding(Theme.Space.xl + Theme.Space.sm)
+                .frame(minWidth: 460)
+            }
         }
 
         // MARK: - Controls
@@ -49,6 +59,26 @@
                                 .controlSize(.small)
                             Text("Click the menu-bar sun icon to see the real popover, or watch the preview →")
                                 .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, Theme.Space.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    GroupBox("Attention (menu-bar badge + cards)") {
+                        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                            Picker("Attention", selection: $control.attention) {
+                                ForEach(AttentionScenario.allCases) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.radioGroup)
+                            Text("Forces the menu-bar eye's badge and the popover's attention cards. Watch the real menu-bar icon and the preview →")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Button {
+                                showCodexTrust = true
+                            } label: {
+                                Label("Open Codex trust page", systemImage: "lock.shield")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                         .padding(.vertical, Theme.Space.xs)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,6 +130,7 @@
             }
             .onChange(of: control.popover) { control.apply() }
             .onChange(of: control.useLiveDaemon) { control.apply() }
+            .onChange(of: control.attention) { control.applyAttention() }
         }
 
         // MARK: - Live preview

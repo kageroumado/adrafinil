@@ -20,16 +20,24 @@ struct SettingsView: View {
     /// continuously) triggers one daemon reload after the drag settles, not dozens during it.
     @State private var reloadTask: Task<Void, Never>?
 
+    /// Shared so the menu-bar popover can deep-link to a specific tab (hook attention → Agents).
+    @State private var nav = SettingsNavigation.shared
+
     var body: some View {
-        TabView {
+        @Bindable var nav = nav
+        TabView(selection: $nav.selection) {
             GeneralSettingsTab(settings: $appSettings, setup: setup, device: device)
                 .tabItem { Label("General", systemImage: "gear") }
+                .tag(SettingsTab.general)
             AgentsSettingsTab(agentHooks: agentHooks)
                 .tabItem { Label("Agents", systemImage: "terminal") }
+                .tag(SettingsTab.agents)
             SafetySettingsTab(settings: $appSettings, device: device)
                 .tabItem { Label("Safety", systemImage: "checkmark.shield") }
+                .tag(SettingsTab.safety)
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(SettingsTab.about)
         }
         // Single source of truth: every tab edits this one binding. Persist and propagate
         // centrally so one tab's save can't clobber a field another tab just changed, and
@@ -282,6 +290,8 @@ struct AgentsSettingsTab: View {
                 installState: agentHooks.installState(for: kind),
                 mcpSupported: agentHooks.mcpSupported(for: kind),
                 mcpState: agentHooks.mcpState(for: kind),
+                // Codex gates hook execution behind a `/hooks` approval; surfaced as a trust note.
+                codexTrust: kind == .codex ? agentHooks.codexTrustStatus() : nil,
             )
         }
     }
@@ -295,6 +305,8 @@ struct AgentRowModel: Identifiable {
     var mcpSupported: Bool
     /// Registration state of the MCP hold tool, independent of the hook `installState`.
     var mcpState: HookInstallState
+    /// Codex hook-trust status (nil for every other agent — only Codex requires the `/hooks` step).
+    var codexTrust: CodexHookTrust.Status?
     var id: AgentKind {
         kind
     }
@@ -305,11 +317,18 @@ private struct AgentInstallRow: View {
     let agentHooks: any AgentHooksProviding
     let onChange: () -> Void
 
+    @State private var showCodexTrust = false
+
     private var isInstalled: Bool {
         model.installState == .installed
     }
     private var mcpInstalled: Bool {
         model.mcpState == .installed
+    }
+    /// Codex is connected but the user hasn't (verifiably) trusted the hooks in `/hooks`, so Codex
+    /// won't actually fire them. `.unknown` counts too: we couldn't confirm, so still nudge.
+    private var codexNeedsTrust: Bool {
+        isInstalled && model.kind == .codex && (model.codexTrust ?? .trusted) != .trusted
     }
 
     var body: some View {
@@ -345,8 +364,34 @@ private struct AgentInstallRow: View {
 
             if model.installState == .modifiedExternally { reconnectNote }
             if model.installState == .configUnreadable { unreadableNote }
+            if codexNeedsTrust { codexTrustNote }
 
             if model.mcpSupported { mcpToggle }
+        }
+        .sheet(isPresented: $showCodexTrust, onDismiss: onChange) {
+            CodexTrustView(
+                readStatus: { agentHooks.codexTrustStatus() },
+                primaryTitle: "Done",
+                onPrimary: { showCodexTrust = false },
+            )
+            .padding(Theme.Space.xl + Theme.Space.sm)
+            .frame(minWidth: 460)
+        }
+    }
+
+    /// Codex-only: the hooks are installed but won't fire until trusted via `/hooks`. Unlike the
+    /// reconnect/unreadable notes (which Adrafinil can fix by rewriting the file), trust is the user's
+    /// action inside Codex, so this points them at the walkthrough rather than offering a fix button.
+    private var codexTrustNote: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+            Text("Codex won't run these hooks until you trust them. Open Codex, run “/hooks”, and approve Adrafinil's acquire and release entries — otherwise it can't tell when Codex is working.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: Theme.Space.sm)
+            Button("How to trust") { showCodexTrust = true }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.borderless)
         }
     }
 

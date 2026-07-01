@@ -36,8 +36,12 @@ struct InstallerView: View {
     @State private var phases: [AgentKind: InstallPhase] = [:]
     /// Set when the success step appears, to spring the seal in.
     @State private var sealPopped = false
+    /// One-shot guard so `setup.didFinishSetup()` (which requests notification authorization upfront)
+    /// runs exactly once — it fires on whichever post-install step appears first, so a Codex user who
+    /// closes the window on the trust step still gets the upfront auth prompt the done step would give.
+    @State private var didFinishSetup = false
 
-    enum Step { case helper, agents, done }
+    enum Step { case helper, agents, codexTrust, done }
 
     /// A connecting agent's live status during the install choreography.
     enum InstallPhase: Equatable { case pending, installing, done, failed }
@@ -64,6 +68,7 @@ struct InstallerView: View {
                 switch step {
                 case .helper: helperStep.transition(Self.stepTransition)
                 case .agents: agentsStep.transition(Self.stepTransition)
+                case .codexTrust: codexTrustStep.transition(Self.stepTransition)
                 case .done: doneStep.transition(Self.stepTransition)
                 }
             }
@@ -396,7 +401,7 @@ struct InstallerView: View {
                 .opacity(sealPopped ? 1 : 0)
                 .onAppear {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { sealPopped = true }
-                    setup.didFinishSetup()
+                    finishSetupOnce()
                 }
             Text("Adrafinil is set up").font(.system(.title, design: .rounded).weight(.semibold))
             Text("It now lives in your menu bar. Close the lid while an agent is working — your Mac stays awake. No agent running? Sleep behaves normally.")
@@ -451,9 +456,33 @@ struct InstallerView: View {
         }
 
         await setup.symlinkCLI()
-        // Let the last check settle and the bar reach 100% before morphing to the success step.
+        // Let the last check settle and the bar reach 100% before morphing to the next step.
         try? await Task.sleep(for: .milliseconds(450))
-        withAnimation(.smooth(duration: 0.4)) { step = .done }
+        // Codex needs an extra one-time step the others don't: the user must trust the hooks in the
+        // TUI via `/hooks`, or Codex never fires them. Detour through the trust screen when Codex was
+        // just connected; everyone else goes straight to the success seal.
+        let codexConnected = phases[.codex] == .done
+        withAnimation(.smooth(duration: 0.4)) { step = codexConnected ? .codexTrust : .done }
+    }
+
+    // MARK: - Step 2.5 · Codex hook trust (only when Codex was connected)
+
+    private var codexTrustStep: some View {
+        CodexTrustView(
+            readStatus: { agentHooks.codexTrustStatus() },
+            primaryTitle: "Continue",
+            onPrimary: { withAnimation(.smooth(duration: 0.4)) { step = .done } },
+        )
+        // The trust step can be the last thing a Codex user sees if they close the window here, so
+        // finish setup (notification auth) now rather than only on the done step.
+        .onAppear { finishSetupOnce() }
+    }
+
+    /// Runs `setup.didFinishSetup()` at most once, whichever post-install step appears first.
+    private func finishSetupOnce() {
+        guard !didFinishSetup else { return }
+        didFinishSetup = true
+        setup.didFinishSetup()
     }
 }
 

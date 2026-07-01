@@ -2,15 +2,18 @@ import AdrafinilShared
 import AppKit
 import SwiftUI
 
-/// Menu-bar icon with three states:
+/// Menu-bar icon: the spiral eye, optionally with a small corner badge.
 ///
 /// - **Idle** — the spiral-eye wound shut (template; adapts to the menu-bar appearance).
-/// - **Active** — the spiral-eye open: the app icon's spiral pose. Also template — the
-///   open/closed eye itself is the state signal, matching the otherwise-monochrome menu bar.
-/// - **Cutout** — a red warning icon shown for 30 s after a thermal (exclamation triangle)
-///   or low-battery (battery) cutout event, then auto-reverts to idle. The revert is driven
-///   by a `Task` that sleeps until the 30-second boundary so the icon updates without
-///   waiting for the next 2-second status poll.
+/// - **Active** — the spiral-eye open: the app icon's spiral pose. The open/closed eye itself is the
+///   state signal, matching the otherwise-monochrome menu bar.
+/// - **Badge** — a small glyph in the top-right corner, over the eye, separated by a cleared ring:
+///   a plain dot for "needs attention", or (for the 30 s after a cutout) a `thermometer.high` /
+///   battery glyph. **Never colored** — every badge is part of the template mask, so the menu bar
+///   tints it the same as the eye. (A cutout used to *replace* the eye with a red full-size battery /
+///   warning glyph, which read as "this is your battery/temperature status" rather than Adrafinil's.)
+///   The 30 s revert is driven by a `Task` that sleeps to the boundary so the icon updates without
+///   waiting for the next status poll.
 ///
 /// ## Why a pre-rendered `NSImage` instead of a SwiftUI `Image`
 ///
@@ -19,8 +22,8 @@ import SwiftUI
 /// (`GraphicsImage.makePlatformImage`), which it sets as the status button's `image`
 /// (`MenuBarExtraController.updateButton`). Every other view modifier — `.frame`,
 /// `.background`, padding — is discarded along the way; only the resolved `Image` survives.
-/// That also rules out a `Canvas` or animated transitions in the label — the eye is two
-/// pre-built frames (open / closed) that swap directly with the state.
+/// That also rules out a `Canvas` or animated transitions in the label — the icon is pre-built
+/// frames that swap directly with the state.
 ///
 /// The consequence: the status item's width tracks the resolved image's width, so every state
 /// draws into a **constant-size canvas** (``canvasSize``) — the status item stays exactly that
@@ -32,7 +35,7 @@ struct MenuBarIcon: View {
     @State private var revertTick: UInt = 0
 
     var body: some View {
-        Image(nsImage: Self.image(for: currentState))
+        Image(nsImage: Self.icon(open: baseEyeOpen, badge: currentBadge))
             .task(id: cutoutTaskID) {
                 await scheduleRevert()
             }
@@ -40,61 +43,58 @@ struct MenuBarIcon: View {
 
     // MARK: - State machine
 
-    private enum IconState: Equatable {
-        case idle
-        case active
+    /// The corner badge drawn over the eye, if any. A cutout (within its 30 s window) takes precedence
+    /// over the plain attention dot — it's the more urgent, transient signal.
+    private enum Badge: Equatable {
+        case none
+        case attention
         case thermalCutout
         case lowBatteryCutout
     }
 
-    /// Reads `revertTick` so that bumping it in `scheduleRevert` triggers a body re-evaluation.
-    private var currentState: IconState {
-        _ = revertTick
-        guard let s = status.status else { return .idle }
+    /// The base eye is open exactly when Adrafinil is holding the Mac awake. A cutout releases every
+    /// hold, so during the cutout window the eye reads closed with the cutout glyph badged over it.
+    private var baseEyeOpen: Bool {
+        status.status?.isBlocking ?? false
+    }
 
+    /// Reads `revertTick` so bumping it in `scheduleRevert` re-evaluates the body.
+    private var currentBadge: Badge {
+        _ = revertTick
+        guard let s = status.status else { return .none }
         if let at = s.lastEventAt, Date().timeIntervalSince(at) < 30 {
             if s.lastEvent == .thermalCutout { return .thermalCutout }
             if s.lastEvent == .lowBatteryCutout { return .lowBatteryCutout }
         }
-
-        if s.isBlocking {
-            return .active
-        }
-
-        return .idle
+        return status.needsAttention ? .attention : .none
     }
 
     // MARK: - Rendering
 
-    /// Fixed status-item footprint. The eye renders full-bleed horizontally (it is wider than
-    /// tall); the transient cutout glyphs scale to fit inside the same box. Constant across
-    /// every state, so the popover anchor never moves.
+    /// Fixed status-item footprint. The eye renders full-bleed horizontally (it is wider than tall);
+    /// a corner badge sits inside the same box. Constant across every state, so the popover anchor
+    /// never moves.
     private static let canvasSize = NSSize(width: 18, height: 18)
 
-    private static func image(for state: IconState) -> NSImage {
-        switch state {
-        case .idle:
-            eyeImage(open: false)
-        case .active:
-            eyeImage(open: true)
-        case .thermalCutout, .lowBatteryCutout:
-            cutoutImage(for: state)
-        }
+    private struct IconKey: Hashable {
+        let open: Bool
+        let badge: Badge
     }
 
-    // MARK: Eye frames
+    /// Icon frames cached by `(open, badge)`. Always a **template** image: the menu bar tints status
+    /// items to match the wallpaper/appearance, so we never bake a color — a badge is just extra opaque
+    /// coverage in the same template mask, separated from the eye by a cleared ring.
+    private static var iconCache: [IconKey: NSImage] = [:]
 
-    /// The two eye frames, rendered once and cached. A cached template image still adapts
-    /// to light/dark — AppKit re-tints it on every draw.
-    private static var eyeCache: [Bool: NSImage] = [:]
-
-    private static func eyeImage(open: Bool) -> NSImage {
-        if let cached = eyeCache[open] { return cached }
+    private static func icon(open: Bool, badge: Badge) -> NSImage {
+        let key = IconKey(open: open, badge: badge)
+        if let cached = iconCache[key] { return cached }
 
         let closedness: Double = open ? 0 : 1
         let image = NSImage(size: canvasSize, flipped: true) { rect in
             guard let cg = NSGraphicsContext.current?.cgContext else { return false }
             let pose: SpiralEyePose = open ? .menuBarOpen : .menuBarClosed
+            cg.saveGState()
             let k = rect.width / SpiralEyeGeometry.space
             cg.translateBy(x: 0, y: (rect.height - rect.width) / 2)
             cg.scaleBy(x: k, y: k)
@@ -118,47 +118,71 @@ struct MenuBarIcon: View {
                 cg.fillEllipse(in: CGRect(x: 512 - r, y: 512 - r, width: 2 * r, height: 2 * r))
                 cg.setBlendMode(.normal)
             }
+            cg.restoreGState()
+
+            switch badge {
+            case .none:
+                break
+            case .attention:
+                drawAttentionDot(in: cg, canvas: rect.size)
+            case .thermalCutout:
+                drawSymbolBadge(in: cg, canvas: rect.size, symbolName: "thermometer.high")
+            case .lowBatteryCutout:
+                drawSymbolBadge(in: cg, canvas: rect.size, symbolName: "battery.25percent")
+            }
             return true
         }
         image.isTemplate = true
-        eyeCache[open] = image
+        iconCache[key] = image
         return image
     }
 
-    // MARK: Cutout glyphs
+    /// A small dot in the top-right corner, separated from the eye by a cleared ring so it reads as a
+    /// distinct dot. No color — part of the template mask, so the menu bar tints it the same as the
+    /// eye. Drawn in unscaled canvas (flipped) coordinates, so it's a fixed size regardless of the eye
+    /// geometry's 1024-unit space.
+    private static func drawAttentionDot(in cg: CGContext, canvas: NSSize) {
+        let radius: CGFloat = 3.2
+        let center = CGPoint(x: canvas.width - radius - 0.5, y: radius + 0.5) // flipped: small y = top
+        cg.setBlendMode(.clear)
+        cg.fillEllipse(in: CGRect(
+            x: center.x - radius - 1,
+            y: center.y - radius - 1,
+            width: 2 * (radius + 1),
+            height: 2 * (radius + 1),
+        ))
+        cg.setBlendMode(.normal)
+        cg.setFillColor(NSColor.black.cgColor) // opaque template pixel → tints with the eye
+        cg.fillEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
+    }
 
-    private static let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+    private static let badgeSymbolConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
 
-    private static var cutoutCache: [IconState: NSImage] = [:]
-
-    private static func cutoutImage(for state: IconState) -> NSImage {
-        if let cached = cutoutCache[state] { return cached }
-
-        let symbolName = state == .thermalCutout ? "exclamationmark.triangle.fill" : "battery.25percent"
+    /// Draws an SF Symbol as a top-right corner badge over the eye — the same idea as the attention
+    /// dot, just a glyph. Template (uncolored): the symbol's alpha joins the mask and the menu bar
+    /// tints it with the eye. A cleared halo behind it keeps it legible where it overlaps an arm.
+    private static func drawSymbolBadge(in cg: CGContext, canvas: NSSize, symbolName: String) {
         guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(symbolConfiguration)
-        else {
-            return NSImage(size: canvasSize)
-        }
+            .withSymbolConfiguration(badgeSymbolConfig)
+        else { return }
         symbol.isTemplate = true
 
-        let canvas = NSImage(size: canvasSize, flipped: false) { rect in
-            let fitted = aspectFit(symbol.size, in: rect.size)
-            let drawRect = NSRect(
-                x: ((rect.width - fitted.width) / 2).rounded(),
-                y: ((rect.height - fitted.height) / 2).rounded(),
-                width: fitted.width,
-                height: fitted.height,
-            )
-            symbol.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
-            NSColor.systemRed.set()
-            rect.fill(using: .sourceAtop)
-            return true
-        }
-        // The red is baked in, so the image must opt out of template handling.
-        canvas.isTemplate = false
-        cutoutCache[state] = canvas
-        return canvas
+        let box: CGFloat = 11
+        let boxRect = CGRect(x: canvas.width - box, y: 0, width: box, height: box) // flipped: y=0 is top
+        let fitted = aspectFit(symbol.size, in: CGSize(width: box, height: box))
+        let drawRect = CGRect(
+            x: boxRect.midX - fitted.width / 2,
+            y: boxRect.midY - fitted.height / 2,
+            width: fitted.width,
+            height: fitted.height,
+        )
+        // Clear a rounded halo around the glyph so it reads as a separate badge over the eye.
+        cg.setBlendMode(.clear)
+        cg.addPath(CGPath(roundedRect: drawRect.insetBy(dx: -1.5, dy: -1.5), cornerWidth: 2, cornerHeight: 2, transform: nil))
+        cg.fillPath()
+        cg.setBlendMode(.normal)
+        // respectFlipped so the glyph is upright inside the flipped canvas.
+        symbol.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
     /// The largest size of `aspect` that fits within `bounds` without upscaling.
@@ -170,13 +194,13 @@ struct MenuBarIcon: View {
 
     // MARK: - Revert task
 
-    /// True for the cutout events that get the transient red icon.
+    /// The cutout events that get the transient 30 s badge.
     private static func isCutout(_ event: DaemonEvent?) -> Bool {
         event == .thermalCutout || event == .lowBatteryCutout
     }
 
-    /// A stable identity for the `.task(id:)` modifier; changes only when a fresh
-    /// cutout event arrives (new `lastEventAt` timestamp).
+    /// A stable identity for the `.task(id:)` modifier; changes only when a fresh cutout event arrives
+    /// (new `lastEventAt` timestamp).
     private var cutoutTaskID: Date {
         guard Self.isCutout(status.status?.lastEvent),
               let at = status.status?.lastEventAt else { return .distantPast }

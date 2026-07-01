@@ -20,8 +20,10 @@ enum ReleaseCommand {
                 AcquireCommand.hookFailure("release: no session key (stdin payload or positional) — ignored")
             }
             // An agent-hold id (`hold:…`) is already the full registry key — release it verbatim. Hook
-            // sessions, by contrast, are keyed `<tool>:<session>`, so those get the tool prefix.
-            fullKey = ManualHold.isHoldKey(key) ? key : "\(tool):\(key)"
+            // sessions, by contrast, are keyed `<tool>:<session>`. `sessionKey` encodes both rules,
+            // and is the same derivation acquire uses, so a session's Stop release targets exactly the
+            // key its UserPromptSubmit acquire placed.
+            fullKey = ManualHold.sessionKey(tool: tool, sessionID: key)
         }
         Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
             .notice("release \(fullKey, privacy: .public)")
