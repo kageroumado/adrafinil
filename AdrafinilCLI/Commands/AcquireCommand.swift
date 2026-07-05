@@ -27,8 +27,34 @@ enum AcquireCommand {
 
         let fullKey: String
         let watchedPID: pid_t?
+        // The TTL sent to the daemon. Overridden by the background-shell branch to apply its default
+        // when `--ttl` was omitted; every other path passes the parsed `--ttl` (nil when absent).
+        var effectiveTTL = ttl
 
-        if parser.flag("--subagent") {
+        if parser.flag("--if-background") {
+            // Opt-in background-shell hook (`PreToolUse`/Bash). A command the agent launched with
+            // `run_in_background` keeps running past the turn's `Stop` and fires no completion hook, so
+            // this `PreToolUse` is the only signal — and the hold must be TTL-bounded. Read the raw
+            // stdin payload and decide: a foreground command (or any non-background call) yields no
+            // plan, so place NO hold and exit 0 silently (this is the common case — every foreground
+            // Bash call — so it must never warn). A background command gets a per-invocation
+            // `<tool>:bg-<id>` hold with the owning agent PID attached (so the dead-PID net still reaps
+            // it if the whole agent dies) and a TTL the daemon clamps to `manualHoldMaxHours`.
+            let payload = CLIStdin.payload() ?? Data()
+            guard let plan = BackgroundBashHold.plan(
+                payload: payload,
+                tool: tool,
+                requestedTTL: ttl,
+                uniqueID: BackgroundBashHold.freshID(),
+            ) else {
+                exit(0)
+            }
+            fullKey = plan.key
+            effectiveTTL = plan.ttl
+            let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
+            watchedPID = agentPID == -1 ? nil : agentPID
+            cliLog.notice("acquire \(fullKey, privacy: .public) (background-shell) ttl=\(Int(plan.ttl), privacy: .public)s — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
+        } else if parser.flag("--subagent") {
             // Sub-agent lifecycle hook (`SubagentStart`). Key on the sub-agent's own `agent_id` from
             // stdin — NOT `session_id`, which on these payloads is the *parent's* and would collide
             // with the parent turn's hold. This distinct `<tool>:<agent_id>` hold survives the parent
@@ -88,7 +114,7 @@ enum AcquireCommand {
             reason: reason,
             pid: watchedPID,
             processName: tool,
-            ttlSeconds: ttl,
+            ttlSeconds: effectiveTTL,
         )
 
         do {

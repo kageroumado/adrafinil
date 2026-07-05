@@ -7,7 +7,9 @@ import Testing
 /// rejection — is where the bugs live, so it's exercised here against crafted payloads.
 @Suite("HookPayload")
 struct HookPayloadTests {
-    private func data(_ json: String) -> Data { Data(json.utf8) }
+    private func data(_ json: String) -> Data {
+        Data(json.utf8)
+    }
 
     // MARK: - session_id
 
@@ -63,5 +65,39 @@ struct HookPayloadTests {
         #expect(HookPayload.agentID(in: data("[1,2,3]")) == nil)
         #expect(HookPayload.agentID(in: data(#"{"agent_id":42}"#)) == nil)
         #expect(HookPayload.agentID(in: Data()) == nil)
+    }
+
+    // MARK: - run_in_background (PreToolUse Bash)
+
+    @Test
+    func `runInBackground is true for a backgrounded Bash call`() {
+        // The real PreToolUse shape: tool_name + the raw tool_input carrying run_in_background=true.
+        let payload = #"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm run build","run_in_background":true}}"#
+        #expect(HookPayload.runInBackground(in: data(payload)) == true)
+    }
+
+    @Test
+    func `runInBackground is false for a foreground Bash call`() {
+        // The common case — a foreground command sets the flag false (or omits it).
+        let explicit = #"{"tool_name":"Bash","tool_input":{"command":"ls","run_in_background":false}}"#
+        #expect(HookPayload.runInBackground(in: data(explicit)) == false)
+    }
+
+    @Test
+    func `runInBackground is false when the flag is absent`() {
+        // Claude Code omits run_in_background when the model doesn't set it — must read as "not
+        // background", not throw or default true.
+        let payload = #"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#
+        #expect(HookPayload.runInBackground(in: data(payload)) == false)
+    }
+
+    @Test
+    func `runInBackground is false when tool_input is missing or not an object`() {
+        // A non-Bash tool, or a malformed payload with no nested tool_input, places no hold.
+        #expect(HookPayload.runInBackground(in: data(#"{"tool_name":"Read"}"#)) == false)
+        #expect(HookPayload.runInBackground(in: data(#"{"tool_input":"oops"}"#)) == false)
+        #expect(HookPayload.runInBackground(in: data(#"{"tool_input":{"run_in_background":"true"}}"#)) == false)
+        #expect(HookPayload.runInBackground(in: data("not json")) == false)
+        #expect(HookPayload.runInBackground(in: Data()) == false)
     }
 }

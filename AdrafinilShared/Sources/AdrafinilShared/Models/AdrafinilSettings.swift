@@ -34,6 +34,13 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     /// down to this — a forgetful agent can never pin the Mac awake indefinitely.
     public var manualHoldMaxHours: Double = 4
 
+    /// Opt-in: keep the Mac awake while a shell command an agent launched with `run_in_background`
+    /// keeps running. Such a command outlives the turn's `Stop` and fires *no* completion hook, so
+    /// the only signal is the `PreToolUse` that starts it — the resulting hold has no symmetric
+    /// release and is therefore TTL-bounded (capped by `manualHoldMaxHours`), which is why it's a
+    /// separately-installed, default-OFF opt-in. Claude Code only for now (see `BackgroundBashHold`).
+    public var keepAwakeForBackgroundBash: Bool = false
+
     public var launchAtLogin: Bool = true
     public var showInMenuBar: Bool = true
 
@@ -54,6 +61,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case autoAcquireForKnownAgents
         case agentHoldsEnabled
         case manualHoldMaxHours
+        case keepAwakeForBackgroundBash
         case launchAtLogin
         case showInMenuBar
     }
@@ -95,6 +103,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.autoAcquireForKnownAgents = (try? c.decodeIfPresent(Bool.self, forKey: .autoAcquireForKnownAgents)) ?? d.autoAcquireForKnownAgents
         self.agentHoldsEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .agentHoldsEnabled)) ?? d.agentHoldsEnabled
         self.manualHoldMaxHours = (try? c.decodeIfPresent(Double.self, forKey: .manualHoldMaxHours)) ?? d.manualHoldMaxHours
+        self.keepAwakeForBackgroundBash = (try? c.decodeIfPresent(Bool.self, forKey: .keepAwakeForBackgroundBash)) ?? d.keepAwakeForBackgroundBash
         self.launchAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? d.launchAtLogin
         self.showInMenuBar = (try? c.decodeIfPresent(Bool.self, forKey: .showInMenuBar)) ?? d.showInMenuBar
         clampToSupportedRanges()

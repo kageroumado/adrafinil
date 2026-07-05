@@ -32,6 +32,15 @@ struct HookContext {
         return command
     }
 
+    /// Builds the background-shell acquire command for a `PreToolUse`(Bash) hook:
+    /// `acquire --tool <tool> --if-background --ttl <n>`. It fires when the agent launches a
+    /// `run_in_background` shell command — the one signal for a background task that outlives the
+    /// turn's `Stop` (which fires no completion hook), so the resulting hold is TTL-bounded. The
+    /// `--ttl` precedes no positional, so `--if-background` parses as a bare flag (see `ArgParser`).
+    func backgroundAcquireCommand(tool: String, ttlSeconds: Int) -> String {
+        quotedCLI + " acquire --tool " + tool + " --if-background --ttl " + String(ttlSeconds)
+    }
+
     /// The name Adrafinil registers its MCP server under in each agent's config. Constant across
     /// agents, and its own idempotency handle (a named key, unlike the array-based hook entries).
     static let mcpServerName = "adrafinil"
@@ -75,11 +84,24 @@ protocol AgentIntegration {
     /// above — hooks track when the agent is working; the MCP server lets the agent deliberately
     /// hold sleep past its turn. Only agents whose MCP config format we've verified return a shape.
     func mcpShape(_ ctx: HookContext) -> MCPServerShape?
+
+    /// How to install Adrafinil's opt-in background-shell hook (a `PreToolUse`/Bash `acquire
+    /// --if-background`), or nil if the agent exposes no clean `run_in_background` signal. Like MCP,
+    /// this is a *separately-toggled* capability, installed independently of the core acquire/release
+    /// wiring so flipping it never rewrites the whole hook set (and, for Codex, never re-triggers the
+    /// `/hooks` trust approval). Only Claude Code qualifies today (see `BackgroundBashHold`).
+    func backgroundBashShape(_ ctx: HookContext) -> BackgroundBashHookShape?
 }
 
 extension AgentIntegration {
     /// Default: no MCP support. Agents override this once their config format is device-verified.
     func mcpShape(_: HookContext) -> MCPServerShape? {
+        nil
+    }
+
+    /// Default: no background-shell hook. Only agents with a clean `run_in_background` pre-tool
+    /// signal (Claude Code) override this.
+    func backgroundBashShape(_: HookContext) -> BackgroundBashHookShape? {
         nil
     }
 }

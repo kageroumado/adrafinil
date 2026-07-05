@@ -25,6 +25,10 @@ public enum HookPayload {
     public static let sessionIDField = "session_id"
     /// The sub-agent-id field on `SubagentStart`/`SubagentStop` payloads.
     public static let agentIDField = "agent_id"
+    /// The nested container of a tool call's raw input arguments on a `PreToolUse` payload.
+    public static let toolInputField = "tool_input"
+    /// The Bash tool's flag that launches a command in the background.
+    public static let runInBackgroundField = "run_in_background"
 
     /// The parent `session_id` from a hook payload, or nil when the bytes aren't a JSON object with
     /// a non-empty string at that key.
@@ -36,6 +40,23 @@ public enum HookPayload {
     /// bytes aren't a JSON object with a non-empty string at that key (e.g. a non-sub-agent hook).
     public static func agentID(in data: Data) -> String? {
         string(forField: agentIDField, in: data)
+    }
+
+    /// Whether a `PreToolUse` Bash payload carries `tool_input.run_in_background == true`.
+    ///
+    /// `tool_input` is the raw argument object the model passed the tool (verified against Claude
+    /// Code 2.1.201: the Bash tool's schema declares `run_in_background` as an optional boolean, so
+    /// when the model sets it, it lands here). Returns false when the field is absent, not a bool,
+    /// `tool_input` isn't a nested object, or the payload isn't a JSON object at all — so a
+    /// foreground Bash call, or any non-Bash tool, reads as "not background" and places no hold.
+    /// Only Claude Code emits this cleanly; Codex models background shells as a separate
+    /// `exec_command`/`write_stdin` PTY yield with no equivalent pre-tool boolean (see
+    /// `BackgroundBashHold`), so it never reaches here.
+    public static func runInBackground(in data: Data) -> Bool {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let toolInput = obj[toolInputField] as? [String: Any],
+              let flag = toolInput[runInBackgroundField] as? Bool else { return false }
+        return flag
     }
 
     /// A non-empty string value at `field` in a top-level JSON object, or nil. An empty string reads

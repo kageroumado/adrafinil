@@ -31,6 +31,13 @@ enum CLIStdin {
         return HookPayload.agentID(in: data)
     }
 
+    /// The raw hook payload bytes on stdin, or nil when stdin is a terminal / carries nothing. Used by
+    /// `acquire --if-background`, which inspects the `PreToolUse` payload's `tool_input` rather than a
+    /// single id field (`HookPayload.runInBackground`).
+    static func payload() -> Data? {
+        readPayload()
+    }
+
     /// Reads the hook payload without ever stalling the agent. The payload can arrive split
     /// across multiple pipe writes (a `UserPromptSubmit` payload carries the full prompt text,
     /// which easily exceeds one write or even the 64 KB pipe capacity), so a single read isn't

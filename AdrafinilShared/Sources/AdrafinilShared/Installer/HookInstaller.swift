@@ -122,4 +122,37 @@ public struct HookInstaller {
     public func mcpState(for agent: AgentKind) -> HookInstallState {
         AgentIntegrations.integration(for: agent).mcpShape(context)?.installState() ?? .notInstalled
     }
+
+    // MARK: - Background-shell hook (opt-in, separately toggled)
+
+    /// Whether Adrafinil can install the opt-in background-shell hook for `agent`. Only agents with a
+    /// clean `run_in_background` pre-tool signal (Claude Code) qualify — a sibling of `supportsMCP`.
+    public func supportsBackgroundHold(for agent: AgentKind) -> Bool {
+        AgentIntegrations.integration(for: agent).backgroundBashShape(context) != nil
+    }
+
+    /// Installs the background-shell `PreToolUse`(Bash) hook for `agent`. Throws
+    /// `SkipReason.unsupportedHere` for an agent without a background-shell signal.
+    @discardableResult
+    public func installBackgroundHold(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
+        guard let shape = AgentIntegrations.integration(for: agent).backgroundBashShape(context) else {
+            throw SkipReason.unsupportedHere("Background-shell keep-awake not supported for \(agent.rawValue)")
+        }
+        return try shape.install(dryRun: dryRun)
+    }
+
+    /// Removes the background-shell hook from `agent`'s config. A no-op for agents without support.
+    @discardableResult
+    public func uninstallBackgroundHold(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
+        guard let shape = AgentIntegrations.integration(for: agent).backgroundBashShape(context) else {
+            return InstallResult(summary: "nothing to remove", diff: "(unchanged)")
+        }
+        return try shape.uninstall(dryRun: dryRun)
+    }
+
+    /// Background-shell hook state for `agent` (mirrors `installState`). `.notInstalled` when the
+    /// agent has no background-shell support at all.
+    public func backgroundHoldState(for agent: AgentKind) -> HookInstallState {
+        AgentIntegrations.integration(for: agent).backgroundBashShape(context)?.installState() ?? .notInstalled
+    }
 }

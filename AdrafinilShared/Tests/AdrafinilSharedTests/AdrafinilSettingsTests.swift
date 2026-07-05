@@ -16,6 +16,9 @@ struct AdrafinilSettingsTests {
         #expect(s.autoAcquireForKnownAgents == false)
         #expect(s.launchAtLogin == true)
         #expect(s.showInMenuBar == true)
+        // The background-shell keep-awake is opt-in: it holds the Mac awake for a `run_in_background`
+        // command with no completion hook, so it must be OFF unless the user turns it on.
+        #expect(s.keepAwakeForBackgroundBash == false)
     }
 
     @Test
@@ -26,6 +29,7 @@ struct AdrafinilSettingsTests {
         original.thermalThresholdCelsius = 72.5
         original.idleReleaseSeconds = 120
         original.autoAcquireForKnownAgents = true
+        original.keepAwakeForBackgroundBash = true
         original.chimeName = "doot"
 
         let data = try JSONEncoder().encode(original)
@@ -72,6 +76,7 @@ struct AdrafinilSettingsTests {
         #expect(s.launchAtLogin == false)
         #expect(s.chimeName == "Tink")
         #expect(s.showInMenuBar == true) // absent → default, not a decode failure
+        #expect(s.keepAwakeForBackgroundBash == false) // absent → opt-in default (off)
     }
 
     @Test

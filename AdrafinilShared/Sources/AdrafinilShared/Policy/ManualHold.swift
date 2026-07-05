@@ -43,6 +43,17 @@ public enum ManualHold {
         let wanted = requested ?? defaultTTL
         return min(max(wanted, 1), cap)
     }
+
+    /// Clamps an assertion's expiry so no acquired hold outlives the max-hold cap. The daemon applies
+    /// this to *every* acquire: a TTL-carrying hook (the background-shell hold, which requests up to
+    /// the CLI's 24h absolute ceiling) is brought down to the user's live `manualHoldMaxHours`, while
+    /// a TTL-less hook/sniff assertion (`expiresAt == nil`) is left to the idle policy untouched. This
+    /// is the daemon-authoritative ceiling for hook TTLs, the sibling of `clampTTL` for explicit holds.
+    public static func clampExpiry(_ expiresAt: Date?, acquiredAt: Date, capHours: Double) -> Date? {
+        guard let expiresAt else { return nil }
+        let maxExpiry = acquiredAt.addingTimeInterval(max(1, capHours * 3_600))
+        return min(expiresAt, maxExpiry)
+    }
 }
 
 /// Parses a human duration string into seconds. Accepts a bare number (seconds), a single unit

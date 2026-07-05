@@ -24,6 +24,12 @@ protocol AgentHooksProviding {
     func mcpState(for kind: AgentKind) -> HookInstallState
     func installMCP(for kind: AgentKind) throws
     func uninstallMCP(for kind: AgentKind) throws
+
+    // Background-shell hook — the opt-in that keeps the Mac awake while a `run_in_background` command
+    // an agent launched keeps running. Toggled globally (Safety tab), applied per detected agent.
+    func backgroundHoldSupported(for kind: AgentKind) -> Bool
+    func installBackgroundHold(for kind: AgentKind) throws
+    func uninstallBackgroundHold(for kind: AgentKind) throws
 }
 
 @MainActor
@@ -40,6 +46,13 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
     }
     func install(for kind: AgentKind) throws {
         _ = try installer.install(for: kind, dryRun: false)
+        // The core install rewrites the agent's hook set, and a preceding disconnect stripped every
+        // Adrafinil handler — including the separately-toggled background-shell hook. Re-apply it here
+        // when the setting is on, so reconnecting an agent doesn't silently drop background-shell
+        // keep-awake. (Settings are persisted synchronously on toggle, so this reads the live value.)
+        if AdrafinilSettings.load().keepAwakeForBackgroundBash, installer.supportsBackgroundHold(for: kind) {
+            try? installer.installBackgroundHold(for: kind)
+        }
     }
     func uninstall(for kind: AgentKind) throws {
         try installer.uninstall(for: kind)
@@ -60,6 +73,16 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
     }
     func uninstallMCP(for kind: AgentKind) throws {
         try installer.uninstallMCP(for: kind)
+    }
+
+    func backgroundHoldSupported(for kind: AgentKind) -> Bool {
+        installer.supportsBackgroundHold(for: kind)
+    }
+    func installBackgroundHold(for kind: AgentKind) throws {
+        try installer.installBackgroundHold(for: kind)
+    }
+    func uninstallBackgroundHold(for kind: AgentKind) throws {
+        try installer.uninstallBackgroundHold(for: kind)
     }
 
     func revealConfig(for kind: AgentKind) {
@@ -138,6 +161,14 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
         func uninstallMCP(for kind: AgentKind) throws {
             mcpStates[kind] = .notInstalled
         }
+
+        func backgroundHoldSupported(for kind: AgentKind) -> Bool {
+            // Mirrors the device-verified set — Claude Code is the only agent with a clean
+            // `run_in_background` pre-tool signal.
+            kind == .claudeCode
+        }
+        func installBackgroundHold(for _: AgentKind) throws {}
+        func uninstallBackgroundHold(for _: AgentKind) throws {}
 
         private func setState(_ state: HookInstallState, for kind: AgentKind) {
             if let i = states.firstIndex(where: { $0.kind == kind }) { states[i].state = state }

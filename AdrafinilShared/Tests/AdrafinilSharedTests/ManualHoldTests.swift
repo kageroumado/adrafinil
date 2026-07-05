@@ -37,6 +37,41 @@ struct ManualHoldTests {
     func `newKey is unique across calls`() {
         #expect(ManualHold.newKey() != ManualHold.newKey())
     }
+
+    // MARK: - clampExpiry (daemon-side TTL ceiling for hook acquires)
+
+    @Test
+    func `clampExpiry leaves a TTL-less assertion untouched`() {
+        // Per-turn and sub-agent hooks carry no TTL; they stay governed by the idle policy, not a
+        // deadline.
+        #expect(ManualHold.clampExpiry(nil, acquiredAt: Date(), capHours: 4) == nil)
+    }
+
+    @Test
+    func `clampExpiry caps an over-long expiry to the max-hold`() {
+        // The background-shell hook requests the 24h ceiling; the daemon must bring it down to the
+        // user's live cap so a background task can't pin the Mac past it.
+        let acquired = Date(timeIntervalSince1970: 1_000_000)
+        let requested = acquired.addingTimeInterval(24 * 3_600)
+        let clamped = ManualHold.clampExpiry(requested, acquiredAt: acquired, capHours: 4)
+        #expect(clamped == acquired.addingTimeInterval(4 * 3_600))
+    }
+
+    @Test
+    func `clampExpiry passes a within-cap expiry through`() {
+        let acquired = Date(timeIntervalSince1970: 1_000_000)
+        let requested = acquired.addingTimeInterval(30 * 60)
+        #expect(ManualHold.clampExpiry(requested, acquiredAt: acquired, capHours: 4) == requested)
+    }
+
+    @Test
+    func `clampExpiry keeps a positive floor for a zero-hour cap`() {
+        // A degenerate cap must still yield a future expiry (max(1, …)), never acquiredAt or earlier.
+        let acquired = Date(timeIntervalSince1970: 1_000_000)
+        let requested = acquired.addingTimeInterval(10 * 3_600)
+        let clamped = ManualHold.clampExpiry(requested, acquiredAt: acquired, capHours: 0)
+        #expect(clamped == acquired.addingTimeInterval(1))
+    }
 }
 
 @Suite("DurationParser")

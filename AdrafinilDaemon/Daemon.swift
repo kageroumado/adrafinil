@@ -215,6 +215,17 @@ final class Daemon {
             log.notice("acquire rejected — cutout latched (key='\(assertion.key, privacy: .public)')")
             return .cutoutLatched(message)
         }
+        // Cap any hook-carried TTL to the user's live max-hold. A TTL only reaches here from the
+        // background-shell hook (`acquire --if-background`), which requests the CLI's 24h ceiling so
+        // that this clamp — not a value baked in at install time — governs; the per-turn and sub-agent
+        // hooks carry no TTL and are untouched (idle policy governs them). `.manual` holds arrive
+        // already clamped (see `handleHold`), so this is a harmless no-op for them.
+        var assertion = assertion
+        assertion.expiresAt = ManualHold.clampExpiry(
+            assertion.expiresAt,
+            acquiredAt: assertion.acquiredAt,
+            capHours: settings.manualHoldMaxHours,
+        )
         let snapshot = await registry.snapshot()
         if !snapshot.contains(where: { $0.key == assertion.key }) {
             guard snapshot.count < Self.maxAssertions else {

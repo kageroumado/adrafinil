@@ -60,6 +60,23 @@ struct SettingsView: View {
                     }
                 }
             }
+            // Flipping the background-shell opt-in applies or removes its `PreToolUse`(Bash) hook for
+            // every connected, capable agent. It's a separate install path (not the core hook set),
+            // so this touches only that one handler. On enable we gate on the agent being connected —
+            // a background hook without the core session hooks would keep-awake for an agent the user
+            // hasn't turned on; on disable we strip from all supported agents regardless (a no-op when
+            // absent). Reconnects re-apply it via `LiveAgentHooksProvider.install`.
+            if old.keepAwakeForBackgroundBash != new.keepAwakeForBackgroundBash {
+                for kind in agentHooks.detectedAgents() where agentHooks.backgroundHoldSupported(for: kind) {
+                    if new.keepAwakeForBackgroundBash {
+                        if agentHooks.installState(for: kind) == .installed {
+                            try? agentHooks.installBackgroundHold(for: kind)
+                        }
+                    } else {
+                        try? agentHooks.uninstallBackgroundHold(for: kind)
+                    }
+                }
+            }
             // Debounce the daemon reload so a slider drag doesn't fire a cross-process reload (and a
             // daemon-side disk re-read) on every intermediate value.
             reloadTask?.cancel()
@@ -573,6 +590,17 @@ struct SafetySettingsTab: View {
                 Text("Agent holds")
             } footer: {
                 Text("An agent can ask Adrafinil to keep your Mac awake for a background task it started — like a long build or deploy — even after it finishes replying. Every hold has a time limit and shows up in the menu, where you can end it yourself.")
+            }
+
+            Section {
+                Toggle(
+                    "Keep the Mac awake for background shell commands",
+                    isOn: $settings.keepAwakeForBackgroundBash,
+                )
+            } header: {
+                Text("Background shell tasks")
+            } footer: {
+                Text("When an agent runs a shell command in the background — a long build or test run it keeps going after replying — this keeps your Mac awake for it. There's no signal when such a command finishes, so the hold lasts up to your longest-hold limit above (even if the task itself goes quiet, like a “tail -f”) and then ends on its own. Works with Claude Code. Off by default.")
             }
         }
         .formStyle(.grouped)
