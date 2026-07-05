@@ -22,6 +22,16 @@ import Foundation
 /// empty). The CLI still prefers the `session_id` field from the hook's stdin JSON; the env-var
 /// positional is a fallback. The same session id keys both hooks, so multi-turn sessions cycle
 /// acquire→release→acquire on one idempotent key.
+///
+/// **Sub-agents.** A backgrounded sub-agent (`Task`/workflow) keeps running after the parent turn's
+/// `Stop`, which would release the turn hold and let the Mac sleep mid-work. Claude Code emits
+/// `SubagentStart`/`SubagentStop` for these, carrying the parent's `session_id` and the sub-agent's
+/// own id in a separate `agent_id` field (verified in `src/utils/hooks.ts`). So those two hooks use
+/// the `--subagent` acquire/release, which key on `agent_id` — a distinct `<tool>:<agent_id>` hold
+/// that survives the parent `Stop` and releases only on that sub-agent's own `SubagentStop`. Keying
+/// them on `session_id` instead would drop the parent's turn hold the moment a foreground sub-agent
+/// finished. The sub-agent hold has the parent's PID attached (sub-agents are in-process), so the
+/// daemon's CPU-idle / dead-process nets still cover a missed `SubagentStop`.
 struct ClaudeCodeIntegration: AgentIntegration {
     let agent = AgentKind.claudeCode
 
@@ -52,7 +62,17 @@ struct ClaudeCodeIntegration: AgentIntegration {
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
             obsoleteEvents: ["SessionStart", "SessionEnd"],
-            extraReleases: [.init(event: "Notification", matcher: "idle_prompt")],
+            // Notification/idle_prompt: fast-path release after an Esc-interrupt (see above). The two
+            // `SubagentStart`/`SubagentStop` hooks keep the Mac awake for a backgrounded sub-agent that
+            // outlives the parent turn's `Stop`: they key on the sub-agent's `agent_id` from stdin
+            // (hence `subagent: true`, and no `$CLAUDE_CODE_SESSION_ID` positional — that would be the
+            // parent's session), so the sub-agent hold is a distinct key released only by its own
+            // `SubagentStop`. A foreground sub-agent's start+stop is net-neutral on the parent hold.
+            extraHandlers: [
+                .init(event: "Notification", command: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"), matcher: "idle_prompt"),
+                .init(event: "SubagentStart", command: ctx.hookCommand("acquire", tool: agent.rawValue, subagent: true)),
+                .init(event: "SubagentStop", command: ctx.hookCommand("release", tool: agent.rawValue, subagent: true)),
+            ],
         )
     }
 

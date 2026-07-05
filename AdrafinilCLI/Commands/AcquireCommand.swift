@@ -28,7 +28,24 @@ enum AcquireCommand {
         let fullKey: String
         let watchedPID: pid_t?
 
-        if let kind = AgentKind(rawValue: tool), let pidRel = kind.gatewayPIDFileRelativePath {
+        if parser.flag("--subagent") {
+            // Sub-agent lifecycle hook (`SubagentStart`). Key on the sub-agent's own `agent_id` from
+            // stdin — NOT `session_id`, which on these payloads is the *parent's* and would collide
+            // with the parent turn's hold. This distinct `<tool>:<agent_id>` hold survives the parent
+            // `Stop` (the fix for a backgrounded sub-agent sleeping the Mac mid-work) and is released
+            // only by the matching `SubagentStop`. There is no positional/env-var fallback — no agent
+            // exposes the sub-agent id that way — so a missing `agent_id` fails soft rather than
+            // falling back to the parent session.
+            guard let agentID = CLIStdin.agentID() else {
+                hookFailure("acquire --subagent: no agent_id on stdin — ignored")
+            }
+            fullKey = ManualHold.sessionKey(tool: tool, sessionID: agentID)
+            // Sub-agents run in-process under the parent agent, so the parent-walk resolves the same
+            // owning PID — the daemon's CPU-idle/dead-process nets then cover a missed `SubagentStop`.
+            let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
+            watchedPID = agentPID == -1 ? nil : agentPID
+            cliLog.notice("acquire \(fullKey, privacy: .public) (subagent) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
+        } else if let kind = AgentKind(rawValue: tool), let pidRel = kind.gatewayPIDFileRelativePath {
             // Gateway/daemon-style agent (e.g. Hermes): one shared long-lived process multiplexes
             // every session, so its per-session start/end hooks don't bracket process lifetime and
             // the session id is irrelevant. Coalesce all sessions onto a single fixed `<tool>:gateway`

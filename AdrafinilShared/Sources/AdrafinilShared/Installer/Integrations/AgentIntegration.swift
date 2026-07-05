@@ -19,11 +19,17 @@ struct HookContext {
 
     /// Builds an `acquire`/`release` hook command. When `sessionVar` is nil the positional session
     /// key is omitted and the CLI sources the session id from the hook's stdin (`session_id`).
-    func hookCommand(_ op: String, tool: String, sessionVar: String? = nil) -> String {
-        if let sessionVar {
-            return "\(quotedCLI) \(op) \(sessionVar) --tool \(tool)"
-        }
-        return "\(quotedCLI) \(op) --tool \(tool)"
+    ///
+    /// `subagent: true` appends `--subagent`, which makes the CLI key the hold on the sub-agent's
+    /// `agent_id` from stdin instead — for the `SubagentStart`/`SubagentStop` hooks, whose hold must
+    /// outlive the parent turn's `Stop`. Sub-agent hooks always source their id from stdin, so they
+    /// pass no `sessionVar`.
+    func hookCommand(_ op: String, tool: String, sessionVar: String? = nil, subagent: Bool = false) -> String {
+        var command = quotedCLI + " " + op
+        if let sessionVar { command += " " + sessionVar }
+        command += " --tool " + tool
+        if subagent { command += " --subagent" }
+        return command
     }
 
     /// The name Adrafinil registers its MCP server under in each agent's config. Constant across

@@ -14,14 +14,30 @@ import Foundation
 /// Repairs operate on the inner *handler*, never the whole group, so user handlers sharing a group
 /// with ours survive every install/uninstall.
 struct NestedJSONHookShape {
-    /// An extra release hook on its own event, narrowed by a `matcher`. Claude Code uses one for
-    /// `Notification` matched to `idle_prompt`: an Esc-interrupt skips `Stop`, so without this the
-    /// hold would linger until the daemon's CPU-idle backstop. Claude fires an `idle_prompt`
-    /// Notification ~60s after the agent goes idle (the `finally` that records query-completion runs
-    /// on interrupt too), so releasing on it frees the Mac shortly after an interrupted turn.
-    struct MatchedRelease {
+    /// An extra hook beyond the core acquire/release pair, on its own event and (optionally) narrowed
+    /// by a `matcher`. Two uses:
+    ///
+    ///   - Claude Code's `Notification` matched to `idle_prompt` (a release): an Esc-interrupt skips
+    ///     `Stop`, so without this the hold would linger until the daemon's CPU-idle backstop. Claude
+    ///     fires an `idle_prompt` Notification ~60s after the agent goes idle (the `finally` that
+    ///     records query-completion runs on interrupt too), so releasing on it frees the Mac shortly
+    ///     after an interrupted turn.
+    ///   - `SubagentStart` (acquire) / `SubagentStop` (release), each carrying the `--subagent`
+    ///     command so the hold is keyed on the sub-agent's own `agent_id` and outlives the parent
+    ///     turn's `Stop` — the fix for backgrounded sub-agents sleeping the Mac mid-work.
+    ///
+    /// Unlike the core pair these carry their *own* command (not necessarily `acquireCommand`/
+    /// `releaseCommand`), so the sub-agent variants can differ from the per-turn ones.
+    struct ExtraHandler {
         let event: String
-        let matcher: String
+        let command: String
+        let matcher: String?
+
+        init(event: String, command: String, matcher: String? = nil) {
+            self.event = event
+            self.command = command
+            self.matcher = matcher
+        }
     }
 
     let configPath: String
@@ -36,8 +52,10 @@ struct NestedJSONHookShape {
     /// `SessionStart`/`SessionEnd` (session-scoped) to `UserPromptSubmit`/`Stop` (activity-scoped),
     /// and a lingering `SessionStart` → acquire would otherwise re-introduce the whole-session hold.
     var obsoleteEvents: [String] = []
-    /// Additional `releaseCommand` hooks beyond `endEvent`, each on its own event with a matcher.
-    var extraReleases: [MatchedRelease] = []
+    /// Extra hooks beyond the core acquire/release pair (the idle-release Notification, the two
+    /// sub-agent lifecycle hooks). Installed, uninstalled, and installState-verified exactly like the
+    /// core pair.
+    var extraHandlers: [ExtraHandler] = []
 
     func install(dryRun: Bool) throws -> HookInstaller.InstallResult {
         let existing = try ConfigFileIO.readJSONForUpdate(configPath)
@@ -46,10 +64,10 @@ struct NestedJSONHookShape {
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
         merge(into: &hooks, event: startEvent, command: acquireCommand)
         if let endEvent { merge(into: &hooks, event: endEvent, command: releaseCommand) }
-        for extra in extraReleases {
-            merge(into: &hooks, event: extra.event, command: releaseCommand, matcher: extra.matcher)
+        for extra in extraHandlers {
+            merge(into: &hooks, event: extra.event, command: extra.command, matcher: extra.matcher)
         }
-        let managed = Set([startEvent, endEvent].compactMap(\.self) + extraReleases.map(\.event))
+        let managed = Set([startEvent, endEvent].compactMap(\.self) + extraHandlers.map(\.event))
         for event in obsoleteEvents where !managed.contains(event) {
             stripAdrafinil(from: &hooks, event: event)
         }
@@ -60,10 +78,12 @@ struct NestedJSONHookShape {
             try ConfigFileIO.ensureParentDir(of: configPath)
             try ConfigFileIO.writeJSON(after, to: configPath, replacing: existing)
         }
-        let releaseEvents = ([endEvent].compactMap(\.self) + extraReleases.map(\.event)).joined(separator: "+")
-        let summary = releaseEvents.isEmpty
+        var summary = endEvent == nil
             ? "wired \(startEvent) hook (release via process-exit watcher)"
-            : "wired \(startEvent) acquire + \(releaseEvents) release hooks"
+            : "wired \(startEvent) acquire + \(endEvent!) release hooks"
+        if !extraHandlers.isEmpty {
+            summary += " (+ \(extraHandlers.count) lifecycle hook\(extraHandlers.count == 1 ? "" : "s"))"
+        }
         return HookInstaller.InstallResult(summary: summary, diff: diff)
     }
 
@@ -120,10 +140,10 @@ struct NestedJSONHookShape {
             (hooks[event] as? [[String: Any]]).map { Self.command(in: $0) != nil } ?? false
         }
 
-        // Every extra matched-release hook must carry our release command, or the install is partial
-        // (e.g. upgrading from a build that predated the Notification/idle_prompt release).
-        let extrasInstalled = extraReleases.allSatisfy { extra in
-            (hooks[extra.event] as? [[String: Any]]).flatMap { Self.command(in: $0) } == releaseCommand
+        // Every extra hook must carry its canonical command, or the install is partial (e.g.
+        // upgrading from a build that predated the idle-release Notification or the sub-agent hooks).
+        let extrasInstalled = extraHandlers.allSatisfy { extra in
+            (hooks[extra.event] as? [[String: Any]]).flatMap { Self.command(in: $0) } == extra.command
         }
 
         guard let endEvent else {

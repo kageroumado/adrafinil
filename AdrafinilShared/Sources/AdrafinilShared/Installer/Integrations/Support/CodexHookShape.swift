@@ -52,11 +52,20 @@ struct CodexHookShape {
     /// to `UserPromptSubmit`, and a lingering `SessionStart` → acquire would otherwise double-fire.
     var obsoleteEvents: [String] = []
 
+    /// Extra `(event, command)` handlers beyond the core acquire/release pair — the sub-agent
+    /// `SubagentStart` → `acquire --subagent` / `SubagentStop` → `release --subagent` hooks that keep
+    /// the Mac awake for a backgrounded sub-agent outliving the parent turn's `Stop`. Merged,
+    /// uninstalled, and installState-verified exactly like the pair. Codex mirrors Claude Code's
+    /// sub-agent hooks: `Subagent*CommandInput` carry the sub-agent's own id in `agent_id` alongside
+    /// the parent `session_id` (codex-rs `hooks/src/schema.rs`), so `--subagent` reads `agent_id`.
+    var extraHandlers: [(event: String, command: String)] = []
+
     /// The `(event, command)` handlers we manage, in install order. The acquire handler always; the
-    /// release handler only when both `releaseEvent` and `releaseCommand` are set.
+    /// release handler only when both `releaseEvent` and `releaseCommand` are set; then any extras.
     private var managedHandlers: [(event: String, command: String)] {
         var handlers = [(acquireEvent, acquireCommand)]
         if let releaseEvent, let releaseCommand { handlers.append((releaseEvent, releaseCommand)) }
+        handlers.append(contentsOf: extraHandlers)
         return handlers
     }
 
@@ -84,10 +93,15 @@ struct CodexHookShape {
             try ConfigFileIO.ensureParentDir(of: configPath)
             try ConfigFileIO.writeJSON(after, to: configPath, replacing: existing)
         }
-        let wired = releaseEvent.map { "\(acquireEvent) acquire + \($0) release hooks" }
+        var wired = releaseEvent.map { "\(acquireEvent) acquire + \($0) release hooks" }
             ?? "\(acquireEvent) hook (release via process-exit watcher)"
+        if !extraHandlers.isEmpty {
+            wired += " plus \(extraHandlers.count) sub-agent hook\(extraHandlers.count == 1 ? "" : "s")"
+        }
+        // Trust is per-handler in Codex, so each hook we add is one more one-time `/hooks` approval.
+        let trustNote = managedHandlers.count > 1 ? "trust each in Codex with /hooks" : "trust it in Codex with /hooks"
         return HookInstaller.InstallResult(
-            summary: "wired \(wired); trust it in Codex with /hooks",
+            summary: "wired \(wired); \(trustNote)",
             diff: diff,
         )
     }

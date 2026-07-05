@@ -34,6 +34,13 @@ import Foundation
 /// Codex exposes no session-id env var (it has `CODEX_THREAD_ID`, not `CODEX_SESSION_ID`, and
 /// documents only the stdin field), so both commands carry no positional key — the CLI reads
 /// `session_id` from stdin for acquire and release alike.
+///
+/// 6. **Sub-agents.** Codex emits `SubagentStart`/`SubagentStop` for spawned sub-agents, carrying the
+///    parent's `session_id` and the sub-agent's own thread id in a separate `agent_id` field
+///    (codex-rs `hooks/src/schema.rs`, `Subagent*CommandInput`). A backgrounded sub-agent outlives
+///    the parent turn's `Stop`, so those two hooks use the `--subagent` acquire/release, which key on
+///    `agent_id` — a distinct `<tool>:<agent_id>` hold released only by that sub-agent's own
+///    `SubagentStop`. Each new handler is its own one-time `/hooks` trust approval.
 struct CodexIntegration: AgentIntegration {
     let agent = AgentKind.codex
 
@@ -64,6 +71,13 @@ struct CodexIntegration: AgentIntegration {
             releaseEvent: "Stop",
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue),
             obsoleteEvents: ["SessionStart"],
+            // Sub-agent hooks: a backgrounded sub-agent outlives the parent turn's `Stop`, so these
+            // key on the sub-agent's own `agent_id` (via `--subagent`) — a distinct hold released only
+            // by its own `SubagentStop`. Each is a separate one-time `/hooks` trust approval.
+            extraHandlers: [
+                ("SubagentStart", ctx.hookCommand("acquire", tool: agent.rawValue, subagent: true)),
+                ("SubagentStop", ctx.hookCommand("release", tool: agent.rawValue, subagent: true)),
+            ],
         )
     }
 }

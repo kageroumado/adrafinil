@@ -1,6 +1,7 @@
+import AdrafinilShared
 import Foundation
 
-/// Reads the agent session id from the hook's stdin payload.
+/// Reads the identity a hold is keyed on from the hook's stdin payload.
 ///
 /// Every Claude-Code-style hook system (Claude Code, Codex, Gemini CLI, Cursor) invokes the hook
 /// command with a JSON object on **stdin** that includes a `session_id` field. Preferring this over
@@ -8,15 +9,26 @@ import Foundation
 /// makes the integration immune to per-agent env-var naming differences — the exact class of bug
 /// that left Claude (`$CLAUDE_SESSION_ID` → empty) and Codex (`CODEX_THREAD_ID` is not a documented
 /// hook env var) acquiring with an empty key. The env-var argument remains as a fallback.
+///
+/// Sub-agent hooks (`SubagentStart`/`SubagentStop`) carry the *parent's* `session_id` and the
+/// sub-agent's own id in a separate `agent_id` field, so those hooks read `agentID()` — keying on
+/// `session_id` there would collide with the parent turn's hold. The byte-reading is shared;
+/// `HookPayload` does the pure field extraction (and is unit-tested).
 enum CLIStdin {
-    /// Returns the `session_id` from a JSON object on stdin, or nil when stdin is a terminal
+    /// Returns the parent `session_id` from a JSON object on stdin, or nil when stdin is a terminal
     /// (manual invocation), has no data ready, or isn't the expected JSON.
     static func sessionID() -> String? {
-        guard let data = readPayload(),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let sid = obj["session_id"] as? String,
-              !sid.isEmpty else { return nil }
-        return sid
+        guard let data = readPayload() else { return nil }
+        return HookPayload.sessionID(in: data)
+    }
+
+    /// Returns a sub-agent's own `agent_id` from a `SubagentStart`/`SubagentStop` payload on stdin,
+    /// or nil when absent/empty or stdin carries no JSON. Unlike `sessionID()` there is no env-var
+    /// fallback — no agent exposes the sub-agent id as an env var — so `--subagent` hooks depend
+    /// entirely on this.
+    static func agentID() -> String? {
+        guard let data = readPayload() else { return nil }
+        return HookPayload.agentID(in: data)
     }
 
     /// Reads the hook payload without ever stalling the agent. The payload can arrive split

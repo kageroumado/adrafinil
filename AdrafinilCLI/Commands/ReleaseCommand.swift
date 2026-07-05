@@ -8,7 +8,16 @@ enum ReleaseCommand {
         let tool = parser.option("--tool") ?? "unknown"
 
         let fullKey: String
-        if let kind = AgentKind(rawValue: tool), kind.isGatewayScoped {
+        if parser.flag("--subagent") {
+            // Sub-agent lifecycle hook (`SubagentStop`). Release the sub-agent's own
+            // `<tool>:<agent_id>` hold — keyed on stdin `agent_id`, the same id its `SubagentStart`
+            // acquired — never the parent's `session_id`. No fallback: a missing `agent_id` fails soft
+            // (the daemon's idle/dead-process nets recover the hold) rather than releasing the wrong key.
+            guard let agentID = CLIStdin.agentID() else {
+                AcquireCommand.hookFailure("release --subagent: no agent_id on stdin — ignored")
+            }
+            fullKey = ManualHold.sessionKey(tool: tool, sessionID: agentID)
+        } else if let kind = AgentKind(rawValue: tool), kind.isGatewayScoped {
             // Gateway-scoped agent: the hold is coalesced onto the fixed `<tool>:gateway` key
             // (see AcquireCommand), so release targets it directly regardless of session id. This is
             // the fast path back to sleep; the daemon's CPU-idle net is what covers a missed end hook.

@@ -74,6 +74,75 @@ struct HookInstallerTests {
         #expect((inner.first?["command"] as? String)?.contains("claude-code") == true)
     }
 
+    /// The sub-agent fix (issue #7): Claude Code gets `SubagentStart` → `acquire --subagent` and
+    /// `SubagentStop` → `release --subagent`, keyed on the sub-agent's `agent_id` from stdin (so no
+    /// `$CLAUDE_CODE_SESSION_ID` positional — that would be the parent's session).
+    @Test
+    func `install claude code writes subagent hooks`() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+
+        let hooks = try #require(try readJSON(home.path + "/.claude/settings.json")["hooks"] as? [String: Any])
+
+        func command(under event: String) throws -> String {
+            let arr = try #require(hooks[event] as? [[String: Any]], "\(event) present")
+            let inner = try #require(arr.first?["hooks"] as? [[String: Any]])
+            return try #require(inner.first?["command"] as? String)
+        }
+
+        let start = try command(under: "SubagentStart")
+        #expect(start.contains("acquire --tool claude-code --subagent"))
+        #expect(!start.contains("$CLAUDE_CODE_SESSION_ID"), "sub-agent id comes from stdin, not the parent session env var")
+
+        let stop = try command(under: "SubagentStop")
+        #expect(stop.contains("release --tool claude-code --subagent"))
+        #expect(!stop.contains("$CLAUDE_CODE_SESSION_ID"))
+    }
+
+    @Test
+    func `uninstall claude code removes subagent hooks`() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+        try installer.uninstall(for: .claudeCode)
+
+        let hooks = try #require(try readJSON(home.path + "/.claude/settings.json")["hooks"] as? [String: Any])
+        #expect(hooks["SubagentStart"] == nil, "our SubagentStart entry must be gone")
+        #expect(hooks["SubagentStop"] == nil, "our SubagentStop entry must be gone")
+        #expect(installer.installState(for: .claudeCode) == .notInstalled)
+    }
+
+    /// A pre-#7 install (UserPromptSubmit/Stop/Notification present, but no sub-agent hooks) is a
+    /// partial install now — it must read as `.modifiedExternally` so the UI nudges a reinstall that
+    /// adds them, NOT as `.notInstalled` (which would hide the live entries).
+    @Test
+    func `install state modified when subagent hooks missing`() throws {
+        let home = try makeFakeHome(detectedDirs: [".claude"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+
+        // Simulate the pre-#7 state: drop the two sub-agent hooks only.
+        let path = home.path + "/.claude/settings.json"
+        var dict = try readJSON(path)
+        var hooks = try #require(dict["hooks"] as? [String: Any])
+        hooks["SubagentStart"] = nil
+        hooks["SubagentStop"] = nil
+        dict["hooks"] = hooks
+        try writeJSON(dict, to: path)
+
+        #expect(installer.installState(for: .claudeCode) == .modifiedExternally)
+
+        // Reinstall self-heals: it re-adds the sub-agent hooks and the state flips back to installed.
+        _ = try installer.install(for: .claudeCode, dryRun: false)
+        #expect(installer.installState(for: .claudeCode) == .installed)
+    }
+
     @Test
     func `uninstall claude code removes notification hook`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
@@ -313,6 +382,75 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .codex) == .installed)
         let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
         #expect(hooks["Stop"] != nil)
+    }
+
+    /// The sub-agent fix (issue #7) for Codex: `SubagentStart` → `acquire --subagent` and
+    /// `SubagentStop` → `release --subagent`, in the same nested matcher-group shape, keyed on the
+    /// sub-agent's `agent_id` from stdin.
+    @Test
+    func `install codex writes subagent hooks`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .codex, dryRun: false)
+
+        let hooks = try #require(try readJSON(home.path + "/.codex/hooks.json")["hooks"] as? [String: Any])
+
+        func command(under event: String) throws -> String {
+            let groups = try #require(hooks[event] as? [[String: Any]], "\(event) present")
+            let inner = try #require(groups.first?["hooks"] as? [[String: Any]], "nested hooks wrapper")
+            return try #require(inner.first?["command"] as? String)
+        }
+
+        let start = try command(under: "SubagentStart")
+        #expect(start.contains("acquire --tool codex --subagent"))
+        #expect(!start.contains("$"), "Codex sources the sub-agent id from stdin — no env var")
+
+        let stop = try command(under: "SubagentStop")
+        #expect(stop.contains("release --tool codex --subagent"))
+        #expect(!stop.contains("$"))
+    }
+
+    /// A pre-#7 Codex install (UserPromptSubmit/Stop only) is partial once we also manage the sub-agent
+    /// hooks — `.modifiedExternally`, self-healed by reinstall, and never `.notInstalled`.
+    @Test
+    func `codex install missing the subagent hooks reads as modified`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = home.path + "/.codex/hooks.json"
+
+        // Acquire + release, but no sub-agent hooks — exactly the previous build's output.
+        try writeJSON([
+            "hooks": [
+                "UserPromptSubmit": [["hooks": [["type": "command", "command": "/usr/local/bin/adrafinil acquire --tool codex"]]]],
+                "Stop": [["hooks": [["type": "command", "command": "/usr/local/bin/adrafinil release --tool codex"]]]],
+            ],
+        ], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        #expect(installer.installState(for: .codex) == .modifiedExternally, "missing sub-agent hooks is a partial install")
+
+        _ = try installer.install(for: .codex, dryRun: false)
+        #expect(installer.installState(for: .codex) == .installed)
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        #expect(hooks["SubagentStart"] != nil)
+        #expect(hooks["SubagentStop"] != nil)
+    }
+
+    @Test
+    func `uninstall codex removes subagent hooks`() throws {
+        let home = try makeFakeHome(detectedDirs: [".codex"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+
+        _ = try installer.install(for: .codex, dryRun: false)
+        _ = try installer.uninstall(for: .codex, dryRun: false)
+
+        let hooks = try #require(try readJSON(home.path + "/.codex/hooks.json")["hooks"] as? [String: Any])
+        #expect(hooks["SubagentStart"] == nil)
+        #expect(hooks["SubagentStop"] == nil)
+        #expect(installer.installState(for: .codex) == .notInstalled)
     }
 
     /// Each event carries its own `config.toml` trust hash keyed by command+position, so a reinstall
