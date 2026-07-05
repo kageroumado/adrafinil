@@ -140,6 +140,32 @@ drive it explicitly over MCP/CLI, and can be flipped on manually when you need i
 
 Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
 
+### Add your own agent
+
+Adrafinil ships integrations for the common agents, but the CLI works for **any** tool — the daemon
+accepts an arbitrary `--tool` label from any same-user caller, so nothing needs to change to wire up
+one Adrafinil has never heard of. Settings → **Agents** → *Add your own agent* generates the exact
+snippets from a name you type; pick the shape that matches your agent:
+
+- **It has hooks / events** — add `acquire` on start and `release` on stop, keyed on your agent's
+  session id so each turn brackets cleanly:
+
+  ```sh
+  adrafinil acquire "$SESSION_ID" --tool my-agent   # on start / prompt submit
+  adrafinil release "$SESSION_ID" --tool my-agent   # on stop / finish
+  ```
+
+- **It has no hooks** — wrap the command so the hold spans the whole run (keyed on the shell's `$$`),
+  or drop a single timed hold for a background job:
+
+  ```sh
+  adrafinil acquire $$ --tool my-agent && my-agent "$@"; adrafinil release $$ --tool my-agent
+  adrafinil hold --for 2h --pid $$ --reason "my-agent session"
+  ```
+
+Custom agents aren't auto-detected or process-watched, so pair every `acquire` with a reliable
+`release` — the idle-release timeout and each hold's time limit are the safety net if one is missed.
+
 ## Architecture
 
 Four products across three privilege tiers (full detail, including the Xcode project layout, in

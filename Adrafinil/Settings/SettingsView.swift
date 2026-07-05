@@ -278,6 +278,9 @@ struct AgentsSettingsTab: View {
             } footer: {
                 Text("Reopens the guided setup. Use it to connect a new agent, or to fix one that shows “Needs reconnect”.")
             }
+
+            // For agents Adrafinil has no built-in integration for: type a name, copy the snippets.
+            ManualHookView()
         }
         .formStyle(.grouped)
         .onAppear { refreshRows() }
