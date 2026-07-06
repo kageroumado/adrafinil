@@ -1,0 +1,28 @@
+#!/bin/bash
+# Pre-commit hook: format staged Swift files with SwiftFormat before they land, so the
+# CI check (`swiftformat --lint .`) can never fail on formatting. Reads the repo's
+# .swiftformat config. Enable once per clone with:  git config core.hooksPath .githooks
+#
+# Bypass in a pinch with:  git commit --no-verify
+set -euo pipefail
+
+swiftformat=$(command -v swiftformat || true)
+if [ -z "$swiftformat" ]; then
+    echo "pre-commit: swiftformat not found — 'brew install swiftformat' (or 'git commit --no-verify' to skip)." >&2
+    exit 1
+fi
+
+# Staged Swift files (added / copied / modified).
+files=$(git diff --cached --name-only --diff-filter=ACM -- '*.swift')
+[ -z "$files" ] && exit 0
+
+# Format each and re-stage it. (SwiftFormat rewrites the whole working-tree file, so if a
+# file has unstaged edits too, they get staged along with the format — commit whole files.)
+printf '%s\n' "$files" | while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    "$swiftformat" "$f" >/dev/null 2>&1 || {
+        echo "pre-commit: swiftformat failed on $f — run 'swiftformat .' to see the error." >&2
+        exit 1
+    }
+    git add "$f"
+done
