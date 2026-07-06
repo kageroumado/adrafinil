@@ -72,7 +72,7 @@ struct SubagentHoldTests {
 
         // Parent turn ends (Stop) — now nothing is blocking.
         await registry.release(key: parent)
-        #expect(!(await registry.isBlocking), "Mac can sleep once the parent turn ends")
+        #expect(await !(registry.isBlocking), "Mac can sleep once the parent turn ends")
     }
 
     // MARK: - Backgrounded sub-agent (the fix)
@@ -99,6 +99,6 @@ struct SubagentHoldTests {
 
         // The sub-agent finishes (its own SubagentStop) — only now can the Mac sleep.
         await registry.release(key: sub)
-        #expect(!(await registry.isBlocking), "Mac sleeps once the backgrounded sub-agent finishes")
+        #expect(await !(registry.isBlocking), "Mac sleeps once the backgrounded sub-agent finishes")
     }
 }

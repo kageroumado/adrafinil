@@ -17,10 +17,14 @@ struct ManualHookView: View {
     private enum Mode: String, CaseIterable, Identifiable {
         case hooks = "It has hooks / events"
         case wrap = "It has no hooks — wrap the command"
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
     }
 
-    private var snippet: ManualHookSnippet { ManualHookSnippet(agentName: name) }
+    private var snippet: ManualHookSnippet {
+        ManualHookSnippet(agentName: name)
+    }
 
     var body: some View {
         Section {
