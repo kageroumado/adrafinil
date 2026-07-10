@@ -50,6 +50,19 @@ struct CLIFramingTests {
     }
 
     @Test
+    func `release all roundtrips with released count`() throws {
+        let req = CLIRequest(op: .releaseAll, key: nil, tool: nil, reason: nil, pid: nil, processName: nil, ttlSeconds: nil)
+        let decodedReq = try decode(CLIRequest.self, from: CLIFraming.encode(req))
+        #expect(decodedReq.op == .releaseAll)
+
+        let resp = CLIResponse(ok: true, error: nil, blocking: false, assertionCount: 0, statusJSON: nil, releasedCount: 4)
+        let decoded = try decode(CLIResponse.self, from: CLIFraming.encode(resp))
+        #expect(decoded.releasedCount == 4)
+        // `assertionCount` stays "active now", not "released" — the wire meaning is invariant.
+        #expect(decoded.assertionCount == 0)
+    }
+
+    @Test
     func `response warning roundtrips`() throws {
         let resp = CLIResponse(ok: true, error: nil, blocking: false, assertionCount: 0, statusJSON: nil, warning: "unknown key")
         let frame = try CLIFraming.encode(resp)

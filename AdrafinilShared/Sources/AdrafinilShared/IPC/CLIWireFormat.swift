@@ -13,6 +13,10 @@ public struct CLIRequest: Codable, Sendable {
         /// Place an explicit agent hold. The daemon mints the `hold:` key, clamps the TTL, and
         /// returns the key in `CLIResponse.holdKey`. Release it later with `op == .release`.
         case hold
+        /// Force-release every assertion (`adrafinil release --all`) — the remote counterpart
+        /// of the menu bar's force release, e.g. over SSH against a closed lid. A user action,
+        /// so the daemon attributes the pre-sleep cue accordingly.
+        case releaseAll
     }
 
     public let op: Op
@@ -58,6 +62,9 @@ public struct CLIResponse: Codable, Sendable {
     /// The TTL the daemon actually applied to a `.hold` (it clamps to the user's configured
     /// cap), so the caller reports a truthful duration instead of echoing what was requested.
     public let appliedTTLSeconds: TimeInterval?
+    /// How many assertions a `.releaseAll` dropped (distinct from `assertionCount`, which is
+    /// always the number still active after the operation).
+    public let releasedCount: Int?
 
     /// Wire keys match the documented protocol: `blocking` serializes as `blockingState`.
     enum CodingKeys: String, CodingKey {
@@ -68,10 +75,11 @@ public struct CLIResponse: Codable, Sendable {
         case warning
         case holdKey
         case appliedTTLSeconds
+        case releasedCount
         case blocking = "blockingState"
     }
 
-    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil, appliedTTLSeconds: TimeInterval? = nil) {
+    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil, appliedTTLSeconds: TimeInterval? = nil, releasedCount: Int? = nil) {
         self.ok = ok
         self.error = error
         self.blocking = blocking
@@ -80,6 +88,7 @@ public struct CLIResponse: Codable, Sendable {
         self.warning = warning
         self.holdKey = holdKey
         self.appliedTTLSeconds = appliedTTLSeconds
+        self.releasedCount = releasedCount
     }
 }
 

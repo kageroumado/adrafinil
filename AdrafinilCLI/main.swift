@@ -52,7 +52,7 @@ enum CLIUsage {
         
         USAGE:
           adrafinil hold [--reason <text>] [--for <duration>] [--pid <n>] [--tool <name>]
-          adrafinil release <hold-id | session-key>
+          adrafinil release <hold-id | session-key> | --all
           adrafinil acquire <session-key> --tool <name> [--reason <text>] [--ttl <seconds>]
           adrafinil status [--json]
           adrafinil install-hooks [--tool <name>] [--dry-run]

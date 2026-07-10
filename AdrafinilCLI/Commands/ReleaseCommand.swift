@@ -7,6 +7,13 @@ enum ReleaseCommand {
         let parser = ArgParser(args: args)
         let tool = parser.option("--tool") ?? "unknown"
 
+        // `release --all` is a *human* command (the SSH counterpart of the menu bar's force
+        // release), not an agent hook — so unlike the paths below it reports its outcome and
+        // exits nonzero on transport failure instead of failing soft.
+        if parser.flag("--all") {
+            releaseAll()
+        }
+
         let fullKey: String
         if parser.flag("--subagent") {
             // Sub-agent lifecycle hook (`SubagentStop`). Release the sub-agent's own
@@ -59,6 +66,32 @@ enum ReleaseCommand {
             // recovered by the daemon's idle sweep and process-exit watcher.
             FileHandle.standardError.write(Data("adrafinil: release failed (\(error.localizedDescription)) — ignored\n".utf8))
             exit(0)
+        }
+    }
+
+    private static func releaseAll() -> Never {
+        Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI").notice("release --all")
+        let req = CLIRequest(
+            op: .releaseAll,
+            key: nil,
+            tool: nil,
+            reason: nil,
+            pid: nil,
+            processName: nil,
+            ttlSeconds: nil,
+        )
+        do {
+            let resp = try DaemonSocketClient.send(req)
+            let released = resp.releasedCount ?? 0
+            if released > 0 {
+                print("Released \(released) assertion\(released == 1 ? "" : "s") — your Mac can sleep.")
+            } else {
+                print("Nothing was held — released nothing.")
+            }
+            exit(0)
+        } catch {
+            FileHandle.standardError.write(Data("adrafinil: release --all failed (\(error.localizedDescription))\n".utf8))
+            exit(1)
         }
     }
 }

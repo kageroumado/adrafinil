@@ -191,6 +191,22 @@ final class CLISocketServer {
                 warning: warning,
             )
 
+        case .releaseAll:
+            let releasedCount: Int = runOnMain { @MainActor in
+                let count = await daemonRef.registry.count
+                await daemonRef.handleForceReleaseAll()
+                return count
+            }
+            return CLIResponse(
+                ok: true,
+                error: nil,
+                blocking: false,
+                assertionCount: 0,
+                statusJSON: nil,
+                warning: releasedCount == 0 ? "nothing was held — released nothing" : nil,
+                releasedCount: releasedCount,
+            )
+
         case .status:
             let status: DaemonStatus = runOnMain { @MainActor in
                 await daemonRef.currentStatus()
