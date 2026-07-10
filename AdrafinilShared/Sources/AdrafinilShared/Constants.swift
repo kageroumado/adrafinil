@@ -17,7 +17,7 @@ public enum AdrafinilConstants {
     /// Version the daemon, helper, and CLI report over their version endpoints. The app bundle reads
     /// its own `CFBundleShortVersionString`; keep this in step with the project's `MARKETING_VERSION`
     /// at release time so every component agrees on a single number.
-    public static let marketingVersion = "1.4.0"
+    public static let marketingVersion = "1.5"
 
     public static let cliBinaryName = "adrafinil"
     public static let cliInstallPath = "/usr/local/bin/adrafinil"
