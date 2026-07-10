@@ -50,6 +50,12 @@ final class Daemon {
     /// `observeBlockingState`) so the periodic timers can be gated on it without an async hop.
     private var isBlocking = false
 
+    /// Why the registry last emptied, read on the blocking→idle edge to pick the pre-sleep cue.
+    /// Every release site stamps this *before* awaiting its registry call, so by the time the
+    /// (serially consumed) blocking stream delivers the edge, the cause is already current —
+    /// last writer before the edge wins, which is exactly the release that took it to zero.
+    private var lastReleaseCause: ReleaseCause = .workComplete
+
     /// Records this daemon's on-disk binary at launch so an in-place app update can be detected and
     /// adopted by relaunching (see `relaunchIfUpdatedWhenIdle`).
     private let executableStaleness = ExecutableStaleness()
@@ -128,6 +134,7 @@ final class Daemon {
         isPaused = paused
         if paused {
             log.notice("Paused — releasing all assertions and ignoring agent acquires until resumed")
+            lastReleaseCause = .userAction
             await registry.removeAll()
             await persistAndSync(event: .released)
             await syncHelperToRegistry()
@@ -251,6 +258,9 @@ final class Daemon {
 
     @discardableResult
     func handleRelease(key: String) async -> Bool {
+        // An explicit release is the agent's own "I'm done" (Stop hook, MCP release) — the
+        // happy-path cue if this is the release that lets the Mac sleep.
+        lastReleaseCause = .workComplete
         let existed = await registry.release(key: key)
         // A released sniffed assertion must stay released: the sweep re-acquires any matched
         // process it isn't already holding, so without this a user's explicit release (or an
@@ -272,6 +282,7 @@ final class Daemon {
     }
 
     func handleForceReleaseAll() async {
+        lastReleaseCause = .userAction
         await registry.removeAll()
         await persistAndSync(event: .released)
         // Push the unblock to the helper synchronously (rather than only via the edge-triggered
@@ -354,12 +365,37 @@ final class Daemon {
                 idleMonitor.isBlocking = blocking
                 updateSweepTimer()
                 updateReconcileTimer()
+                // Pre-sleep cue *before* clearing the block: with the lid closed,
+                // `setBlocked(false)` is what lets the Mac sleep, so playing (and awaiting)
+                // the cue first guarantees it's audible — no race against sleep. Bounded by
+                // the player's timeout, so a wedged afplay can't stall the sleep gate. If an
+                // acquire lands during playback, its true-edge is queued behind this one and
+                // re-blocks right after — the same transient the serial consumer already allows.
+                if !blocking {
+                    await playSleepCueIfNeeded()
+                }
                 await helperClient.setBlocked(blocking)
                 // Going idle is the safe moment to adopt a binary an update swapped in while we
                 // were holding.
                 relaunchIfUpdatedWhenIdle()
             }
         }
+    }
+
+    /// Plays the pre-sleep cue for the release that just emptied the registry (issue #8): the
+    /// audible "your Mac is going back to sleep" for a user who closed the lid and walked away.
+    /// `SleepCueDecider` gates it — silent when the lid is open (the user can see the state),
+    /// when the feature is off, or when this cause's sound is "off". A user's own release
+    /// against a closed lid (a force release over SSH) gets its confirmation cue.
+    private func playSleepCueIfNeeded() async {
+        let decision = SleepCueDecider().onSleepResuming(
+            cause: lastReleaseCause,
+            lidClosed: lidMonitor.isLidClosed,
+            settings: settings,
+        )
+        guard let soundName = decision.soundName else { return }
+        log.notice("pre-sleep cue (cause=\(self.lastReleaseCause.rawValue, privacy: .public)) before clearing the sleep block")
+        await chimePlayer.playSleepCue(soundName: soundName, cue: decision.cue, volume: settings.soundVolume)
     }
 
     /// Adopts a binary that an in-place app update has swapped onto disk by exiting so `launchd`
@@ -491,6 +527,8 @@ final class Daemon {
         processWatcher.onProcessExit = { [weak self] pid in
             guard let self else { return }
             Task { @MainActor in
+                // The agent's process exited — from the away user's perspective, it's done.
+                self.lastReleaseCause = .workComplete
                 let removed = await self.registry.releaseAll(matchingPid: pid)
                 if removed > 0 {
                     self.log.info("Released \(removed) assertion(s) after PID \(pid) exited")
@@ -502,11 +540,12 @@ final class Daemon {
     }
 
     private func wireIdleMonitor() {
-        idleMonitor.onIdleRelease = { [weak self] keys in
+        idleMonitor.onIdleRelease = { [weak self] releases in
             guard let self else { return }
             Task { @MainActor in
+                self.lastReleaseCause = ReleaseCause(idleReleaseReasons: releases.map(\.reason))
                 var released = 0
-                for key in keys where await self.registry.release(key: key) {
+                for release in releases where await self.registry.release(key: release.key) {
                     released += 1
                 }
                 if released > 0 { await self.persistAndSync(event: .idleRelease) }
@@ -534,6 +573,7 @@ final class Daemon {
             Task { @MainActor in
                 self.log.warning("Thermal cutout triggered — releasing all assertions")
                 if self.lidClosedAt != nil { self.thermalCutoutWhileClosed = true }
+                self.lastReleaseCause = .safetyCutout
                 self.cutoutLatch.trip(.thermal)
                 self.updateLatchRecheckTimer()
                 await self.registry.removeAll()
@@ -556,6 +596,7 @@ final class Daemon {
             Task { @MainActor in
                 self.log.warning("Low-battery cutout triggered — releasing all assertions")
                 if self.lidClosedAt != nil { self.lowBatteryCutoutWhileClosed = true }
+                self.lastReleaseCause = .safetyCutout
                 self.cutoutLatch.trip(.lowBattery)
                 self.updateLatchRecheckTimer()
                 await self.registry.removeAll()

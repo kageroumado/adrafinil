@@ -19,6 +19,13 @@ struct AdrafinilSettingsTests {
         // The background-shell keep-awake is opt-in: it holds the Mac awake for a `run_in_background`
         // command with no completion hook, so it must be OFF unless the user turns it on.
         #expect(s.keepAwakeForBackgroundBash == false)
+        // The pre-sleep cue defaults ON with each cause on its own synthesized cue — it only
+        // fires with the lid closed (the user is away), which is exactly when it's useful.
+        #expect(s.sleepSoundEnabled == true)
+        #expect(s.sleepChimeWorkComplete == "default")
+        #expect(s.sleepChimeHoldExpired == "default")
+        #expect(s.sleepChimeSafetyCutout == "default")
+        #expect(s.sleepChimeUserAction == "default")
     }
 
     @Test
@@ -31,6 +38,11 @@ struct AdrafinilSettingsTests {
         original.autoAcquireForKnownAgents = true
         original.keepAwakeForBackgroundBash = true
         original.chimeName = "doot"
+        original.sleepSoundEnabled = false
+        original.sleepChimeWorkComplete = "Ping"
+        original.sleepChimeHoldExpired = "off"
+        original.sleepChimeSafetyCutout = "Submarine"
+        original.sleepChimeUserAction = "Tink"
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: data)
@@ -77,6 +89,9 @@ struct AdrafinilSettingsTests {
         #expect(s.chimeName == "Tink")
         #expect(s.showInMenuBar == true) // absent → default, not a decode failure
         #expect(s.keepAwakeForBackgroundBash == false) // absent → opt-in default (off)
+        // Pre-sleep cue fields absent (config from a pre-1.5 build) → defaults, others intact.
+        #expect(s.sleepSoundEnabled == true)
+        #expect(s.sleepChimeWorkComplete == "default")
     }
 
     @Test

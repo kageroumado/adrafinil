@@ -21,7 +21,9 @@ final class IdleMonitor {
     var maxAssertionAgeHours: Double = 24
 
     var assertionSource: (() async -> [Assertion])?
-    var onIdleRelease: (([String]) -> Void)?
+    /// Deduplicated by key; each release carries the evaluator's reason so the daemon can pick
+    /// the right pre-sleep cue (TTL expiry sounds different from a finished agent).
+    var onIdleRelease: (([IdleReleaseEvaluator.Release]) -> Void)?
 
     private var timer: Timer?
 
@@ -104,9 +106,12 @@ final class IdleMonitor {
         for r in releases where r.reason == .maxAgeBackstop {
             log.warning("Backstop-releasing assertion '\(r.key, privacy: .public)' — exceeds max-age cap (likely a leaked session with an unresolved PID and a missed end hook)")
         }
-        let keys = Array(Set(releases.map(\.key)))
-        log.info("Idle-releasing \(keys.count, privacy: .public) assertions")
-        onIdleRelease?(keys)
+        // Dedupe by key (an assertion can match several rules, e.g. CPU-idle *and* TTL-expired),
+        // keeping the first reason the evaluator reported for it.
+        var seen = Set<String>()
+        let unique = releases.filter { seen.insert($0.key).inserted }
+        log.info("Idle-releasing \(unique.count, privacy: .public) assertions")
+        onIdleRelease?(unique)
     }
 
     private func pidExists(_ pid: pid_t) -> Bool {

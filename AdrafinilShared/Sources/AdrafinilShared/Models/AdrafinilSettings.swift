@@ -5,6 +5,23 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var soundVolume: Float = 0.5
     public var chimeName: String = "default"
 
+    /// Play a cue the moment before the closed-lid Mac goes back to sleep — when the last
+    /// assertion releases and the sleep block is about to clear. On by default: the cue only
+    /// fires with the lid closed (the user is away and can't see the screen), which is exactly
+    /// when it's useful. Per-cause sounds below; `"default"` is the synthesized cue for that
+    /// cause, `"off"` silences just that cause, anything else names a macOS system sound.
+    public var sleepSoundEnabled: Bool = true
+    /// Sound when the agents finished (end hook, process exit, or CPU-idle release).
+    public var sleepChimeWorkComplete: String = "default"
+    /// Sound when a hold's TTL ran out — the work may not be done.
+    public var sleepChimeHoldExpired: String = "default"
+    /// Sound when a thermal/low-battery cutout stopped the work mid-task.
+    public var sleepChimeSafetyCutout: String = "default"
+    /// Sound when the user released it themselves (force release or pause). Only audible with
+    /// the lid closed — i.e. a *remote* release, typically over SSH — where it confirms the
+    /// command took and the Mac is going to sleep.
+    public var sleepChimeUserAction: String = "default"
+
     /// Lock the screen when the lid closes while an agent is active, so the awake machine is
     /// still secured. Issues an explicit lock (overrides idle-lock-prevention from other apps).
     public var lockOnLidClose: Bool = true
@@ -50,6 +67,11 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case soundOnLidClose
         case soundVolume
         case chimeName
+        case sleepSoundEnabled
+        case sleepChimeWorkComplete
+        case sleepChimeHoldExpired
+        case sleepChimeSafetyCutout
+        case sleepChimeUserAction
         case lockOnLidClose
         case thermalCutoutEnabled
         case thermalThresholdCelsius
@@ -83,6 +105,11 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.soundOnLidClose = (try? c.decodeIfPresent(Bool.self, forKey: .soundOnLidClose)) ?? d.soundOnLidClose
         self.soundVolume = (try? c.decodeIfPresent(Float.self, forKey: .soundVolume)) ?? d.soundVolume
         self.chimeName = (try? c.decodeIfPresent(String.self, forKey: .chimeName)) ?? d.chimeName
+        self.sleepSoundEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .sleepSoundEnabled)) ?? d.sleepSoundEnabled
+        self.sleepChimeWorkComplete = (try? c.decodeIfPresent(String.self, forKey: .sleepChimeWorkComplete)) ?? d.sleepChimeWorkComplete
+        self.sleepChimeHoldExpired = (try? c.decodeIfPresent(String.self, forKey: .sleepChimeHoldExpired)) ?? d.sleepChimeHoldExpired
+        self.sleepChimeSafetyCutout = (try? c.decodeIfPresent(String.self, forKey: .sleepChimeSafetyCutout)) ?? d.sleepChimeSafetyCutout
+        self.sleepChimeUserAction = (try? c.decodeIfPresent(String.self, forKey: .sleepChimeUserAction)) ?? d.sleepChimeUserAction
         self.lockOnLidClose = (try? c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose)) ?? d.lockOnLidClose
         self.thermalCutoutEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .thermalCutoutEnabled)) ?? d.thermalCutoutEnabled
         self.thermalThresholdCelsius = (try? c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius)) ?? d.thermalThresholdCelsius

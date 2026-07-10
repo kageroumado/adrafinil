@@ -99,6 +99,19 @@
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    GroupBox("Pre-sleep cue") {
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                            sleepCueButton("Agents finished", cause: .workComplete)
+                            sleepCueButton("Hold expired", cause: .holdExpired)
+                            sleepCueButton("Safety cutout", cause: .safetyCutout)
+                            sleepCueButton("Released by you (remote)", cause: .userAction)
+                            Text("Plays what the daemon would play as the lid-closed Mac goes back to sleep, honoring the current Settings (sound choice, volume, toggles).")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, Theme.Space.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     GroupBox("Windows & flows") {
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             Button {
@@ -131,6 +144,27 @@
             .onChange(of: control.popover) { control.apply() }
             .onChange(of: control.useLiveDaemon) { control.apply() }
             .onChange(of: control.attention) { control.applyAttention() }
+        }
+
+        /// Auditions a cause through the real `SleepCueDecider` against the on-disk settings,
+        /// as if the lid were closed — so a per-cause "Off" or a disabled master toggle is
+        /// audible (as silence) here too, exactly like on the daemon.
+        private func sleepCueButton(_ title: String, cause: ReleaseCause) -> some View {
+            Button {
+                let settings = AdrafinilSettings.load()
+                let decision = SleepCueDecider().onSleepResuming(
+                    cause: cause, lidClosed: true, settings: settings,
+                )
+                guard let soundName = decision.soundName else { return }
+                ChimePreviewPlayer.shared.preview(
+                    volume: settings.soundVolume,
+                    soundName: soundName,
+                    cue: decision.cue ?? .sleepWorkComplete,
+                )
+            } label: {
+                Label(title, systemImage: "moon.zzz")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
 
         // MARK: - Live preview

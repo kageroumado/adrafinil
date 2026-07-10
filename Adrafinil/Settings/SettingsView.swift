@@ -116,6 +116,45 @@ struct GeneralSettingsTab: View {
         ("Glass", "Glass"),
     ]
 
+    /// Pre-sleep cue options: same system sounds, plus a per-cause "Off" and the cause's own
+    /// synthesized cue as the default.
+    private let sleepCueOptions: [(id: String, label: String)] = [
+        ("default", "Adrafinil cue"),
+        ("Submarine", "Submarine"),
+        ("Ping", "Ping"),
+        ("Tink", "Tink"),
+        ("Glass", "Glass"),
+        ("off", "Off"),
+    ]
+
+    /// One per-cause row of the "When sleep resumes" section: a sound picker plus a preview
+    /// button, previewing on change like the lid-close chime row.
+    private func sleepCueRow(_ title: String, selection: Binding<String>, cue: ChimeSynth.Cue) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: Theme.Space.sm) {
+                Picker(title, selection: selection) {
+                    ForEach(sleepCueOptions, id: \.id) { option in
+                        Text(option.label).tag(option.id)
+                    }
+                }
+                .labelsHidden()
+                Button {
+                    ChimePreviewPlayer.shared.preview(
+                        volume: settings.soundVolume, soundName: selection.wrappedValue, cue: cue,
+                    )
+                } label: {
+                    Image(systemName: "play.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Hear this sound")
+            }
+        }
+        .disabled(!settings.sleepSoundEnabled)
+        .onChange(of: selection.wrappedValue) { _, name in
+            ChimePreviewPlayer.shared.preview(volume: settings.soundVolume, soundName: name, cue: cue)
+        }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -157,7 +196,7 @@ struct GeneralSettingsTab: View {
                             // Hear the cue without closing the lid; the picker also previews on change.
                             Button {
                                 ChimePreviewPlayer.shared.preview(
-                                    volume: settings.soundVolume, chimeName: settings.chimeName,
+                                    volume: settings.soundVolume, soundName: settings.chimeName,
                                 )
                             } label: {
                                 Image(systemName: "play.circle")
@@ -168,7 +207,7 @@ struct GeneralSettingsTab: View {
                     }
                     .disabled(!settings.soundOnLidClose)
                     .onChange(of: settings.chimeName) { _, name in
-                        ChimePreviewPlayer.shared.preview(volume: settings.soundVolume, chimeName: name)
+                        ChimePreviewPlayer.shared.preview(volume: settings.soundVolume, soundName: name)
                     }
 
                     Toggle("Lock the screen when you close the lid", isOn: $settings.lockOnLidClose)
@@ -176,6 +215,18 @@ struct GeneralSettingsTab: View {
                     Text("When you close the lid")
                 } footer: {
                     Text("These apply when an agent is still working as you close the lid — a sound to confirm your Mac is staying awake, and a locked screen to keep it private.")
+                }
+
+                Section {
+                    Toggle("Play a sound before your Mac goes back to sleep", isOn: $settings.sleepSoundEnabled)
+                    sleepCueRow("Agents finished", selection: $settings.sleepChimeWorkComplete, cue: .sleepWorkComplete)
+                    sleepCueRow("Hold expired", selection: $settings.sleepChimeHoldExpired, cue: .sleepHoldExpired)
+                    sleepCueRow("Safety cutout", selection: $settings.sleepChimeSafetyCutout, cue: .sleepSafetyCutout)
+                    sleepCueRow("Released by you", selection: $settings.sleepChimeUserAction, cue: .sleepUserAction)
+                } header: {
+                    Text("When sleep resumes")
+                } footer: {
+                    Text("When the last agent finishes while the lid is closed, Adrafinil plays a cue just before your Mac goes back to sleep — so you know it's done without opening the lid. Each reason can have its own sound; the volume above applies.")
                 }
             }
 
@@ -215,7 +266,9 @@ struct GeneralSettingsTab: View {
 
             Section {
                 Button("Uninstall and quit…", role: .destructive) { showUninstallConfirm = true }
-                    .buttonStyle(.bordered)
+                    // `.bordered` renders a destructive role as plain gray on macOS — prominent +
+                    // red tint is what actually reads as "this deletes things".
+                    .buttonStyle(.borderedProminent)
                     .tint(.red)
                     .focusEffectDisabled()
             } footer: {
