@@ -31,7 +31,7 @@ Three runtime components plus a CLI, across three privilege tiers:
 ┌────────────────────────────────────────────────────────────────────┐
 │  AdrafinilHelper  (SMAppService LaunchDaemon, root)                │
 │  • The ONLY component that touches sleep-blocking APIs             │
-│  • setSleepBlocked(Bool) + sleepBlockedState/version (read-only)   │
+│  • setSleepBlocked(Bool) + renewable lease + read-only state       │
 │  • Authorizes callers via a code-signing requirement check        │
 └────────────────────────────────────────────────────────────────────┘
 
@@ -44,7 +44,7 @@ Bundle identifiers: app `glass.kagerou.adrafinil`, daemon `…​.daemon`, helpe
 
 ### Why three tiers
 
-- **The helper must be privileged** to call sleep-blocking APIs, so it's kept tiny and audited: one mutating endpoint (`setSleepBlocked(Bool)`) plus read-only introspection. It holds **no** policy.
+- **The helper must be privileged** to call sleep-blocking APIs, so it's kept tiny and audited: block/unblock, lease renewal, and read-only introspection. Agent policy remains in the daemon; the helper owns only the crash-safety deadline for its privileged global state.
 - **The daemon runs as the user** so it can watch user-owned processes, write logs under `~/Library/Application Support`, and receive per-user lid notifications. It's always-on (not just when the app is open) so agents can call `adrafinil acquire` even with no menu bar app running. **All policy lives here** — ref counting, thermal, idle, lid, battery.
 - **The app is user-facing** and may quit/relaunch freely; keeping state in the daemon makes it a pure view layer.
 
@@ -69,10 +69,13 @@ Bundle identifiers: app `glass.kagerou.adrafinil`, daemon `…​.daemon`, helpe
 - the helper clears it on release, on startup (crash recovery; `RunAtLoad` so this runs at boot, before any login), and on **SIGTERM** (machine shutdown / unregister);
 - the daemon clears it on its own SIGTERM (`launchctl bootout`, logout) with a bounded wait;
 - the helper has a **dead-man switch**: if the last daemon connection drops while blocked and none returns within 60 s (daemon SIGKILLed at logout), it clears the block itself;
+- every successful block starts a **15-second helper lease**, renewed by the daemon every five seconds; expiry clears the block even if XPC invalidation never arrives. A failed `disablesleep 0` stays marked blocked and retries every five seconds;
 - while blocking, the daemon **re-pushes the blocked state every 60 s** (the helper's `set(true)` re-runs the full mechanism), healing a failed `pmset`, a raced helper relaunch, or a kernel reset that the wake notification missed;
 - `pmset` itself runs under a 10 s watchdog so a wedged invocation can't deadlock the helper's policy lock.
 
-**Failure mode**: if the helper crashes while sleep is blocked, the daemon detects it (XPC invalidation) and respawns it; on respawn the helper clears any stale `disablesleep` before re-applying the current state. Worst case: a brief window where sleep is allowed. Acceptable.
+**Crash recovery**: if the helper exits while blocking sleep, the daemon respawns it. The helper
+clears stale `disablesleep` state before restoring the current block. Sleep may be available briefly
+during recovery, but a global wake lock cannot be left stranded.
 
 ---
 
@@ -164,6 +167,10 @@ struct Assertion {
 ```
 
 `AssertionRegistry` is an actor; `isBlocking` is `!assertions.isEmpty`. It emits the new value of `isBlocking` on an `AsyncStream` whenever it flips. The daemon iterates that single stream and drives the helper serially, so the helper never sees a stale or out-of-order value. `isBlocking` true → `setSleepBlocked(true)`; false → `setSleepBlocked(false)`.
+
+While blocking, the daemon also renews the helper's 15-second lease every five seconds. This is
+separate from the 60-second full `set(true)` reconciliation: renewal is cheap and bounds stale
+privileged state; reconciliation re-runs `pmset` to repair mechanisms that drifted.
 
 ### 4.2 Idle release
 

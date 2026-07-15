@@ -18,8 +18,9 @@ a few days. Once a fix ships, we're happy to credit you (or keep you anonymous â
 
 The privileged surface is intentionally tiny. The highest-value targets:
 
-- **`AdrafinilHelper` (root LaunchDaemon).** Its only mutating endpoint is `setSleepBlocked(Bool)`,
-  plus read-only state/version. It holds no policy. Every incoming XPC peer is checked by
+- **`AdrafinilHelper` (root LaunchDaemon).** Its mutating surface is block/unblock plus renewal and
+  clearing of a short sleep-block lease, with read-only state/version. It holds no policy. Every
+  incoming XPC peer is checked by
   `CallerVerifier` (`AdrafinilShared/Sources/AdrafinilShared/IPC/CallerVerifier.swift`): the caller
   must be a signed Adrafinil component sharing our Team Identifier. Bypasses of that check, or any way
   to drive `pmset disablesleep` from an unauthorized caller, are the most serious class of bug.
@@ -30,6 +31,10 @@ The privileged surface is intentionally tiny. The highest-value targets:
 A failure that leaves the Mac **permanently awake** (a leaked `pmset disablesleep 1`) is treated as a
 security-relevant bug, not just a nuisance â€” the helper resets `disablesleep` to `0` on every respawn
 specifically to bound that risk.
+
+Every successful block starts a 15-second lease renewed by the daemon every five seconds; expiry
+clears the block. Missing lease capability or a renewal failure leaves normal sleep enabled rather
+than risking a permanent wake lock.
 
 ## Supported versions
 

@@ -49,7 +49,7 @@ moment that work finishes.
 - **Manually** — a menu-bar **Keep awake** button places a time-boxed hold yourself, even with **no agents running**; **Let it sleep** clears everything.
 
 > ⚠️ **Privileged sleep control.** Overriding clamshell sleep requires root. Adrafinil isolates
-> that in a tiny, audited helper that only exposes `setSleepBlocked(Bool)` — all policy lives in an
+> that in a tiny, audited helper that exposes block/unblock plus a short renewable lease — all policy lives in an
 > unprivileged daemon. It holds a standard `IOPMAssertion` for idle sleep and uses
 > `pmset disablesleep` for clamshell (lid-closed) sleep, after verifying on-device that the cleaner
 > private `IOPMrootDomain` paths don't keep a displayless lid-closed Mac awake. See
@@ -190,7 +190,7 @@ Four products across three privilege tiers (full detail, including the Xcode pro
 ┌──────────────────────────────────────────────────────────────┐
 │  AdrafinilHelper  (SMAppService LaunchDaemon, root)          │
 │  • The ONLY component that touches sleep-blocking APIs       │
-│  • setSleepBlocked(Bool) + read-only state/version           │
+│  • setSleepBlocked(Bool) + renewable 15 s lease              │
 │  • Verifies caller's code-signing requirement                │
 └──────────────────────────────────────────────────────────────┘
 
@@ -200,7 +200,7 @@ Four products across three privilege tiers (full detail, including the Xcode pro
 ```
 
 - **`AdrafinilShared`** — a Swift package shared across every target: data models (`AgentKind`, `Assertion`), the IPC wire formats, `AssertionRegistry`, `CallerVerifier`, the hook-install specs, and the CLI argument parser. This is where the unit tests live.
-- **Helper stays trivial to audit.** It holds no policy — ref counting, thermal, idle, and lid logic all live in the daemon. The privileged surface is a single mutating endpoint plus read-only introspection.
+- **Helper stays trivial to audit.** Ref counting, thermal, idle, and lid logic all live in the daemon. The privileged surface is block/unblock plus lease renewal and read-only introspection; if renewals stop, the helper clears the block.
 - **Daemon is the source of truth.** The app is a pure view layer; it can quit and relaunch freely without affecting held assertions.
 
 ## Quirks worth knowing
