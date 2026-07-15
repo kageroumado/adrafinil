@@ -264,6 +264,54 @@ struct MenuPopover: View {
         .glassCard()
     }
 
+    private func codexLidExtensionCard(_ state: CodexLidExtensionStatus) -> some View {
+        let (title, message, icon, tint): (String, String, String, Color) = switch state {
+        case .disabled:
+            ("", "", "", .secondary)
+        case .idle:
+            ("Codex lid extension ready", "Waiting for a supported direct Codex assertion.", "moon.zzz", .secondary)
+        case .arming:
+            ("Codex lid extension arming", "Keep the lid open until verification completes.", "ellipsis.circle.fill", Theme.warn)
+        case .armed:
+            ("Codex lid extension armed", "Verified Codex work will continue with the lid closed.", "checkmark.shield.fill", Theme.ok)
+        case .unsupported:
+            ("Codex Desktop isn't supported safely yet", "Its generic Electron assertion can't identify an active task, so normal sleep remains enabled.", "exclamationmark.shield.fill", Theme.warn)
+        case .helperUnavailable:
+            ("Codex lid extension unavailable", "The helper couldn't prove renewable lease support, so normal sleep remains enabled.", "exclamationmark.shield.fill", Theme.warn)
+        }
+        return HStack(spacing: Theme.Space.md) {
+            Image(systemName: icon)
+                .font(.system(size: 22)).foregroundStyle(tint)
+                .symbolRenderingMode(.hierarchical).frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(.callout, design: .rounded).weight(.semibold))
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(Theme.Space.md)
+        .glassCard(tint: state == .armed ? Theme.ok.opacity(0.12) : nil)
+    }
+
+    private var codexSleepPreventionWarning: some View {
+        HStack(spacing: Theme.Space.md) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(Theme.warn)
+                .symbolRenderingMode(.hierarchical).frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Codex sleep prevention is off")
+                    .font(.system(.callout, design: .rounded).weight(.semibold))
+                Text("Enable ‘Prevent sleep while running’ in Codex to use lid extension.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(Theme.Space.md)
+        .glassCard(tint: Theme.warn.opacity(0.12))
+    }
+
     /// The card shown whenever the background service is unreachable. It walks the recovery sequence:
     /// a repair in progress, the manual-reset guidance when repair couldn't recover it, or the
     /// matching first action otherwise — approve in Login Items, or run a repair (re-register).

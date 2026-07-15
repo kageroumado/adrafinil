@@ -47,7 +47,7 @@ import OSLog
 /// is `Sendable` and owns its protected state), so the blocker is internally synchronized — it no
 /// longer relies on each `HelperXPCService` holding a per-instance lock (which wouldn't serialize
 /// across instances anyway).
-final class SleepBlocker {
+final class SleepBlocker: @unchecked Sendable {
     /// The policy, guarded by the lock that owns it. `uncheckedState` because `SleepBlockPolicy`
     /// holds the non-`Sendable` IOKit/`pmset` mechanisms — the lock *is* the isolation that makes
     /// touching them across connections safe.
@@ -66,7 +66,7 @@ final class SleepBlocker {
         )
     }
 
-    func set(blocked: Bool) throws {
+    func set(blocked: Bool, requiresIdleAssertion: Bool = true) throws {
         // `withLock`'s body is `@Sendable`, so it can't capture `self`; bind the (Sendable) Logger
         // locally and capture that, keeping the before/after logging inside the critical section.
         let log = log
@@ -75,9 +75,58 @@ final class SleepBlocker {
             // which can't capture the `inout policy`.
             let was = policy.isBlocked
             log.notice("set(blocked: \(blocked, privacy: .public)) — was \(was, privacy: .public)")
-            try policy.set(blocked: blocked)
+            try policy.set(blocked: blocked, requiresIdleAssertion: requiresIdleAssertion)
             let now = policy.isBlocked
             log.notice("set complete — isBlocked=\(now, privacy: .public)")
+        }
+    }
+}
+
+/// Process-wide renewable lease for the privileged block. If the daemon is killed without an XPC
+/// invalidation callback, expiry still restores normal sleep within seconds.
+final class SleepBlockLeaseController: @unchecked Sendable {
+    private let blocker: SleepBlocker
+    private let lease = OSAllocatedUnfairLock(initialState: SleepBlockLease())
+    private let timer: DispatchSourceTimer
+    private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "SleepBlockLease")
+
+    init(blocker: SleepBlocker) {
+        self.blocker = blocker
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        self.timer = timer
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.expireIfNeeded() }
+        timer.resume()
+    }
+
+    deinit { timer.cancel() }
+
+    func renew(for duration: TimeInterval) -> Bool {
+        let blocker = blocker
+        return lease.withLock {
+            $0.renew(now: Date(), duration: duration)
+            return blocker.isBlocked
+        }
+    }
+
+    func clear() {
+        lease.withLock { $0.clear() }
+    }
+
+    private func expireIfNeeded() {
+        let blocker = blocker
+        let log = log
+        lease.withLock {
+            guard $0.expireIfNeeded(now: Date()), blocker.isBlocked else { return }
+            log.warning("daemon lease expired — clearing sleep block")
+            do {
+                try blocker.set(blocked: false)
+            } catch {
+                // SleepBlockPolicy still releases the in-process assertion and best-effort clears
+                // disablesleep. Keep a short retry lease because the global bit may still be set.
+                log.error("failed to fully clear expired sleep block: \(error.localizedDescription, privacy: .public)")
+                $0.renew(now: Date(), duration: 5)
+            }
         }
     }
 }

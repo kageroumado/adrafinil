@@ -13,6 +13,16 @@ public enum AssertionOrigin: String, Codable, Sendable {
     case sniffed
 }
 
+/// User-facing state of the guarded Codex closed-lid extension.
+public enum CodexLidExtensionStatus: String, Codable, Sendable {
+    case disabled
+    case idle
+    case arming
+    case armed
+    case unsupported
+    case helperUnavailable
+}
+
 public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     public let key: String
     public let tool: String

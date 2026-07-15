@@ -26,8 +26,8 @@ public protocol ClamshellSleepControlling: AnyObject {
 /// `set(blocked:)` is deliberately **not** short-circuited on an unchanged value: a repeated
 /// `set(true)` re-asserts the clamshell block, which the daemon relies on to recover after a
 /// sleep/wake transition. Every step is idempotent. An error applying the block propagates (the
-/// XPC layer surfaces it); an error *clearing* the block on unblock is swallowed (best-effort —
-/// the conformer logs its own failure), matching the original `SleepBlocker` behavior.
+/// XPC layer surfaces it). A clearing error also propagates and leaves `isBlocked` true so the
+/// helper's lease/dead-man paths keep retrying instead of forgetting a global `disablesleep` bit.
 public final class SleepBlockPolicy {
     public private(set) var isBlocked = false
 
@@ -42,17 +42,28 @@ public final class SleepBlockPolicy {
     }
 
     public func set(blocked: Bool) throws {
+        try set(blocked: blocked, requiresIdleAssertion: true)
+    }
+
+    /// Applies the privileged clamshell block while allowing an observer-backed request to leave
+    /// ordinary idle-sleep prevention to the process whose live assertion was observed.
+    public func set(blocked: Bool, requiresIdleAssertion: Bool) throws {
         if blocked {
-            // Keep the idle assertion even if the clamshell block throws: partial protection (idle
-            // sleep still blocked) serves the app's purpose better than rolling back to none, and the
-            // daemon re-issues `set(true)` on its next reconcile — every step is idempotent, so the
-            // clamshell block is retried while the idle assertion stays continuously held. The error
-            // propagates so the daemon knows the block isn't yet complete.
-            idle.acquire()
-            try clamshell.setDisabled(true)
+            if requiresIdleAssertion {
+                // Keep the idle assertion even if the clamshell block throws: partial protection
+                // serves manual/hook holds better than rolling back to none.
+                idle.acquire()
+                try clamshell.setDisabled(true)
+            } else {
+                // Re-assert the persistent mechanism before dropping idle protection. If pmset
+                // fails during a full→observer transition, the existing idle assertion remains
+                // held and the prior blocked state remains available for a safe retry.
+                try clamshell.setDisabled(true)
+                idle.release()
+            }
         } else {
             idle.release()
-            try? clamshell.setDisabled(false)
+            try clamshell.setDisabled(false)
         }
         isBlocked = blocked
     }

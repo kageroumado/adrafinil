@@ -10,6 +10,7 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
     /// state here (not per `HelperXPCService`) means a daemon reconnect reuses the live assertion
     /// instead of orphaning it — see `SleepBlocker`.
     let blocker = SleepBlocker()
+    lazy var leaseController = SleepBlockLeaseController(blocker: blocker)
 
     /// Records the helper's on-disk binary at launch (this delegate is built once, at process
     /// start), so an in-place app update can be detected and adopted by relaunching — see
@@ -41,7 +42,11 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
             $0.generation += 1
         }
         newConnection.exportedInterface = NSXPCInterface(with: HelperXPCProtocol.self)
-        newConnection.exportedObject = HelperXPCService(blocker: blocker, staleness: staleness)
+        newConnection.exportedObject = HelperXPCService(
+            blocker: blocker,
+            leaseController: leaseController,
+            staleness: staleness,
+        )
         newConnection.invalidationHandler = { [weak self] in
             self?.log.notice("XPC connection invalidated")
             self?.connectionEnded()

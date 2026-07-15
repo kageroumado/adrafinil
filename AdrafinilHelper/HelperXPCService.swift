@@ -6,27 +6,50 @@ final class HelperXPCService: NSObject, HelperXPCProtocol, @unchecked Sendable {
     /// The process-wide blocker, shared across every connection (see `SleepBlocker`). Internally
     /// synchronized, so this service needs no lock of its own.
     private let blocker: SleepBlocker
+    private let leaseController: SleepBlockLeaseController
     /// Launch-time binary identity, shared process-wide, used to adopt an in-place update.
     private let staleness: ExecutableStaleness
     private let log = Logger(subsystem: AdrafinilConstants.helperBundleID, category: "XPCService")
 
-    init(blocker: SleepBlocker, staleness: ExecutableStaleness) {
+    init(blocker: SleepBlocker, leaseController: SleepBlockLeaseController, staleness: ExecutableStaleness) {
         self.blocker = blocker
+        self.leaseController = leaseController
         self.staleness = staleness
         super.init()
     }
 
-    func setSleepBlocked(_ blocked: Bool, reply: @escaping @Sendable (Bool, NSError?) -> Void) {
+    func setSleepBlocked(
+        _ blocked: Bool,
+        requiresIdleAssertion: Bool,
+        reply: @escaping @Sendable (Bool, NSError?) -> Void,
+    ) {
         log.notice("XPC setSleepBlocked(\(blocked, privacy: .public)) received from daemon")
         do {
-            try blocker.set(blocked: blocked)
+            try blocker.set(blocked: blocked, requiresIdleAssertion: requiresIdleAssertion)
+            // Start the lease in the same helper call that creates the block, closing the crash
+            // window before the daemon's first explicit renewal arrives.
+            if blocked {
+                _ = leaseController.renew(for: 15)
+            }
+            if !blocked {
+                leaseController.clear()
+            }
             reply(blocker.isBlocked, nil)
         } catch {
             log.error("XPC setSleepBlocked(\(blocked, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
             reply(blocker.isBlocked, error as NSError)
         }
         // Unblocking returns us to idle — the safe point to adopt a binary an update swapped in.
-        if !blocked { relaunchIfUpdated() }
+        if !blocked {
+            relaunchIfUpdated()
+        }
+    }
+
+    func renewSleepBlockLease(seconds: Double, reply: @escaping @Sendable (Bool) -> Void) {
+        // Bound caller input so a buggy or compromised same-signature daemon cannot create a
+        // practically permanent privileged block with one renewal.
+        let duration = min(max(seconds, 1), 30)
+        reply(leaseController.renew(for: duration))
     }
 
     func sleepBlockedState(reply: @escaping @Sendable (Bool) -> Void) {

@@ -8,17 +8,20 @@ final class HelperClient {
     private var connection: NSXPCConnection?
     private(set) var isConnected: Bool = false
     private var desiredBlockedState: Bool = false
+    private var leaseCapability = HelperLeaseCapability()
+    var onApplyFailure: (() -> Void)?
+    var onLeaseCapabilityRecovered: (() -> Void)?
+
+    var leaseFailureLatched: Bool {
+        leaseCapability.failureLatched
+    }
 
     /// True while the last attempt to apply the desired state failed (pmset error, timeout,
     /// helper unreachable). Surfaced in `DaemonStatus.warnings`: the user may be about to close
     /// the lid trusting a block that isn't fully in place.
     private(set) var lastApplyFailed: Bool = false
 
-    /// Reconnect backoff. A helper that crashes on launch would otherwise be relaunched in a tight
-    /// loop (each invalidation immediately reapplies, which respawns it). Back off exponentially,
-    /// capped, and reset once a call succeeds.
-    private var reconnectTask: Task<Void, Never>?
-    private var reconnectAttempts = 0
+    private var capabilityProbeTask: Task<Void, Never>?
     private static let maxBackoff: Double = 30
 
     /// Bound on one helper round-trip. The helper's `set` shells out to `pmset` (itself bounded
@@ -26,6 +29,7 @@ final class HelperClient {
     /// blocking-drive loop must not hang on it forever — every later block-state flip would queue
     /// behind the hang, unapplied.
     private static let callTimeout: Double = 15
+    static let leaseDuration: Double = 15
 
     private enum CallOutcome {
         case applied(Bool)
@@ -33,36 +37,71 @@ final class HelperClient {
         case timedOut
     }
 
-    func setBlocked(_ blocked: Bool) async {
+    func setBlocked(_ blocked: Bool, requiresIdleAssertion: Bool = true) async {
         desiredBlockedState = blocked
         let conn = ensureConnection()
-        let outcome = await sendSetBlocked(blocked, over: conn)
+        let outcome = await sendSetBlocked(
+            blocked,
+            requiresIdleAssertion: requiresIdleAssertion,
+            over: conn
+        )
 
         switch outcome {
         case let .applied(actual) where actual == blocked:
-            reconnectAttempts = 0
-            lastApplyFailed = false
+            if blocked {
+                _ = await renewBlockLease()
+            } else {
+                leaseCapability.recordUnblocked()
+                lastApplyFailed = leaseCapability.failureLatched
+            }
         case let .applied(actual):
-            lastApplyFailed = true
             // The helper answered but couldn't reach the requested state (e.g. `pmset` failed,
-            // leaving idle-only protection). Retry with backoff rather than trusting a partial
-            // block until the next edge.
-            log.error("Helper applied \(actual) but \(blocked) was requested — scheduling reapply")
-            scheduleReapplyIfNeeded()
+            // leaving idle-only protection). Fail closed instead of repeatedly forking `pmset`.
+            log.error("Helper applied \(actual) but \(blocked) was requested — failing closed")
+            markProtectionFailure()
         case .failed:
-            lastApplyFailed = true
-            scheduleReapplyIfNeeded()
+            markProtectionFailure()
         case .timedOut:
-            lastApplyFailed = true
             // Tear the connection down: launchd respawns a crashed helper on the next call, and
             // a wedged-but-alive one gets a fresh connection once it recovers.
             log.error("Helper setSleepBlocked timed out after \(Self.callTimeout)s — invalidating connection")
+            markProtectionFailure()
             dropConnection()
-            scheduleReapplyIfNeeded()
         }
     }
 
-    private func sendSetBlocked(_ blocked: Bool, over conn: NSXPCConnection) async -> CallOutcome {
+    /// Renews the helper's short crash-safety lease. Any failure immediately marks protection
+    /// unavailable; recovery probes the lease selector without reapplying the privileged block.
+    @discardableResult
+    func renewBlockLease() async -> Bool {
+        guard desiredBlockedState else { return false }
+        let outcome = await sendRenewLease(over: ensureConnection())
+        switch outcome {
+        case .applied(true):
+            let recovered = leaseCapability.failureLatched
+            leaseCapability.recordRenewalSuccess(isActive: true)
+            lastApplyFailed = false
+            capabilityProbeTask?.cancel()
+            capabilityProbeTask = nil
+            if recovered {
+                onLeaseCapabilityRecovered?()
+            }
+            return leaseCapability.allowsBlocking
+        case .failed, .applied(false), .timedOut:
+            markProtectionFailure()
+            if case .timedOut = outcome {
+                dropConnection()
+            }
+            scheduleCapabilityProbe()
+            return false
+        }
+    }
+
+    private func sendSetBlocked(
+        _ blocked: Bool,
+        requiresIdleAssertion: Bool,
+        over conn: NSXPCConnection
+    ) async -> CallOutcome {
         await withCheckedContinuation { (cont: CheckedContinuation<CallOutcome, Never>) in
             // Resume exactly once: the timeout arm, the error handler, and the reply all race —
             // whichever fires first wins, and a double resume would trap the continuation.
@@ -77,7 +116,7 @@ final class HelperClient {
                 once.resume(.failed)
                 return
             }
-            proxy.setSleepBlocked(blocked) { [weak self] applied, error in
+            proxy.setSleepBlocked(blocked, requiresIdleAssertion: requiresIdleAssertion) { [weak self] applied, error in
                 if let error {
                     self?.log.error("Helper setSleepBlocked error: \(error.localizedDescription)")
                     once.resume(.failed)
@@ -89,8 +128,29 @@ final class HelperClient {
         }
     }
 
+    private func sendRenewLease(over conn: NSXPCConnection) async -> CallOutcome {
+        await withCheckedContinuation { (cont: CheckedContinuation<CallOutcome, Never>) in
+            let once = OnceResumer<CallOutcome> { cont.resume(returning: $0) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.callTimeout) {
+                once.resume(.timedOut)
+            }
+            guard let proxy = conn.remoteObjectProxyWithErrorHandler({ [weak self] error in
+                self?.log.error("Helper lease proxy error: \(error.localizedDescription)")
+                once.resume(.failed)
+            }) as? HelperXPCProtocol else {
+                once.resume(.failed)
+                return
+            }
+            proxy.renewSleepBlockLease(seconds: Self.leaseDuration) { active in
+                once.resume(.applied(active))
+            }
+        }
+    }
+
     private func ensureConnection() -> NSXPCConnection {
-        if let c = connection { return c }
+        if let c = connection {
+            return c
+        }
         let c = NSXPCConnection(machServiceName: AdrafinilConstants.helperMachServiceName, options: .privileged)
         c.remoteObjectInterface = NSXPCInterface(with: HelperXPCProtocol.self)
         // Handlers are bound to THIS connection: an event arriving late from an abandoned
@@ -111,12 +171,12 @@ final class HelperClient {
         guard dead === connection else { return }
         log.warning("Helper XPC \(kind)")
         dropConnection()
-        // A crash while sleep was blocked is the worst case: respawn the helper
-        // (the next setBlocked recreates the connection, which relaunches it via launchd; the
-        // helper resets disablesleep to 0 on init) and reapply the desired state. Only bother
-        // if we actually want sleep blocked — if we wanted it allowed, a dead helper already
-        // means sleep is allowed, so there's nothing to reapply.
-        scheduleReapplyIfNeeded()
+        // Never trust an unleased block across a helper death. The daemon force-releases once;
+        // lightweight lease probes can prove a replacement helper without invoking `pmset`.
+        if desiredBlockedState {
+            markProtectionFailure()
+            scheduleCapabilityProbe()
+        }
     }
 
     private func dropConnection() {
@@ -124,6 +184,44 @@ final class HelperClient {
         connection = nil
         isConnected = false
         old?.invalidate()
+    }
+
+    private func markProtectionFailure() {
+        lastApplyFailed = true
+        if leaseCapability.recordRenewalFailure() { onApplyFailure?() }
+    }
+
+    /// Recovery probes only the lease selector; they never call `setSleepBlocked` and therefore
+    /// cannot repeatedly fork `pmset` against an old or wedged helper. Any reply proves the helper
+    /// understands renewable leases; an inactive reply is expected after fail-closed unblocking.
+    private func scheduleCapabilityProbe() {
+        guard capabilityProbeTask == nil else { return }
+        capabilityProbeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var attempt = 0
+            while leaseCapability.failureLatched {
+                let delay = min(pow(2.0, Double(attempt)), Self.maxBackoff)
+                attempt += 1
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, leaseCapability.failureLatched else { break }
+                switch await sendRenewLease(over: ensureConnection()) {
+                case .applied(false):
+                    leaseCapability.recordRenewalSuccess(isActive: false)
+                    lastApplyFailed = false
+                    onLeaseCapabilityRecovered?()
+                case .applied(true):
+                    // The selector exists, but the failed-closed unblock has not taken effect yet.
+                    // Stop renewing long enough for the short lease to expire instead of repeatedly
+                    // invoking privileged `pmset` or accidentally keeping the stale block alive.
+                    try? await Task.sleep(for: .seconds(Self.leaseDuration + 1))
+                case .timedOut:
+                    dropConnection()
+                case .failed:
+                    break
+                }
+            }
+            capabilityProbeTask = nil
+        }
     }
 
     /// One-shot version probe, logged at startup, so version skew — an old helper still resident
@@ -138,20 +236,6 @@ final class HelperClient {
             } else {
                 log.warning("Helper version \(version, privacy: .public) ≠ daemon \(AdrafinilConstants.marketingVersion, privacy: .public) — an old helper may still be resident")
             }
-        }
-    }
-
-    /// Reapplies the desired blocked state after a backoff, so a helper that fails to launch is
-    /// retried with widening gaps (1, 2, 4, … capped) instead of in a tight respawn loop.
-    private func scheduleReapplyIfNeeded() {
-        guard desiredBlockedState else { return }
-        reconnectTask?.cancel()
-        let delay = min(pow(2.0, Double(reconnectAttempts)), Self.maxBackoff)
-        reconnectAttempts += 1
-        reconnectTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self, desiredBlockedState else { return }
-            await setBlocked(true)
         }
     }
 }

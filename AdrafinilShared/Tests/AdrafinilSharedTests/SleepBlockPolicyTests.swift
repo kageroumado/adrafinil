@@ -77,6 +77,53 @@ struct SleepBlockPolicyTests {
     }
 
     @Test
+    func `observer-only blocking applies clamshell without acquiring an idle assertion`() throws {
+        let idle = FakeIdle(), clam = FakeClamshell()
+        let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
+        try policy.set(blocked: true, requiresIdleAssertion: false)
+        #expect(idle.acquireCount == 0)
+        #expect(!idle.isHeld)
+        #expect(clam.calls == [false, true])
+        #expect(policy.isBlocked)
+    }
+
+    @Test
+    func `transition from observer-only to full blocking acquires the idle assertion`() throws {
+        let idle = FakeIdle(), clam = FakeClamshell()
+        let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
+        try policy.set(blocked: true, requiresIdleAssertion: false)
+        try policy.set(blocked: true, requiresIdleAssertion: true)
+        #expect(idle.acquireCount == 1)
+        #expect(idle.isHeld)
+        #expect(clam.calls == [false, true, true])
+    }
+
+    @Test
+    func `transition from full to observer-only blocking releases the idle assertion`() throws {
+        let idle = FakeIdle(), clam = FakeClamshell()
+        let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
+        try policy.set(blocked: true, requiresIdleAssertion: true)
+        try policy.set(blocked: true, requiresIdleAssertion: false)
+        #expect(idle.releaseCount == 1)
+        #expect(!idle.isHeld)
+        #expect(clam.calls == [false, true, true])
+        #expect(policy.isBlocked)
+    }
+
+    @Test
+    func `failed full to observer-only transition retains idle protection for retry`() throws {
+        let idle = FakeIdle(), clam = FakeClamshell()
+        let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
+        try policy.set(blocked: true, requiresIdleAssertion: true)
+        clam.throwOn = true
+        #expect(throws: FakeClamshell.Boom.self) {
+            try policy.set(blocked: true, requiresIdleAssertion: false)
+        }
+        #expect(idle.isHeld)
+        #expect(policy.isBlocked)
+    }
+
+    @Test
     func `a clamshell failure while blocking propagates`() {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
@@ -89,13 +136,15 @@ struct SleepBlockPolicyTests {
     }
 
     @Test
-    func `a clamshell failure while unblocking is swallowed (best-effort clear)`() throws {
+    func `a clamshell failure while unblocking propagates and remains blocked for retry`() throws {
         let idle = FakeIdle(), clam = FakeClamshell()
         let policy = SleepBlockPolicy(idle: idle, clamshell: clam)
         try policy.set(blocked: true)
         clam.throwOn = false
-        try policy.set(blocked: false) // must not throw
-        #expect(!policy.isBlocked)
+        #expect(throws: FakeClamshell.Boom.self) {
+            try policy.set(blocked: false)
+        }
+        #expect(policy.isBlocked)
         #expect(!idle.isHeld)
     }
 }

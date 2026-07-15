@@ -155,6 +155,8 @@ final class CLISocketServer {
                 return CLIResponse(ok: false, error: "too many active assertions", blocking: !result.snapshot.isEmpty, assertionCount: result.snapshot.count, statusJSON: nil)
             case let .cutoutLatched(message):
                 return CLIResponse(ok: false, error: message, blocking: false, assertionCount: result.snapshot.count, statusJSON: nil)
+            case let .helperUnavailable(message):
+                return CLIResponse(ok: false, error: message, blocking: false, assertionCount: result.snapshot.count, statusJSON: nil)
             }
 
         case .hold:
