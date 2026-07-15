@@ -77,6 +77,11 @@ struct SettingsView: View {
                     }
                 }
             }
+            // First time the icon leaves the bar, explain how to get back (relaunch → popover) —
+            // otherwise closing this window afterwards strands the user with no visible surface.
+            if old.showInMenuBar, !new.showInMenuBar {
+                MenuBarPresence.shared.announceHiddenIfNeeded()
+            }
             // Debounce the daemon reload so a slider drag doesn't fire a cross-process reload (and a
             // daemon-side disk re-read) on every intermediate value.
             reloadTask?.cancel()

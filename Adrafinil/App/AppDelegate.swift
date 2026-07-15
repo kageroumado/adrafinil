@@ -75,10 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 Task { await DaemonClient.shared.resumeAtLaunch() }
 
                 // With the menu bar icon hidden the app has no visible surface at all, so a
-                // launch is the user asking for a way back in — give them Settings. (Deferred a
-                // beat so the SwiftUI scene is set up before the selector lands.)
+                // launch is the user asking for a way back in — temporarily reveal the icon and
+                // open its popover (Settings is one click from there). (Deferred a beat so the
+                // SwiftUI MenuBarExtra scene is set up first.)
                 if !AdrafinilSettings.load().showInMenuBar {
-                    DispatchQueue.main.async { Self.openSettingsWindow() }
+                    DispatchQueue.main.async { MenuBarPresence.shared.openMenu() }
                 }
             }
         #endif
@@ -88,20 +89,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
-    /// Finder "re-launch" of the running instance. With the icon hidden and no windows open
-    /// there is nothing to come back to — open Settings so `showInMenuBar` can be flipped back.
+    /// Finder or Spotlight "re-launch" of the running instance. There's no Dock window to
+    /// restore, so the meaningful reopen is popping the status-item popover; it works whether the
+    /// icon is in the menu bar or hidden — with it hidden this is the way back in (the old path,
+    /// opening the Settings scene via the `showSettingsWindow:` selector, silently fails: that
+    /// selector isn't in a menu-bar-only app's responder chain). If a window (Settings, Setup) is
+    /// already up, front that instead.
     func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if !hasVisibleWindows, !AdrafinilSettings.load().showInMenuBar {
-            Self.openSettingsWindow()
+        if hasVisibleWindows {
+            NSApp.activate(ignoringOtherApps: true)
+            return true
         }
-        return true
-    }
-
-    /// Opens the SwiftUI `Settings` scene from AppKit (the scene's own `SettingsLink` is only
-    /// reachable from inside SwiftUI views).
-    private static func openSettingsWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        MenuBarPresence.shared.openMenu()
+        return false
     }
 
     /// The single quit gate. Adrafinil is split across three executables (this app, the user
