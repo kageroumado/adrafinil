@@ -13,10 +13,9 @@
 # Enabled rules
 --enable blankLineAfterImports,blockComments,wrapEnumCases,wrapSingleLineComments
 
-# Disabled rules. redundantSelf is off: under Swift 6 strict concurrency it strips `self.` that the
-# compiler REQUIRES in escaping/Sendable closures and OSLog autoclosures, breaking the build. Leave
-# self management to the author.
---disable wrapMultilineStatementBraces,wrapMultilineConditionalAssignment,blankLinesBetweenScopes,redundantInternal,redundantSelf
+# Disabled rules. Preserve the project's compact if style across SwiftFormat releases. redundantSelf
+# is off because Swift 6 requires `self.` in escaping/Sendable closures and OSLog autoclosures.
+--disable wrapIfExpressionBodies,wrapIfStatementBodies,wrapMultilineStatementBraces,wrapMultilineConditionalAssignment,blankLinesBetweenScopes,redundantInternal,redundantSelf
 
 # Header stripping
 --header strip
