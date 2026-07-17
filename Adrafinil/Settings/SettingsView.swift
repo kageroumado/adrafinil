@@ -350,7 +350,7 @@ struct AgentsSettingsTab: View {
 
             Section {
                 Button("Open setup again…") {
-                    (NSApp.delegate as? AppDelegate)?.presentInstaller()
+                    AppDelegate.shared?.presentInstaller()
                 }
                 // Keep this out of the form's initial focus: as the only plain button it otherwise
                 // lands the first-responder ring, making a secondary utility read as the main action.
