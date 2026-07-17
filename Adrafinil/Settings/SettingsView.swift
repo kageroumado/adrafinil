@@ -46,6 +46,11 @@ struct SettingsView: View {
             // Persist immediately — it's a small local write and must never be lost if the window
             // closes mid-edit.
             try? new.save()
+            // Re-enabling the icon while the hidden-icon fallback window is open makes that window
+            // redundant — the status item is the surface again, so dismiss it.
+            if !old.showInMenuBar, new.showInMenuBar {
+                AppDelegate.shared?.closeMenuWindow()
+            }
             if old.launchAtLogin != new.launchAtLogin {
                 Task {
                     if new.launchAtLogin {
@@ -161,8 +166,13 @@ struct GeneralSettingsTab: View {
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
                 Toggle("Show in menu bar", isOn: $settings.showInMenuBar)
             } footer: {
-                if notificationsDenied {
-                    Text("Notifications are turned off for Adrafinil in System Settings, so the “while you were away” recap won't appear after you reopen the lid.")
+                VStack(alignment: .leading, spacing: 6) {
+                    if !settings.showInMenuBar {
+                        Text("With the icon hidden, Adrafinil keeps running in the background. Reopen it from Spotlight or Finder to bring its menu back as a window.")
+                    }
+                    if notificationsDenied {
+                        Text("Notifications are turned off for Adrafinil in System Settings, so the “while you were away” recap won't appear after you reopen the lid.")
+                    }
                 }
             }
 

@@ -11,13 +11,28 @@ import UserNotifications
 /// system (helper/daemon registration, CLI symlink, agent setup) is gated behind explicit
 /// user action in `InstallerView`.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSWindowDelegate {
     private var installerWindow: NSWindow?
+
+    /// The hidden-icon fallback window. Owned strongly (with `isReleasedWhenClosed = false`) so ARC,
+    /// not AppKit, balances its lifetime — a self-releasing window over-releases at the next
+    /// autorelease-pool drain and crashes. Cleared in `windowWillClose`, so each present is fresh.
+    private var menuWindow: NSWindow?
+
+    /// The live delegate, so SwiftUI views can reach it without depending on `NSApp.delegate`
+    /// (which, under `@NSApplicationDelegateAdaptor`, isn't guaranteed to be this concrete type).
+    weak static var shared: AppDelegate?
+
+    /// The live status model, set by `AdrafinilApp` at init, so AppKit-hosted windows (the
+    /// hidden-icon menu window) render the same state as the menu-bar popover.
+    static var sharedStatus: AppStatusModel?
 
     /// Drives the Dock icon: shown only while a real window (Settings, Setup) is open.
     private let dockVisibility = DockVisibilityController()
 
     func applicationDidFinishLaunching(_: Notification) {
+        Self.shared = self
+
         // Single instance. macOS blocks double-launch from Finder, but launching via Xcode (or a
         // different build path) bypasses that — and Xcode's Stop doesn't reliably kill a menu-bar
         // (LSUIElement) app, so old copies pile up. Terminate any other running instance on launch.
@@ -74,12 +89,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // that restart would otherwise leave Adrafinil stuck paused.
                 Task { await DaemonClient.shared.resumeAtLaunch() }
 
-                // With the menu bar icon hidden the app has no visible surface at all, so a
-                // launch is the user asking for a way back in — give them Settings. (Deferred a
-                // beat so the SwiftUI scene is set up before the selector lands.)
-                if !AdrafinilSettings.load().showInMenuBar {
-                    DispatchQueue.main.async { Self.openSettingsWindow() }
-                }
+                // Deliberately no window here when the icon is hidden. This branch also runs on a
+                // launch-at-login auto-start (the default), and stealing focus with a centered
+                // window on every login is exactly what a user who hid the icon does not want. The
+                // way back in is re-activating the already-running app (Finder/Spotlight), which
+                // arrives as `applicationShouldHandleReopen` — never as a cold login launch.
             }
         #endif
     }
@@ -88,20 +102,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
-    /// Finder "re-launch" of the running instance. With the icon hidden and no windows open
-    /// there is nothing to come back to — open Settings so `showInMenuBar` can be flipped back.
+    /// Finder or Spotlight "re-launch" of the running instance. If a window (Settings, Setup, the
+    /// menu window) is already up, front it. Otherwise, with the menu-bar icon hidden there is no
+    /// surface at all — host the popover's contents in a real window so the app is never a dead
+    /// end. (The old path, opening the Settings scene via the `showSettingsWindow:` selector,
+    /// silently failed: that selector isn't in a menu-bar-only app's responder chain.) With the
+    /// icon shown, the status item is the surface, so there's nothing to do.
     func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if !hasVisibleWindows, !AdrafinilSettings.load().showInMenuBar {
-            Self.openSettingsWindow()
+        if hasVisibleWindows {
+            NSApp.activate(ignoringOtherApps: true)
+            return true
+        }
+        if !AdrafinilSettings.load().showInMenuBar {
+            presentMenuWindow()
         }
         return true
     }
 
-    /// Opens the SwiftUI `Settings` scene from AppKit (the scene's own `SettingsLink` is only
-    /// reachable from inside SwiftUI views).
-    private static func openSettingsWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    /// Hosts the menu-bar popover's contents in a real window. Used when "Show in menu bar" is off:
+    /// launching or reopening the app then has no status item to click, so this window is the way
+    /// in — Settings and every action are reachable from it, and while it's open
+    /// `DockVisibilityController` promotes the app to `.regular` (Dock icon, app menu, ⌘Q). No
+    /// activation race or status-item reveal: it's an ordinary window.
+    func presentMenuWindow() {
+        guard let status = Self.sharedStatus else { return }
+        if let existing = menuWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let hosting = NSHostingController(rootView: MenuPopover(status: status))
+        // Track SwiftUI's content size so tall states (a long agent list, an attention card, the
+        // inline quit-confirm) resize the window instead of clipping against a fixed height.
+        hosting.sizingOptions = [.preferredContentSize]
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Adrafinil" // for the window menu / accessibility only
+        window.styleMask = [.titled, .closable]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.center()
+        // ARC owns it (see `menuWindow`); `windowWillClose` drops the reference so a close both
+        // tears down the SwiftUI content (no stale quit-confirm, no background poll) and lets the
+        // window deallocate cleanly.
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        menuWindow = window
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The menu-bar icon is back (re-enabled from Settings), so the fallback window is redundant —
+    /// dismiss it and let the status item be the surface again.
+    func closeMenuWindow() {
+        menuWindow?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if notification.object as? NSWindow === menuWindow {
+            menuWindow = nil
+        }
     }
 
     /// The single quit gate. Adrafinil is split across three executables (this app, the user
