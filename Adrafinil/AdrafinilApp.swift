@@ -8,17 +8,21 @@ struct AdrafinilApp: App {
     @State private var settings: AdrafinilSettings = .load()
 
     init() {
+        let model: AppStatusModel
         #if DEBUG
             // Back the menu-bar model with mock data so the debug control panel can drive scenarios
             // live. `DebugControl` keeps a reference so it can force an immediate refresh on switch.
             // No launch maintenance in DEBUG: it would migrate real ~/.codex hooks and hit the network
             // while exercising mock scenarios.
-            let model = AppStatusModel(provider: MockStatusProvider(), enableLaunchMaintenance: false)
+            model = AppStatusModel(provider: MockStatusProvider(), enableLaunchMaintenance: false)
             DebugControl.shared.statusModel = model
-            _status = State(initialValue: model)
         #else
-            _status = State(initialValue: AppStatusModel())
+            model = AppStatusModel()
         #endif
+        _status = State(initialValue: model)
+        // Share the live model so AppKit can host the same popover contents in a real window when
+        // the menu-bar icon is hidden (see `AppDelegate.presentMenuWindow`).
+        AppDelegate.sharedStatus = model
     }
 
     var body: some Scene {
