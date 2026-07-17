@@ -14,8 +14,9 @@
 
 <table>
   <tr>
-    <td align="center"><img src=".github/adrafinil-awake.png" alt="Awake — kept awake while an agent works, with Keep awake / Let it sleep controls" width="420"><br><sub><b>awake</b> ・ an agent is working — or keep it awake yourself</sub></td>
-    <td align="center"><img src=".github/adrafinil-sleeping.png" alt="Idle — no agents, normal sleep, with a Keep awake button to hold it open yourself" width="420"><br><sub><b>idle</b> ・ no agents, normal sleep — or keep it awake yourself</sub></td>
+    <td align="center"><img src=".github/adrafinil-awake.png" alt="Awake — kept awake while an agent works, with Keep awake / Let it sleep controls" width="300"><br><sub><b>awake</b> ・ an agent is working</sub></td>
+    <td align="center"><img src=".github/adrafinil-sleeping.png" alt="Idle — no agents, normal sleep, with a Keep awake button to hold it open yourself" width="300"><br><sub><b>idle</b> ・ no agents, normal sleep</sub></td>
+    <td align="center"><img src=".github/adrafinil-hold.png" alt="Hold — a duration picker to keep the Mac awake yourself for 15m, 30m, an hour, or indefinitely" width="300"><br><sub><b>hold</b> ・ keep it awake yourself — 15m to ∞</sub></td>
   </tr>
 </table>
 
