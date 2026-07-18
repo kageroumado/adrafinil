@@ -70,10 +70,16 @@ final class HelperClient {
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.callTimeout) {
                 once.resume(.timedOut)
             }
-            guard let proxy = conn.remoteObjectProxyWithErrorHandler({ [weak self] error in
-                self?.log.error("Helper proxy error: \(error.localizedDescription)")
+            // The error handler must be @Sendable (non-isolated): NSXPC calls it on its own
+            // background queue, and a @MainActor-isolated closure would trap there. (The reply
+            // closures are already @Sendable via HelperXPCProtocol; `NSXPCConnection`'s own
+            // `remoteObjectProxyWithErrorHandler:` lacks the NS_SWIFT_SENDABLE annotation, so the
+            // compiler won't force this — it must be explicit. Same idiom as `DaemonClient.call`.)
+            let onError: @Sendable (any Error) -> Void = { [log] error in
+                log.error("Helper proxy error: \(error.localizedDescription)")
                 once.resume(.failed)
-            }) as? HelperXPCProtocol else {
+            }
+            guard let proxy = conn.remoteObjectProxyWithErrorHandler(onError) as? HelperXPCProtocol else {
                 once.resume(.failed)
                 return
             }
@@ -131,7 +137,10 @@ final class HelperClient {
     /// instead of only as mysteriously failing calls.
     func logHelperVersion() {
         let conn = ensureConnection()
-        guard let proxy = conn.remoteObjectProxyWithErrorHandler({ _ in }) as? HelperXPCProtocol else { return }
+        // @Sendable for the same reason as in `sendSetBlocked`: NSXPC invokes it off-main, and a
+        // MainActor-inferred closure would trap the daemon even though the body is empty.
+        let onError: @Sendable (any Error) -> Void = { _ in }
+        guard let proxy = conn.remoteObjectProxyWithErrorHandler(onError) as? HelperXPCProtocol else { return }
         proxy.version { [log] version in
             if version == AdrafinilConstants.marketingVersion {
                 log.info("Helper version \(version, privacy: .public)")

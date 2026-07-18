@@ -26,6 +26,15 @@ struct CallerVerifierTests {
         #expect(!CallerVerifier.isAdrafinilComponent("com.evil.adrafinil"))
         #expect(!CallerVerifier.isAdrafinilComponent(""))
     }
+
+    @Test
+    func `a linker ad-hoc identifier (build that skipped codesign) is rejected`() {
+        // `xcodebuild … CODE_SIGNING_ALLOWED=NO` skips the codesign step entirely, so the linker's
+        // fallback ad-hoc signature stamps tools as `<name>-<hex>` instead of the product name.
+        // Such a build must not authorize — and won't function: install a build that went through
+        // codesign (identifier = product name), e.g. `CODE_SIGN_IDENTITY=-` for local dev.
+        #expect(!CallerVerifier.isAdrafinilComponent("AdrafinilDaemon-55554944572a111aa4e631978f328488fa7c4992"))
+    }
 }
 
 /// The team check must fail closed: an ad-hoc binary can claim ANY code identifier
