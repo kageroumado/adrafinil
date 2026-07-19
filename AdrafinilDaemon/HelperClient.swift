@@ -71,19 +71,27 @@ final class HelperClient {
                 once.resume(.timedOut)
             }
             guard let proxy = conn.remoteObjectProxyWithErrorHandler({ [weak self] error in
-                self?.log.error("Helper proxy error: \(error.localizedDescription)")
                 once.resume(.failed)
+                let message = error.localizedDescription
+                Task { @MainActor [weak self] in
+                    self?.log.error("Helper proxy error: \(message)")
+                }
             }) as? HelperXPCProtocol else {
                 once.resume(.failed)
                 return
             }
             proxy.setSleepBlocked(blocked) { [weak self] applied, error in
                 if let error {
-                    self?.log.error("Helper setSleepBlocked error: \(error.localizedDescription)")
                     once.resume(.failed)
+                    let message = error.localizedDescription
+                    Task { @MainActor [weak self] in
+                        self?.log.error("Helper setSleepBlocked error: \(message)")
+                    }
                 } else {
-                    self?.log.info("Helper applied blocked=\(applied)")
                     once.resume(.applied(applied))
+                    Task { @MainActor [weak self] in
+                        self?.log.info("Helper applied blocked=\(applied)")
+                    }
                 }
             }
         }
@@ -132,11 +140,14 @@ final class HelperClient {
     func logHelperVersion() {
         let conn = ensureConnection()
         guard let proxy = conn.remoteObjectProxyWithErrorHandler({ _ in }) as? HelperXPCProtocol else { return }
-        proxy.version { [log] version in
-            if version == AdrafinilConstants.marketingVersion {
-                log.info("Helper version \(version, privacy: .public)")
-            } else {
-                log.warning("Helper version \(version, privacy: .public) ≠ daemon \(AdrafinilConstants.marketingVersion, privacy: .public) — an old helper may still be resident")
+        proxy.version { [weak self] version in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if version == AdrafinilConstants.marketingVersion {
+                    log.info("Helper version \(version, privacy: .public)")
+                } else {
+                    log.warning("Helper version \(version, privacy: .public) ≠ daemon \(AdrafinilConstants.marketingVersion, privacy: .public) — an old helper may still be resident")
+                }
             }
         }
     }
