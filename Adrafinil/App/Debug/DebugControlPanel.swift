@@ -132,6 +132,12 @@
                                 Label("Open static gallery", systemImage: "square.grid.2x2")
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            Button {
+                                appDelegate?.presentMenuWindow()
+                            } label: {
+                                Label("Open fallback menu window", systemImage: "macwindow")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                         .padding(.vertical, Theme.Space.xs)
                         .frame(maxWidth: .infinity, alignment: .leading)
