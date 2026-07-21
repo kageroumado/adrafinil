@@ -15,8 +15,10 @@
 
 # Disabled rules. redundantSelf is off: under Swift 6 strict concurrency it strips `self.` that the
 # compiler REQUIRES in escaping/Sendable closures and OSLog autoclosures, breaking the build. Leave
-# self management to the author.
---disable wrapMultilineStatementBraces,wrapMultilineConditionalAssignment,blankLinesBetweenScopes,redundantInternal,redundantSelf
+# self management to the author. wrapIfStatementBodies/wrapIfExpressionBodies (default-on since
+# SwiftFormat 0.62) are off: the codebase uses one-line `if cond { return }` bodies and compact
+# single-line `if case` expression predicates deliberately.
+--disable wrapMultilineStatementBraces,wrapMultilineConditionalAssignment,blankLinesBetweenScopes,redundantInternal,redundantSelf,wrapIfStatementBodies,wrapIfExpressionBodies
 
 # Header stripping
 --header strip
