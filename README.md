@@ -71,7 +71,7 @@ moment that work finishes.
 
 ## Requirements
 
-- **macOS Tahoe 26.4.** That's what I build and test on; it likely runs on earlier 26.x, but I haven't tested it there.
+- **macOS Tahoe 26.4.** That's what I build and test on; it likely runs on earlier 26.x, but I haven't tested it there. On macOS 15 Sequoia? [valentine](https://github.com/valentine) maintains a [backport fork](https://github.com/valentine/adrafinil).
 - **Xcode 26+** to build, with Swift 6 strict concurrency enabled.
 - Admin rights for the standard install (the privileged helper installs via `SMAppService`). A non-admin install path drops the CLI in `~/.local/bin` instead of `/usr/local/bin`.
 
