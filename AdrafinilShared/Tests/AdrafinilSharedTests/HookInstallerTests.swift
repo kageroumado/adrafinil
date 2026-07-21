@@ -886,7 +886,49 @@ struct HookInstallerTests {
 
         let dict = try readJSON(home.path + "/.cursor/hooks.json")
         let hooks = try #require(dict["hooks"] as? [String: Any])
-        let startArr = try #require(hooks["sessionStart"] as? [[String: Any]])
-        #expect(startArr.first?["command"] is String)
+        let acquireArr = try #require(hooks["beforeSubmitPrompt"] as? [[String: Any]])
+        let acquire = try #require(acquireArr.first?["command"] as? String)
+        #expect(acquire.contains("acquire --tool cursor"))
+        #expect(acquire.contains("--ttl \(CursorIntegration.holdTTLSeconds)"), "the acquire must be TTL-capped — `stop` is the only release signal")
+        let releaseArr = try #require(hooks["stop"] as? [[String: Any]])
+        #expect((releaseArr.first?["command"] as? String)?.contains("release --tool cursor") == true)
+    }
+
+    /// The 1.5.1 shape (issue #15): session-scoped hooks left holds pinned to the long-lived Cursor
+    /// app. The once-per-build reinstall must *move* the entries to the turn-scoped events — a merge
+    /// that leaves the old `sessionStart` acquire firing would keep the exact bug it migrates away
+    /// from — while foreign entries under those same events survive.
+    @Test
+    func `cursor reinstall migrates session-scoped hooks to turn-scoped events`() throws {
+        let home = try makeFakeHome(detectedDirs: [".cursor"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let old: [String: Any] = [
+            "version": 1,
+            "hooks": [
+                "sessionStart": [
+                    ["command": "/Applications/Adrafinil.app/Contents/Helpers/adrafinil acquire --tool cursor", "_adrafinil": true],
+                    ["command": "echo user-hook"],
+                ],
+                "sessionEnd": [
+                    ["command": "/Applications/Adrafinil.app/Contents/Helpers/adrafinil release --tool cursor", "_adrafinil": true],
+                ],
+            ],
+        ]
+        let path = home.path + "/.cursor/hooks.json"
+        try JSONSerialization.data(withJSONObject: old).write(to: URL(fileURLWithPath: path))
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        #expect(installer.installState(for: .cursor) == .modifiedExternally, "the old shape must read as drifted so the build migration reinstalls it")
+        _ = try installer.install(for: .cursor, dryRun: false)
+
+        let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
+        let start = try #require(hooks["sessionStart"] as? [[String: Any]])
+        #expect(start.count == 1, "our stale sessionStart acquire must be stripped")
+        #expect(start.first?["command"] as? String == "echo user-hook")
+        #expect(hooks["sessionEnd"] == nil, "an event emptied of our entries must be dropped")
+        #expect(hooks["beforeSubmitPrompt"] != nil)
+        #expect(hooks["stop"] != nil)
+        #expect(installer.installState(for: .cursor) == .installed)
     }
 }

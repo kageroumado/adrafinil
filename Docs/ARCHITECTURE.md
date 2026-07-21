@@ -98,8 +98,8 @@ These support shell-command hooks with a session-start and (mostly) a session-en
 | Tool | Config path | Start event | End event |
 |------|-------------|-------------|-----------|
 | Claude Code | `~/.claude/settings.json` | `UserPromptSubmit` | `Stop` + `Notification`[`idle_prompt`] |
-| Codex | `~/.codex/hooks.json` | `SessionStart` | — (process-exit; `Stop` is per-turn, see §3.5) |
-| Cursor | `~/.cursor/hooks.json` | `sessionStart` | `sessionEnd` |
+| Codex | `~/.codex/hooks.json` | `UserPromptSubmit` | `Stop` |
+| Cursor | `~/.cursor/hooks.json` | `beforeSubmitPrompt` (`--ttl 3600`) | `stop` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
 
 Claude Code, Codex, and Gemini CLI share a nested JSON shape (`{"hooks": {event: [{"hooks": [{type, command}]}]}}`); Cursor uses a flatter shape (`{"command": …}` entries directly). Only Claude Code also exposes a real session-id env var; the others deliver the id only on stdin.
@@ -115,8 +115,12 @@ release hook is a best-effort fast-path (Claude's "waiting for input" notificati
 version/focus/channel and often doesn't fire, so it isn't relied upon). The process-exit watcher
 (§3.4) covers a terminal closed mid-turn, so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
 entries (the shape's `obsoleteEvents`) so a stale `SessionStart` → acquire can't re-pin the whole
-session. Codex/Cursor/Gemini per-turn event names aren't device-verified yet, so they stay
-session-scoped with the CPU-idle sweep as their idle backstop.
+session. **Codex and Cursor are turn-scoped too** (verified events: Codex `UserPromptSubmit`/`Stop`,
+issue #2; Cursor `beforeSubmitPrompt`/`stop`, issue #15). Cursor's acquire additionally carries a
+`--ttl`: its holds attach to the single long-lived Cursor app process, which neither the process-exit
+watcher nor the CPU-idle sweep can catch (the app's own UI keeps the tree busy), so the TTL —
+refreshed each prompt — is the stale-hold backstop. Gemini's per-turn event names aren't
+device-verified yet, so it stays session-scoped with the CPU-idle sweep as its idle backstop.
 
 ### 3.3 Tier-2 agents (partial / non-trivial integration)
 

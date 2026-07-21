@@ -346,8 +346,8 @@ struct InstallerSafetyTests {
 
         let dict = try readJSON(home.path + "/.cursor/hooks.json")
         let hooks = (dict["hooks"] as? [String: Any]) ?? [:]
-        #expect(hooks["sessionStart"] == nil, "emptied event keys must be dropped")
-        #expect(hooks["sessionEnd"] == nil)
+        #expect(hooks["beforeSubmitPrompt"] == nil, "emptied event keys must be dropped")
+        #expect(hooks["stop"] == nil)
     }
 
     // MARK: - Generated-code escaping

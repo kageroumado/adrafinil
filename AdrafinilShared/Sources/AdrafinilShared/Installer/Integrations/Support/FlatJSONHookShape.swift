@@ -4,10 +4,10 @@ import Foundation
 /// `{"command": …, "_adrafinil": true}` objects directly, with no inner `hooks` wrapper.
 ///
 /// ```json
-/// { "hooks": { "sessionStart": [ { "command": "adrafinil acquire …", "_adrafinil": true } ] } }
+/// { "hooks": { "beforeSubmitPrompt": [ { "command": "adrafinil acquire …", "_adrafinil": true } ] } }
 /// ```
 ///
-/// Used by Cursor (`sessionStart`/`sessionEnd`). The integration supplies the `(event, command)`
+/// Used by Cursor (`beforeSubmitPrompt`/`stop`). The integration supplies the `(event, command)`
 /// pairs it manages and an optional base document (Cursor seeds `{"version": 1}` on a fresh file).
 struct FlatJSONHookShape {
     let configPath: String
@@ -24,6 +24,10 @@ struct FlatJSONHookShape {
         let before = existing ?? [:]
         var after = existing ?? baseDocument
         var hooks = (after["hooks"] as? [String: Any]) ?? [:]
+        // Canonicalize, don't just merge: strip our entries from every event first, so one left
+        // under an event this build no longer uses (an older shape — e.g. Cursor's session-scoped
+        // hooks, issue #15) can't survive the once-per-build reinstall and keep firing.
+        Self.removeOurEntries(from: &hooks)
         for entry in entries {
             merge(into: &hooks, event: entry.event, command: entry.command)
         }
@@ -44,13 +48,7 @@ struct FlatJSONHookShape {
         }
         var dict = existing
         let before = dict
-        // Strip our entries from every event, including one the user may have moved them to,
-        // and drop emptied event arrays so no `"<event>": []` residue is left behind.
-        for event in hooks.keys {
-            guard let arr = hooks[event] as? [[String: Any]] else { continue }
-            let pruned = arr.filter { !Self.entryIsOurs($0) }
-            hooks[event] = pruned.isEmpty ? nil : pruned
-        }
+        Self.removeOurEntries(from: &hooks)
         dict["hooks"] = hooks
         let diff = ConfigFileIO.makeDiff(before: before, after: dict)
         if !dryRun { try ConfigFileIO.writeJSON(dict, to: configPath, replacing: existing) }
@@ -91,6 +89,16 @@ struct FlatJSONHookShape {
             arr.append(canonical)
         }
         hooks[event] = arr
+    }
+
+    /// Strips our entries from every event — including one the user may have moved them to, or one
+    /// an older build wrote — and drops emptied event arrays so no `"<event>": []` residue is left.
+    private static func removeOurEntries(from hooks: inout [String: Any]) {
+        for event in hooks.keys {
+            guard let arr = hooks[event] as? [[String: Any]] else { continue }
+            let pruned = arr.filter { !entryIsOurs($0) }
+            hooks[event] = pruned.isEmpty ? nil : pruned
+        }
     }
 
     private static func entryIsOurs(_ entry: [String: Any]) -> Bool {

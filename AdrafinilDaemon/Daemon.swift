@@ -222,10 +222,12 @@ final class Daemon {
             log.notice("acquire rejected — cutout latched (key='\(assertion.key, privacy: .public)')")
             return .cutoutLatched(message)
         }
-        // Cap any hook-carried TTL to the user's live max-hold. A TTL only reaches here from the
+        // Cap any hook-carried TTL to the user's live max-hold. A TTL reaches here from the
         // background-shell hook (`acquire --if-background`), which requests the CLI's 24h ceiling so
-        // that this clamp — not a value baked in at install time — governs; the per-turn and sub-agent
-        // hooks carry no TTL and are untouched (idle policy governs them). `.manual` holds arrive
+        // that this clamp — not a value baked in at install time — governs, and from Cursor's
+        // per-turn acquire, whose 1h stale-hold backstop is refreshed on every prompt (see
+        // `CursorIntegration`). The other per-turn and sub-agent hooks carry no TTL and are
+        // untouched (idle policy governs them). `.manual` holds arrive
         // already clamped (see `handleHold`), so this is a harmless no-op for them.
         var assertion = assertion
         assertion.expiresAt = ManualHold.clampExpiry(

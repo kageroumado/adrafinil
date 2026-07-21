@@ -24,11 +24,15 @@ struct HookContext {
     /// `agent_id` from stdin instead — for the `SubagentStart`/`SubagentStop` hooks, whose hold must
     /// outlive the parent turn's `Stop`. Sub-agent hooks always source their id from stdin, so they
     /// pass no `sessionVar`.
-    func hookCommand(_ op: String, tool: String, sessionVar: String? = nil, subagent: Bool = false) -> String {
+    ///
+    /// `ttlSeconds` appends `--ttl <n>`, expiring the hold as a backstop — for agents whose release
+    /// signal alone can't be trusted to fire (see `CursorIntegration`).
+    func hookCommand(_ op: String, tool: String, sessionVar: String? = nil, subagent: Bool = false, ttlSeconds: Int? = nil) -> String {
         var command = quotedCLI + " " + op
         if let sessionVar { command += " " + sessionVar }
         command += " --tool " + tool
         if subagent { command += " --subagent" }
+        if let ttlSeconds { command += " --ttl " + String(ttlSeconds) }
         return command
     }
 
