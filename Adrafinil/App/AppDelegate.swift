@@ -132,9 +132,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let hosting = NSHostingController(rootView: MenuPopover(status: status))
-        // Track SwiftUI's content size so tall states (a long agent list, an attention card, the
-        // inline quit-confirm) resize the window instead of clipping against a fixed height.
-        hosting.sizingOptions = [.preferredContentSize]
+        // Keep SwiftUI-derived minimum, ideal, and maximum bounds without routing ideal-size
+        // changes through NSViewController.preferredContentSize. The latter is updated from
+        // `updateViewConstraints`; when SwiftUI invalidates its hosting view during that pass,
+        // AppKit detects a recursive constraints update and terminates the app.
+        hosting.sizingOptions = .standardBounds
         let window = NSWindow(contentViewController: hosting)
         window.title = "Adrafinil" // for the window menu / accessibility only
         window.styleMask = [.titled, .closable]
