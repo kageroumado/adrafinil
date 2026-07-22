@@ -79,6 +79,8 @@ moment that work finishes.
 
 **[Download Adrafinil](https://github.com/kageroumado/adrafinil/releases/latest)** — a signed, notarized disk image. Open it, drag **Adrafinil** to Applications, and launch. The first launch asks for admin rights once to register the privileged helper. Requires macOS 26.4 or later.
 
+Or via Homebrew: `brew install --cask kageroumado/tap/adrafinil` — the same DMG, via [my tap](https://github.com/kageroumado/homebrew-tap). The fully qualified name auto-trusts the cask under Homebrew 6's tap-trust system.
+
 Prefer to build it yourself? See [Building](#building).
 
 ## Building
