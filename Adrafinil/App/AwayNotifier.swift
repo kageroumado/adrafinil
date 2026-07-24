@@ -54,13 +54,13 @@ final class AwayNotifier {
         let action: String
         switch reason {
         case .needsApproval:
-            body = "It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on."
+            body = String(localized: "It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on.", comment: "Notification: body when service needs approval")
             action = "loginItems"
         case .notRegistered:
-            body = "Its background service isn't set up. Tap to finish setting up Adrafinil."
+            body = String(localized: "Its background service isn't set up. Tap to finish setting up Adrafinil.", comment: "Notification: body when service not registered")
             action = "setup"
         case .unreachable:
-            body = "Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it."
+            body = String(localized: "Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it.", comment: "Notification: body when service unreachable")
             action = "loginItems"
         case .ok:
             return // not an outage — nothing to alert
@@ -69,7 +69,7 @@ final class AwayNotifier {
             guard await ensureAuthorized() else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = "Adrafinil isn't keeping your Mac awake"
+            content.title = String(localized: "Adrafinil isn't keeping your Mac awake", comment: "Notification: title when helper service is unavailable")
             content.body = body
             content.userInfo = ["adrafinilAction": action]
             content.sound = .default
@@ -194,17 +194,31 @@ final class AwayNotifier {
         let active = s.stillActive.count
 
         var detail: [String] = []
-        if finished > 0 { detail.append("\(finished) \(finished == 1 ? "agent" : "agents") finished") }
-        if active > 0 { detail.append("\(active) still working") }
-        let tally = detail.isEmpty ? "No agents were running." : detail.joined(separator: " · ") + "."
+        if finished > 0 {
+            let finishedLabel = String(localized: "finished", comment: "Notification: agent finished tally")
+            let agentLabel = String(localized: "agent", comment: "Notification: agent singular")
+            detail.append("\(finished) \(agentLabel) \(finishedLabel)")
+        }
+        if active > 0 {
+            let stillWorkingLabel = String(localized: "still working", comment: "Notification: still working")
+            let agentLabel = String(localized: "agent", comment: "Notification: agent singular")
+            detail.append("\(active) \(agentLabel) \(stillWorkingLabel)")
+        }
+        let noAgentStr = String(localized: "No agents were running.", comment: "Notification: no agents")
+        let tally = detail.isEmpty ? noAgentStr : detail.joined(separator: " · ") + "."
 
         if s.thermalCutout {
             let peak = s.peakTemperatureCelsius.map { " (it peaked at \(Int($0))°C)" } ?? ""
-            return ("Your Mac was getting hot", "Adrafinil let it sleep to cool down\(peak). \(tally)")
+            let title = String(localized: "Your Mac was getting hot", comment: "Notification: thermal cutout title")
+            let bodyBase = String(localized: "Adrafinil let it sleep to cool down", comment: "Notification: thermal cutout body")
+            return (title, "\(bodyBase)\(peak). \(tally)")
         }
         if s.lowBatteryCutout {
-            return ("Battery was running low", "Adrafinil let your Mac sleep to save power. \(tally)")
+            let title = String(localized: "Battery was running low", comment: "Notification: low battery title")
+            let bodyBase = String(localized: "Adrafinil let your Mac sleep to save power", comment: "Notification: low battery body")
+            return (title, "\(bodyBase). \(tally)")
         }
-        return ("Adrafinil kept your Mac awake", tally)
+        let title = String(localized: "Adrafinil kept your Mac awake", comment: "Notification: standard recap title")
+        return (title, tally)
     }
 }

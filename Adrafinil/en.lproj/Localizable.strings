@@ -1,0 +1,14 @@
+/* Duration: minutes and seconds — e.g. "1m 30s" */
+"compactDuration" = "%1$dm %2$ds";
+
+/* Remaining time: hours and minutes — e.g. "1h 5m left" */
+"remainingHoursMinutes" = "%1$dh %2$dm left";
+
+/* Remaining time: hours only — e.g. "1h left" */
+"remainingHours" = "%1$dh left";
+
+/* Remaining time: minutes only — e.g. "23m left" */
+"remainingMinutes" = "%1$dm left";
+
+/* Remaining time: less than a minute */
+"remainingLessThanMinute" = "<1m left";

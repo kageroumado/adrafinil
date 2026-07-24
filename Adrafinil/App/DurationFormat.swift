@@ -6,7 +6,7 @@ extension TimeInterval {
         let total = Int(self)
         let minutes = total / 60
         let seconds = total % 60
-        return minutes == 0 ? "\(seconds)s" : "\(minutes)m \(seconds)s"
+        return durationFormat(minutes: minutes, seconds: seconds)
     }
 
     /// Coarse "time left" rendering for a hold countdown: `"1h 5m left"`, `"23m left"`, or
@@ -15,8 +15,31 @@ extension TimeInterval {
         let total = max(0, Int(rounded()))
         let hours = total / 3_600
         let minutes = (total % 3_600) / 60
-        if hours > 0 { return minutes > 0 ? "\(hours)h \(minutes)m left" : "\(hours)h left" }
-        if minutes > 0 { return "\(minutes)m left" }
-        return "<1m left"
+        return remainingFormat(hours: hours, minutes: minutes)
     }
+}
+
+// MARK: - Localized helpers
+
+/// Localized duration display: `"1分钟 30秒"`, `"42秒"`
+private func durationFormat(minutes: Int, seconds: Int) -> String {
+    let fmt = NSLocalizedString("compactDuration", tableName: "Localizable", comment: "Duration format: minutes and seconds")
+    return String(format: fmt, minutes, seconds)
+}
+
+/// Localized remaining-time display: `"1小时 5分钟 剩余"`, `"23分钟 剩余"`
+private func remainingFormat(hours: Int, minutes: Int) -> String {
+    if hours > 0 {
+        if minutes > 0 {
+            let fmt = NSLocalizedString("remainingHoursMinutes", tableName: "Localizable", comment: "Remaining time: hours and minutes")
+            return String(format: fmt, hours, minutes)
+        }
+        let fmt = NSLocalizedString("remainingHours", tableName: "Localizable", comment: "Remaining time: hours only")
+        return String(format: fmt, hours)
+    }
+    if minutes > 0 {
+        let fmt = NSLocalizedString("remainingMinutes", tableName: "Localizable", comment: "Remaining time: minutes only")
+        return String(format: fmt, minutes)
+    }
+    return NSLocalizedString("remainingLessThanMinute", tableName: "Localizable", comment: "Remaining time: less than a minute")
 }

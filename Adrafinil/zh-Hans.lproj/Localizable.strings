@@ -1,0 +1,664 @@
+/*
+  Adrafinil 简体中文本地化文件
+  Localizable.strings (zh-Hans)
+*/
+
+/* ==========================================
+   MenuPopover.swift - 主菜单弹窗
+   ========================================== */
+
+"Adrafinil" = "Adrafinil";
+"Keeping your Mac awake" = "保持 Mac 唤醒";
+"Your Mac can sleep again" = "Mac 可以再次休眠";
+"Sleeping normally" = "正常休眠";
+"No agents active — close the lid and your Mac sleeps" = "没有活跃的智能体 — 合盖后 Mac 将休眠";
+"No agents active — your Mac sleeps when idle" = "没有活跃的智能体 — Mac 空闲时将休眠";
+"Paused" = "已暂停";
+"Agents can't keep your Mac awake until you resume" = "恢复前智能体无法保持 Mac 唤醒";
+"Adrafinil's helper isn't responding" = "Adrafinil 的后台服务没有响应";
+"Repairing Adrafinil…" = "正在修复 Adrafinil…";
+"Re-registering its background services and checking they respond." = "正在重新注册后台服务并检查响应。";
+"Couldn't repair Adrafinil automatically" = "无法自动修复 Adrafinil";
+"Open Login Items & Extensions, switch Adrafinil off and remove it with the “–” button, then reopen the app — or try repairing once more." = "打开「登录项与扩展」，关闭 Adrafinil 并用「–」按钮移除，然后重新打开应用 — 或再次尝试修复。";
+"Open Login Items" = "打开登录项";
+"Repair Again" = "再次修复";
+"Adrafinil needs your approval" = "Adrafinil 需要你的批准";
+"Turn Adrafinil on under “Allow in the Background” so it can keep your Mac awake while agents work. If it won't turn on, try Repair." = "在「允许后台运行」中打开 Adrafinil，这样它就能在智能体工作时保持 Mac 唤醒。如果无法打开，请尝试修复。";
+"Repair" = "修复";
+"Adrafinil isn't set up" = "Adrafinil 尚未设置";
+"Its background service isn't registered, so it can't keep your Mac awake. Repair it to register it again." = "后台服务未注册，无法保持 Mac 唤醒。修复以重新注册。";
+"Adrafinil's helper stopped" = "Adrafinil 后台服务已停止";
+"Its background service isn't responding. Repair it to re-register and bring it back." = "后台服务无响应。修复以重新注册并恢复。";
+"Working…" = "正在处理…";
+"Keep awake" = "保持唤醒";
+"Let it sleep" = "让它休眠";
+"Keep your Mac awake" = "保持 Mac 唤醒";
+"Pause Adrafinil — your Mac sleeps normally until you resume." = "暂停 Adrafinil — Mac 将正常休眠，直到你恢复。";
+"Resume Adrafinil — let agents keep your Mac awake again." = "恢复 Adrafinil — 让智能体再次保持 Mac 唤醒。";
+"Keep your Mac awake for a set time" = "在设定时间内保持 Mac 唤醒";
+"Quit Adrafinil?" = "退出 Adrafinil？";
+"Your Mac goes back to sleeping normally and agents stop being tracked until you open it again." = "Mac 将恢复正常休眠，智能体停止被追踪，直到你再次打开应用。";
+"Cancel" = "取消";
+"Settings…" = "设置…";
+"Quit Adrafinil" = "退出 Adrafinil";
+"Release this hold — let the Mac sleep normally" = "释放此保持 — 让 Mac 正常休眠";
+"Back to presets" = "返回预设";
+"Custom duration" = "自定义时长";
+"Start keeping awake" = "开始保持唤醒";
+"Keep awake until you turn it off" = "一直保持唤醒直到你关闭";
+"made by kageroumado" = "由 kageroumado 制作";
+"Lid closed" = "合盖";
+"Update available — \(version)" = "有可用更新 — \(version)";
+"A newer version of Adrafinil is out. Open the releases page to download it." = "Adrafinil 有新版本了。打开发布页面下载。";
+
+/* ==========================================
+   MenuBarIcon.swift - 菜单栏图标
+   ========================================== */
+
+/* ==========================================
+   SettingsView.swift - 设置
+   ========================================== */
+
+/* General Tab */
+"General" = "通用";
+"Launch at login" = "登录时启动";
+"Show in menu bar" = "在菜单栏显示";
+"With the icon hidden, Adrafinil keeps running in the background. Reopen it from Spotlight or Finder to bring its menu back as a window." = "隐藏图标后，Adrafinil 仍在后台运行。通过 Spotlight 或 Finder 重新打开即可恢复窗口菜单。";
+"Notifications are turned off for Adrafinil in System Settings, so the “while you were away” recap won't appear after you reopen the lid." = "系统设置中已关闭 Adrafinil 的通知，因此合盖期间的摘要不会在开盖后显示。";
+
+/* Lid-close section */
+"When you close the lid" = "合盖时";
+"Play a sound when you close the lid" = "合盖时播放提示音";
+"Volume" = "音量";
+"Sound" = "音效";
+"Hear this sound" = "试听此音效";
+"Lock the screen when you close the lid" = "合盖时锁定屏幕";
+"These apply when an agent is still working as you close the lid — a sound to confirm your Mac is staying awake, and a locked screen to keep it private." = "当你合盖时智能体仍在工作 — 播放声音确认 Mac 保持唤醒，锁定屏幕保护隐私。";
+
+/* Sleep resume section */
+"When sleep resumes" = "恢复休眠时";
+"Play a sound before your Mac goes back to sleep" = "Mac 恢复休眠前播放提示音";
+"Agents finished" = "智能体已完成";
+"Hold expired" = "保持已过期";
+"Safety cutout" = "安全切断";
+"Released by you" = "由你释放";
+"When the last agent finishes while the lid is closed, Adrafinil plays a cue just before your Mac goes back to sleep — so you know it's done without opening the lid. Each reason can have its own sound; the volume above applies." = "合盖状态下当最后一个智能体完成时，Adrafinil 会在 Mac 恢复休眠前播放提示 — 让你无需开盖就知道已完成。每个原因可设置不同的音效；音量同上。";
+
+/* Desktop note */
+"This looks like a desktop Mac" = "这看起来是一台桌面 Mac";
+"Adrafinil keeps it awake while your agents work — a desktop still sleeps on idle and would stall a long task. Lid and battery features are hidden because there's no lid or battery to manage." = "Adrafinil 在智能体工作时保持唤醒 — 桌面 Mac 空闲时仍会休眠并中断长时间任务。合盖和电池功能已隐藏，因为没有需要管理的盖子或电池。";
+
+/* Updates */
+"Updates" = "更新";
+"Adrafinil updates through GitHub Releases. This checks for a newer version and, if one's available, opens the download page — it never downloads or installs on its own." = "Adrafinil 通过 GitHub Releases 更新。此操作检查新版本，如果有则打开下载页面 — 从不自动下载或安装。";
+"Check for updates" = "检查更新";
+"Update available — get version \(version)" = "有可用更新 — 获取版本 \(version)";
+"Checking for updates…" = "正在检查更新…";
+"You're up to date" = "已是最新版本";
+
+/* Uninstall */
+"Uninstall and quit…" = "卸载并退出…";
+"Disconnects Adrafinil from every agent, turns off its background services, removes the adrafinil command, and deletes its settings — then quits." = "断开 Adrafinil 与所有智能体的连接，关闭后台服务，移除 adrafinil 命令，删除设置 — 然后退出。";
+"Uninstall Adrafinil?" = "卸载 Adrafinil？";
+"Uninstall and Quit" = "卸载并退出";
+"This disconnects Adrafinil from all your agents, turns off its background services, and removes the adrafinil command and its settings. This can't be undone." = "这将断开 Adrafinil 与所有智能体的连接，关闭后台服务，移除 adrafinil 命令及其设置。此操作无法撤销。";
+"Some hooks need manual cleanup" = "部分钩子需要手动清理";
+"Adrafinil couldn't clean up everywhere — remove these by hand, or the agent will keep calling a command that no longer exists:\n\n\(uninstallIssues.joined(separator: \"\n\"))" = "Adrafinil 无法完全清理 — 请手动移除，否则智能体会继续调用已不存在的命令：\n\n\(uninstallIssues.joined(separator: \"\n\"))";
+"Quit Anyway" = "仍然退出";
+
+/* Agents Tab */
+"Agents" = "智能体";
+"Your agents" = "你的智能体";
+"No supported agents detected." = "未检测到支持的智能体。";
+"Turn an agent on and Adrafinil keeps your Mac awake while it's working, then lets it sleep again when the agent stops. Turn it off to disconnect. Some agents can also keep your Mac awake on their own — that adds Adrafinil as an MCP tool they can call." = "开启某个智能体后，Adrafinil 会在其工作时保持 Mac 唤醒，停止后让 Mac 恢复休眠。关闭即可断开连接。部分智能体还可以自主保持 Mac 唤醒 — 这会将 Adrafinil 添加为可调用的 MCP 工具。";
+"Open setup again…" = "重新打开设置…";
+"Reopens the guided setup. Use it to connect a new agent, or to fix one that shows “Needs reconnect”." = "重新打开引导式设置。用于连接新智能体，或修复显示「需要重新连接」的智能体。";
+
+/* Agent install row */
+"Let it keep your Mac awake on its own" = "让它自主保持 Mac 唤醒";
+"Adds Adrafinil as an MCP tool in \(model.kind.displayName), so the agent can keep your Mac awake for work that runs past its reply." = "将 Adrafinil 添加为 \(model.kind.displayName) 中的 MCP 工具，让智能体在回复结束后仍能保持 Mac 唤醒。";
+"Show \(model.kind.displayName)'s settings file in Finder" = "在 Finder 中显示 \(model.kind.displayName) 的设置文件";
+"Connected" = "已连接";
+"Needs reconnect" = "需要重新连接";
+"Config unreadable" = "配置文件无法读取";
+"Codex won't run these hooks until you trust them. Open Codex, run “/hooks”, and approve Adrafinil's acquire and release entries — otherwise it can't tell when Codex is working." = "除非你信任这些钩子，否则 Codex 不会运行它们。打开 Codex，运行「/hooks」，批准 Adrafinil 的 acquire 和 release 条目 — 否则它无法知道 Codex 何时在工作。";
+"How to trust" = "如何信任";
+"Reconnect" = "重新连接";
+"\(model.kind.displayName)'s Adrafinil hook isn't in the form Adrafinil expects — likely edited by hand or left over from an update — so it may not notice when \(model.kind.displayName) is working and keep your Mac awake. Reconnect restores it without touching your other \(model.kind.displayName) settings." = "\(model.kind.displayName) 的 Adrafinil 钩子格式不符合预期 — 可能是手动编辑或更新遗留 — 因此可能无法在 \(model.kind.displayName) 工作时保持 Mac 唤醒。重新连接可恢复而不影响其他设置。";
+"\(model.kind.displayName)'s settings file couldn't be read (it may contain comments or a syntax error). Adrafinil won't modify it in this state — fix the file, then try connecting again." = "无法读取 \(model.kind.displayName) 的设置文件（可能包含注释或语法错误）。Adrafinil 在此状态下不会修改它 — 请修复文件后重试连接。";
+"\(subject) Adrafinil hook changed, so your Mac might not stay awake while \(verb). Open Settings to reconnect." = "\(subject) Adrafinil 钩子已更改，你的 Mac 可能无法在 \(verb) 时保持唤醒。打开设置重新连接。";
+
+/* Safety Tab */
+"Safety" = "安全";
+"Thermal cutout" = "温度切断";
+"Force sleep when CPU temperature is too high" = "CPU 温度过高时强制休眠";
+"Threshold" = "阈值";
+"Low-battery cutout" = "低电量切断";
+"Force sleep when battery runs low (on battery, lid closed)" = "电池电量低时强制休眠（使用电池、合盖状态下）";
+"Consider quiet after" = "判定为静默的时间";
+"If an agent does nothing for a while, Adrafinil stops keeping your Mac awake for it — so a stuck or crashed agent can't hold it up forever." = "如果智能体长时间无操作，Adrafinil 将停止为其保持 Mac 唤醒 — 防止卡死或崩溃的智能体无限期占用。";
+"Idle agents" = "空闲智能体";
+"Stop waiting on agents that go quiet" = "停止等待静默的智能体";
+"Finding agents" = "查找智能体";
+"Notice other agents while one is active" = "有活跃智能体时检测其他智能体";
+"Agents that run as one shared background service, like Hermes, aren't picked up this way — connect them in the Agents tab so their hooks can signal when they're actually working." = "以共享后台服务运行的智能体（如 Hermes）无法通过此方式检测 — 请在「智能体」标签页中连接它们，让钩子信号指示实际工作时间。";
+"Keep the Mac awake for them too" = "也为它们保持 Mac 唤醒";
+"A backup to the per-agent setup: while Adrafinil is already keeping your Mac awake for one agent, it can also notice other known agents (like a second Claude Code) running without their hook installed. It only runs while an agent is already active — never a background scan — so it costs nothing while your Mac is idle or asleep." = "逐智能体设置的补充：当 Adrafinil 已为一个智能体保持唤醒时，它还能检测到其他未安装钩子的已知智能体（如另一个 Claude Code）。仅在已有智能体活跃时运行 — 绝非后台扫描 — 因此 Mac 空闲或休眠时不消耗资源。";
+"Agent holds" = "智能体保持";
+"Let agents keep your Mac awake on their own" = "让智能体自主保持 Mac 唤醒";
+"Longest a hold can last" = "保持最长持续时间";
+"An agent can ask Adrafinil to keep your Mac awake for a background task it started — like a long build or deploy — even after it finishes replying. Every hold has a time limit and shows up in the menu, where you can end it yourself." = "智能体可请求 Adrafinil 为其启动的后台任务保持 Mac 唤醒 — 如长时间的构建或部署 — 即使在回复结束后。每次保持都有时限，并可在菜单中自行结束。";
+"Background shell tasks" = "后台 Shell 任务";
+"Keep the Mac awake for background shell commands" = "为后台 Shell 命令保持 Mac 唤醒";
+"When an agent runs a shell command in the background — a long build or test run it keeps going after replying — this keeps your Mac awake for it. There's no signal when such a command finishes, so the hold lasts up to your longest-hold limit above (even if the task itself goes quiet, like a “tail -f”) and then ends on its own. Works with Claude Code. Off by default." = "当智能体在后台运行 Shell 命令时 — 回复后仍在继续的长时间构建或测试 — 此选项保持 Mac 唤醒。此类命令完成时无信号，因此保持持续时间为你设定的最长时限（即使任务本身静默，如「tail -f」），然后自动结束。适用于 Claude Code。默认关闭。";
+
+/* About Tab */
+"About" = "关于";
+"Keep your Mac awake only while AI agents are working." = "仅在 AI 智能体工作时保持 Mac 唤醒。";
+"Version \(appVersion)" = "版本 \(appVersion)";
+"MIT License · © 2026 kageroumado" = "MIT 许可证 · © 2026 kageroumado";
+
+/* ==========================================
+   InstallerView.swift - 安装向导
+   ========================================== */
+
+"Welcome to Adrafinil" = "欢迎使用 Adrafinil";
+"Adrafinil keeps your Mac awake — even with the lid closed — while your AI agents work." = "Adrafinil 能在 AI 智能体工作时保持 Mac 唤醒 — 即使在合盖状态下。";
+"It's fully open source —" = "完全开源 —";
+"view it on GitHub" = "在 GitHub 上查看";
+"What gets set up" = "将要设置的内容";
+"A menu bar app" = "菜单栏应用";
+"The controls you're looking at now — its window opens from the menu bar." = "你正在看的控制界面 — 从菜单栏打开窗口。";
+"A background helper" = "后台辅助服务";
+"Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart." = "在智能体工作时保持 Mac 唤醒。注册为登录服务，重启后即可使用。";
+"The \(Text(\"adrafinil\").monospaced()) command" = "\(Text(\"adrafinil\").monospaced()) 命令";
+"Lets your agents tell Adrafinil when they start and stop working." = "让你的智能体告知 Adrafinil 何时开始和结束工作。";
+"Move Adrafinil to Applications first" = "先将 Adrafinil 移到「应用程序」文件夹";
+"Adrafinil is running from a temporary location (macOS translocation). Setting up from here would point everything at a path that disappears on the next launch. Move Adrafinil.app to your Applications folder, then open it again." = "Adrafinil 正在从临时位置运行（macOS 路径转换）。从此处设置会导致所有路径在下次启动时失效。请将 Adrafinil.app 移到「应用程序」文件夹后重新打开。";
+"Setup couldn't register a background service" = "设置无法注册后台服务";
+"One quick approval" = "一次快速批准";
+"System Settings → Login Items & Extensions just opened. Turn **Adrafinil** on under “Allow in the Background,” then come back and click Continue." = "已打开系统设置 → 登录项与扩展。在「允许后台运行」中打开 Adrafinil，然后回来点击继续。";
+"Continue" = "继续";
+"Registering…" = "正在注册…";
+"Retry" = "重试";
+"Connect your agents" = "连接你的智能体";
+"Connect each agent so Adrafinil knows when it's working and keeps your Mac awake only then. Some agents can also keep it awake on their own — for a build or deploy that runs past their reply. You can change all of this later in Settings." = "连接各个智能体，让 Adrafinil 知道它们何时工作并在那时保持 Mac 唤醒。部分智能体还可以自主保持唤醒 — 用于回复结束后仍在运行的构建或部署。你之后可以在设置中更改所有这些。";
+"No supported agents found yet" = "尚未发现支持的智能体";
+"Install one of the supported agents, then connect it any time from Settings → Agents." = "安装一个支持的智能体，然后随时从「设置 → 智能体」中连接。";
+"Skip" = "跳过";
+"Install" = "安装";
+"Connecting your agents…" = "正在连接你的智能体…";
+"Adds Adrafinil as an MCP tool in \(kind.displayName), so it can keep your Mac awake for work that runs past its reply." = "将 Adrafinil 添加为 \(kind.displayName) 中的 MCP 工具，让它在回复结束后仍能保持 Mac 唤醒。";
+"Adrafinil is set up" = "Adrafinil 已设置完成";
+"It now lives in your menu bar. Close the lid while an agent is working — your Mac stays awake. No agent running? Sleep behaves normally." = "它现在位于菜单栏中。智能体工作时合盖 — Mac 保持唤醒。没有智能体运行？休眠行为正常。";
+"Done" = "完成";
+
+/* ==========================================
+   CodexTrustView.swift - Codex 信任
+   ========================================== */
+
+"Trust Adrafinil in Codex" = "在 Codex 中信任 Adrafinil";
+"Codex only runs hooks you've approved. Until you trust Adrafinil's, Codex won't tell it when a turn starts or ends — so your Mac may sleep mid-task, or stay awake after Codex is done." = "Codex 只运行你批准的钩子。在信任 Adrafinil 的钩子之前，Codex 不会告知它轮次何时开始或结束 — 因此你的 Mac 可能在任务中休眠，或在 Codex 完成后仍保持唤醒。";
+"Start a Codex session where you'd normally use it." = "在通常使用的地方启动 Codex 会话。";
+"Run the /hooks command" = "运行 /hooks 命令";
+"Type" = "输入";
+"and press return." = "然后按回车。";
+"Copy “/hooks”" = "复制「/hooks」";
+"Approve Adrafinil's two hooks" = "批准 Adrafinil 的两个钩子";
+"Trust the entries that run **adrafinil acquire** (on prompt submit) and **adrafinil release** (on stop). They're listed under your hooks file; approving each is a one-time step." = "信任运行 **adrafinil acquire**（提交提示时）和 **adrafinil release**（停止时）的条目。它们列在钩子文件下；每个只需批准一次。";
+"Re-check" = "重新检查";
+"Hooks trusted" = "钩子已信任";
+"Partly trusted — approve both" = "部分信任 — 请批准两个";
+"Not trusted yet" = "尚未信任";
+"Can't verify — trust it in Codex" = "无法验证 — 请在 Codex 中信任";
+"All set — Codex will keep your Mac awake while it works." = "一切就绪 — Codex 将在工作时保持 Mac 唤醒。";
+"Codex needs you to trust its hooks" = "Codex 需要你信任其钩子";
+"Until you approve them in Codex with /hooks, your Mac won't stay awake while Codex works. Open Settings for the steps." = "在 Codex 中用 /hooks 批准之前，你的 Mac 不会在 Codex 工作时保持唤醒。打开设置查看步骤。";
+
+/* ==========================================
+   ManualHookView.swift - 手动钩子
+   ========================================== */
+
+"Add your own agent" = "添加你自己的智能体";
+"Agent name" = "智能体名称";
+"Integration style" = "集成方式";
+"It has hooks / events" = "有钩子/事件";
+"It has no hooks — wrap the command" = "没有钩子 — 包装命令";
+"Tracked as \(Text(snippet.slug).font(.system(.caption, design: .monospaced))) in Adrafinil" = "在 Adrafinil 中记录为 \(Text(snippet.slug).font(.system(.caption, design: .monospaced)))";
+"Add these to your agent's start and stop hooks. Replace \(Text(\"$SESSION_ID\").font(.system(.caption, design: .monospaced))) with your agent's session-id variable, so each turn's acquire and release share a key." = "将这些添加到智能体的启动和停止钩子中。将 \(Text(\"$SESSION_ID\").font(.system(.caption, design: .monospaced))) 替换为智能体的会话 ID 变量，使每次轮次的 acquire 和 release 共享同一个键。";
+"On start / prompt" = "启动/提示时";
+"On stop / finish" = "停止/完成时";
+"No hooks? Wrap the command so it stays awake for the whole run — or place a single timed hold for a background job." = "没有钩子？包装命令使其在整个运行期间保持唤醒 — 或为后台任务设置单次定时保持。";
+"Wrapper script" = "包装脚本";
+"One-shot hold" = "一次性保持";
+"Custom agents aren't auto-detected or watched, so pair every acquire with a reliable release — the idle-release timeout and each hold's time limit are the only safety net if one is missed. Snippets assume the \(Text(\"adrafinil\").font(.system(.caption, design: .monospaced))) command is on your PATH (\(Text(AdrafinilConstants.cliInstallPath).font(.system(.caption, design: .monospaced))), or \(Text(\"~/.local/bin/adrafinil\").font(.system(.caption, design: .monospaced))))." = "自定义智能体不会被自动检测或监控，因此每次 acquire 都要有对应的 release — 空闲超时和每次保持的时限是唯一的兜底机制。代码片段假设 \(Text(\"adrafinil\").font(.system(.caption, design: .monospaced))) 命令已在你的 PATH 中（\(Text(AdrafinilConstants.cliInstallPath).font(.system(.caption, design: .monospaced))) 或 \(Text(\"~/.local/bin/adrafinil\").font(.system(.caption, design: .monospaced)))）。";
+"Copy to clipboard" = "复制到剪贴板";
+
+/* ==========================================
+   AwayNotifier.swift - 通知
+   ========================================== */
+
+"Adrafinil isn't keeping your Mac awake" = "Adrafinil 未保持 Mac 唤醒";
+"Adrafinil kept your Mac awake" = "Adrafinil 保持了 Mac 唤醒";
+"Your Mac was getting hot" = "Mac 温度过高";
+"Battery was running low" = "电池电量不足";
+"Adrafinil let it sleep to cool down" = "Adrafinil 让其休眠以降温";
+"Adrafinil let your Mac sleep to save power" = "Adrafinil 让 Mac 休眠以省电";
+"It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on." = "需要你批准才能在后台运行。点击打开「登录项与扩展」，然后打开 Adrafinil。";
+"Its background service isn't set up. Tap to finish setting up Adrafinil." = "后台服务尚未设置。点击完成 Adrafinil 设置。";
+"Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it." = "后台服务已停止响应且无法自行修复。点击打开「登录项与扩展」，移除 Adrafinil，然后重新打开。";
+
+/* ==========================================
+   AppStatusModel.swift - 状态模型
+   ========================================== */
+
+"Kept awake by you" = "由你保持唤醒";
+
+/* ==========================================
+   CLI - 命令行
+   ========================================== */
+
+"Adrafinil daemon is not running." = "Adrafinil 守护进程未运行。";
+"Daemon responded but status could not be decoded." = "守护进程已响应，但无法解析状态。";
+"daemon: running" = "守护进程：运行中";
+"daemon: not running (open the Adrafinil app to start it)" = "守护进程：未运行（打开 Adrafinil 应用以启动）";
+"daemon: unreachable" = "守护进程：无法连接";
+"Adrafinil — \(status.isBlocking ? \"blocking sleep\" : \"idle\")" = "Adrafinil — \(status.isBlocking ? \"阻止休眠\" : \"空闲\")";
+
+/* ==========================================
+   DebugControlPanel.swift - 调试面板
+   ========================================== */
+
+"Debug Controls" = "调试控制";
+"Menu-bar status" = "菜单栏状态";
+"Scenario" = "场景";
+"Use live daemon instead" = "改用真实守护进程";
+"Click the menu-bar sun icon to see the real popover, or watch the preview →" = "点击菜单栏太阳图标查看真实弹窗，或观看预览 →";
+"Attention (menu-bar badge + cards)" = "注意（菜单栏徽章 + 卡片）";
+"Attention" = "注意";
+"Forces the menu-bar eye's badge and the popover's attention cards. Watch the real menu-bar icon and the preview →" = "强制显示菜单栏眼睛徽章和弹窗注意卡片。查看真实菜单栏图标和预览 →";
+"Open Codex trust page" = "打开 Codex 信任页面";
+"“While you were away” panel" = "「你离开期间」面板";
+"Pre-sleep cue" = "休眠前提示";
+"Plays what the daemon would play as the lid-closed Mac goes back to sleep, honoring the current Settings (sound choice, volume, toggles)." = "播放守护进程在合盖 Mac 恢复休眠时会播放的提示音，遵循当前设置（音效选择、音量、开关）。";
+"Windows & flows" = "窗口与流程";
+"Open setup / installer flow" = "打开设置/安装流程";
+"Open Settings window" = "打开设置窗口";
+"Open static gallery" = "打开静态图库";
+"Open fallback menu window" = "打开备用菜单窗口";
+"Installer & Settings open with mock providers — walking them changes nothing on disk or in the system." = "安装程序和设置使用模拟提供程序打开 — 操作不会改变磁盘或系统中的任何内容。";
+"Live menu-bar popover" = "实时菜单栏弹窗";
+
+/* ==========================================
+   GalleryView.swift - 图库
+   ========================================== */
+
+"Adrafinil — UI Gallery" = "Adrafinil — UI 图库";
+"Menu popover" = "菜单弹窗";
+"Idle" = "空闲";
+"One agent" = "一个智能体";
+"Many agents" = "多个智能体";
+"Thermal cutout" = "温度切断";
+"Low-battery cutout" = "低电量切断";
+"Daemon error" = "守护进程错误";
+"“While you were away” notification" = "「你离开期间」通知";
+"Clean" = "正常";
+"Active + thermal" = "活跃 + 温度过高";
+"Low battery" = "电量低";
+"Settings" = "设置";
+"Installer" = "安装程序";
+"Helper step" = "辅助步骤";
+
+/* ==========================================
+   DurationFormat.swift - 时长格式
+   ========================================== */
+
+/* ==========================================
+   AdrafinilApp.swift - 应用入口
+   ========================================== */
+
+/* ==========================================
+   AppDelegate.swift - 应用代理
+   ========================================== */
+
+"Adrafinil Setup" = "Adrafinil 设置";
+"Adrafinil — Debug Controls" = "Adrafinil — 调试控制";
+"Adrafinil — UI Gallery" = "Adrafinil — UI 图库";
+"Adrafinil Setup (mock)" = "Adrafinil 设置（模拟）";
+
+/* ==========================================
+   Theme.swift - 主题
+   ========================================== */
+
+/* ==========================================
+   CLI Usage (main.swift) - 命令行帮助
+   ========================================== */
+
+/* 
+   Note: CLI usage strings are printed via print() and NOT localized through .strings files.
+   They remain in English unless the source code is modified.
+*/
+
+/* ==========================================
+   MCP Server - MCP 服务器
+   ========================================== */
+
+/*
+   Note: MCP tool descriptions are in English and used by AI agents, not end users.
+   Keeping them in English is intentional.
+*/
+
+/* ==========================================
+   Additional translations for strings found in the binary
+   ========================================== */
+
+"a.m." = "上午";
+"p.m." = "下午";
+"Awake — kept awake while an agent works, with Keep awake / Let it sleep controls" = "唤醒 — 智能体工作时保持唤醒，提供保持唤醒/让它休眠控制";
+"Idle — no agents, normal sleep, with a Keep awake button to hold it open yourself" = "空闲 — 无智能体，正常休眠，提供保持唤醒按钮";
+"Features" = "功能";
+"Installation" = "安装";
+"Usage" = "使用方法";
+"Configuration" = "配置";
+"Development" = "开发";
+"Contributing" = "贡献指南";
+"License" = "许可证";
+"Adrafinil (keep awake)" = "Adrafinil（保持唤醒）";
+"Keep awake" = "保持唤醒";
+"Let it sleep" = "让它休眠";
+"Hold" = "保持";
+"Release" = "释放";
+"Acquire" = "获取";
+"Status" = "状态";
+"Daemon Status" = "守护进程状态";
+"Version" = "版本";
+"Help" = "帮助";
+"Unknown command" = "未知命令";
+"Error" = "错误";
+"Blocking sleep" = "阻止休眠";
+"blocking sleep" = "阻止休眠";
+"idle" = "空闲";
+"assertions" = "断言";
+"connected" = "已连接";
+"disconnected" = "已断开";
+"closed" = "已关闭";
+"open" = "打开";
+"running" = "运行中";
+"not running" = "未运行";
+"Hold released" = "保持已释放";
+"Hold placed" = "保持已设置";
+"Nothing was held" = "没有任何保持";
+"Released \(released) assertion(s)" = "已释放 \(released) 个断言";
+"Adrafinil's background service isn't responding" = "Adrafinil 的后台服务没有响应";
+"Adrafinil's helper stopped responding" = "Adrafinil 的后台辅助程序停止响应";
+"Could not place the hold" = "无法设置保持";
+"daemon not running" = "守护进程未运行";
+"Could not read status from the daemon" = "无法从守护进程读取状态";
+"The Adrafinil daemon isn't reachable" = "无法连接到 Adrafinil 守护进程";
+"Keeping the Mac awake, including with the lid closed" = "保持 Mac 唤醒，包括合盖状态下";
+"The Mac is sleeping normally" = "Mac 正在正常休眠";
+"The Mac is being kept awake by" = "Mac 正由以下项目保持唤醒";
+"release_awake requires a 'hold_id'" = "release_awake 需要提供 hold_id";
+"keep_awake requires a 'reason'" = "keep_awake 需要提供 reason";
+"Expires in about" = "约在";
+"Releases when process" = "当进程";
+"exits, or in about" = "退出时，或约在";
+"min left" = "分钟后过期";
+"Call release_awake with this id when the task finishes" = "任务完成时使用此 ID 调用 release_awake";
+"The Mac can sleep normally once nothing else is holding it awake" = "当没有其他项目保持唤醒时，Mac 即可正常休眠";
+"hour" = "小时";
+"hours" = "小时";
+"sec" = "秒";
+"min" = "分钟";
+"left" = "剩余";
+"ago" = "前";
+"now" = "现在";
+"Just now" = "刚刚";
+"Connected agents" = "已连接的智能体";
+"Agent status" = "智能体状态";
+"Tracked" = "已追踪";
+"Not tracked" = "未追踪";
+"Adrafinil will keep your Mac awake" = "Adrafinil 将保持 Mac 唤醒";
+"Turn off to let Mac sleep" = "关闭以让 Mac 休眠";
+"It is now safe to close your Mac" = "现在可以安全合盖";
+"An agent is still working" = "智能体仍在工作";
+"Don't close the lid" = "不要合盖";
+"Close the lid" = "合盖";
+"Your Mac will stay awake" = "Mac 将保持唤醒";
+"Your Mac can sleep" = "Mac 可以休眠";
+"Open" = "打开";
+"Close" = "关闭";
+"Enabled" = "已启用";
+"Disabled" = "已禁用";
+"On" = "开启";
+"Off" = "关闭";
+"Yes" = "是";
+"No" = "否";
+"OK" = "确定";
+"Save" = "保存";
+"Delete" = "删除";
+"Edit" = "编辑";
+"Add" = "添加";
+"Remove" = "移除";
+"Default" = "默认";
+"Custom" = "自定义";
+"Manual" = "手动";
+"Automatic" = "自动";
+"All" = "全部";
+"None" = "无";
+"Loading" = "加载中";
+"Search" = "搜索";
+"Filter" = "筛选";
+"Sort" = "排序";
+"Name" = "名称";
+"Description" = "描述";
+"Unknown" = "未知";
+"An error occurred" = "发生错误";
+"Success" = "成功";
+"Failed" = "失败";
+"Pending" = "待处理";
+"In progress" = "进行中";
+"Completed" = "已完成";
+"Cancelled" = "已取消";
+"Are you sure?" = "你确定吗？";
+"This action cannot be undone." = "此操作无法撤销。";
+"Learn more" = "了解更多";
+"Read more" = "阅读更多";
+"Show less" = "收起";
+"Show all" = "显示全部";
+"Show more" = "显示更多";
+"Tap to open" = "点击打开";
+"Click to open" = "点击打开";
+"Open in browser" = "在浏览器中打开";
+"Copy" = "复制";
+"Paste" = "粘贴";
+"Select all" = "全选";
+"Deselect all" = "取消全选";
+"Invert selection" = "反向选择";
+"Refresh" = "刷新";
+"Reload" = "重新加载";
+"Stop" = "停止";
+"Start" = "开始";
+"Restart" = "重新启动";
+"Reset" = "重置";
+"Resume" = "恢复";
+"Pause" = "暂停";
+"Next" = "下一个";
+"Previous" = "上一个";
+"First" = "第一个";
+"Last" = "最后一个";
+"Up" = "向上";
+"Down" = "向下";
+"Left" = "向左";
+"Right" = "向右";
+"Top" = "顶部";
+"Bottom" = "底部";
+"Center" = "居中";
+"Front" = "前置";
+"Back" = "后置";
+"Forward" = "向前";
+"Backward" = "向后";
+"New" = "新建";
+"Create" = "创建";
+"Duplicate" = "复制";
+"Rename" = "重命名";
+"Move" = "移动";
+"Send" = "发送";
+"Receive" = "接收";
+"Import" = "导入";
+"Export" = "导出";
+"Upload" = "上传";
+"Download" = "下载";
+"Install" = "安装";
+"Uninstall" = "卸载";
+"Update" = "更新";
+"Upgrade" = "升级";
+"Downgrade" = "降级";
+"Configure" = "配置";
+"Preferences" = "偏好设置";
+"Advanced" = "高级";
+"General" = "通用";
+"Security" = "安全";
+"Privacy" = "隐私";
+"Notifications" = "通知";
+"Keyboard" = "键盘";
+"Mouse" = "鼠标";
+"Trackpad" = "触控板";
+"Display" = "显示器";
+"Sound" = "声音";
+"Network" = "网络";
+"Bluetooth" = "蓝牙";
+"Date & Time" = "日期与时间";
+"Language & Region" = "语言与地区";
+"Accessibility" = "辅助功能";
+"Appearance" = "外观";
+"Desktop & Dock" = "桌面与程序坞";
+"Battery" = "电池";
+"Energy" = "节能";
+"Storage" = "存储空间";
+"Sharing" = "共享";
+"Users & Groups" = "用户与群组";
+"Screen Time" = "屏幕使用时间";
+"Extensions" = "扩展";
+"Login Items" = "登录项";
+"Software Update" = "软件更新";
+"System Settings" = "系统设置";
+"System Preferences" = "系统偏好设置";
+"Finder" = "访达";
+"Applications" = "应用程序";
+"Utilities" = "实用工具";
+"Documents" = "文稿";
+"Downloads" = "下载";
+"Desktop" = "桌面";
+"Home" = "个人";
+"Library" = "资源库";
+"Trash" = "废纸篓";
+"Today" = "今天";
+"Yesterday" = "昨天";
+"This week" = "本周";
+"This month" = "本月";
+"This year" = "今年";
+"Notifications are turned off" = "通知已关闭";
+"Not now" = "稍后";
+"Don't ask again" = "不再询问";
+"Allow" = "允许";
+"Deny" = "拒绝";
+"Grant" = "授予";
+"Revoke" = "撤销";
+"Permission" = "权限";
+"Authorize" = "授权";
+"Unauthorized" = "未授权";
+"Authenticate" = "验证身份";
+"Sign in" = "登录";
+"Sign out" = "登出";
+"Sign up" = "注册";
+"Log in" = "登录";
+"Log out" = "登出";
+"Username" = "用户名";
+"Password" = "密码";
+"Email" = "电子邮件";
+"Phone" = "电话";
+"Address" = "地址";
+"Website" = "网站";
+"Phone number" = "电话号码";
+"Cancel" = "取消";
+"Confirm" = "确认";
+"Proceed" = "继续";
+"Submit" = "提交";
+"Reset" = "重置";
+"Apply" = "应用";
+"Discard" = "放弃";
+"Keep editing" = "继续编辑";
+"Unsaved changes" = "未保存的更改";
+"You have unsaved changes." = "你有未保存的更改。";
+"Would you like to save?" = "是否要保存？";
+"Save changes?" = "保存更改？";
+"Don't Save" = "不保存";
+"Save" = "保存";
+"Quit" = "退出";
+"Quit Anyway" = "仍然退出";
+"Force Quit" = "强制退出";
+"Terminate" = "终止";
+"Shut Down" = "关机";
+"Restart" = "重新启动";
+"Sleep" = "休眠";
+"Log Out" = "登出";
+"Lock Screen" = "锁定屏幕";
+"Switch User" = "切换用户";
+
+/* Notification: title when helper service is unavailable */
+"Adrafinil isn't keeping your Mac awake" = "Adrafinil 无法保持 Mac 唤醒";
+
+/* Notification: body when service needs approval */
+"It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on." = "它需要你的批准才能后台运行。点击打开「登录项与扩展」，然后打开 Adrafinil。";
+
+/* Notification: body when service not registered */
+"Its background service isn't set up. Tap to finish setting up Adrafinil." = "后台服务未设置。点击完成 Adrafinil 的安装。";
+
+/* Notification: body when service unreachable */
+"Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it." = "后台服务无响应且无法自动修复。点击打开「登录项与扩展」，移除 Adrafinil 后重新打开。";
+
+/* Notification: thermal cutout title */
+"Your Mac was getting hot" = "Mac 温度过高";
+
+/* Notification: thermal cutout body */
+"Adrafinil let it sleep to cool down" = "Adrafinil 已让 Mac 休眠降温";
+
+/* Notification: low battery title */
+"Battery was running low" = "电池电量不足";
+
+/* Notification: low battery body */
+"Adrafinil let your Mac sleep to save power" = "Adrafinil 已让 Mac 休眠以省电";
+
+/* Notification: standard recap title */
+"Adrafinil kept your Mac awake" = "Adrafinil 已保持 Mac 唤醒";
+
+/* Notification: agent finished tally */
+"agent" = "智能体";
+
+/* Notification: no agents */
+"No agents were running." = "没有智能体在运行。";
+
+/* Notification: still working */
+"still working" = "仍在工作中";
+
+/* Notification: finished tally format */
+"finished" = "已完成";
+
+/* Duration format: minutes and seconds */
+"compactDuration" = "%1$dm %2$ds";
+
+/* Duration format: seconds only */
+"compactDurationSeconds" = "%1$ds";
+
+/* Remaining time: hours and minutes */
+"remainingHoursMinutes" = "%1$dh %2$dm 剩余";
+
+/* Remaining time: hours only */
+"remainingHours" = "%1$dh 剩余";
+
+/* Remaining time: minutes only */
+"remainingMinutes" = "%1$dm 剩余";
+
+/* Remaining time: less than a minute */
+"remainingLessThanMinute" = "不足 1m 剩余";
