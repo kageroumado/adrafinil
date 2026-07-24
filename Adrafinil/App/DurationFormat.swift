@@ -21,25 +21,53 @@ extension TimeInterval {
 
 // MARK: - Localized helpers
 
-/// Localized duration display: `"1分钟 30秒"`, `"42秒"`
+/// Localized duration display: `"1m 30s"` / `"42s"` (or zh-Hans equivalents).
 private func durationFormat(minutes: Int, seconds: Int) -> String {
-    let fmt = NSLocalizedString("compactDuration", tableName: "Localizable", comment: "Duration format: minutes and seconds")
+    if minutes == 0 {
+        let fmt = NSLocalizedString(
+            "compactDurationSeconds",
+            tableName: "Localizable",
+            comment: "Duration format: seconds only, e.g. 42s"
+        )
+        return String(format: fmt, seconds)
+    }
+    let fmt = NSLocalizedString(
+        "compactDuration",
+        tableName: "Localizable",
+        comment: "Duration format: minutes and seconds, e.g. 1m 30s"
+    )
     return String(format: fmt, minutes, seconds)
 }
 
-/// Localized remaining-time display: `"1小时 5分钟 剩余"`, `"23分钟 剩余"`
+/// Localized remaining-time display: `"1h 5m left"`, `"23m left"`, `"<1m left"`.
 private func remainingFormat(hours: Int, minutes: Int) -> String {
     if hours > 0 {
         if minutes > 0 {
-            let fmt = NSLocalizedString("remainingHoursMinutes", tableName: "Localizable", comment: "Remaining time: hours and minutes")
+            let fmt = NSLocalizedString(
+                "remainingHoursMinutes",
+                tableName: "Localizable",
+                comment: "Remaining time: hours and minutes"
+            )
             return String(format: fmt, hours, minutes)
         }
-        let fmt = NSLocalizedString("remainingHours", tableName: "Localizable", comment: "Remaining time: hours only")
+        let fmt = NSLocalizedString(
+            "remainingHours",
+            tableName: "Localizable",
+            comment: "Remaining time: hours only"
+        )
         return String(format: fmt, hours)
     }
     if minutes > 0 {
-        let fmt = NSLocalizedString("remainingMinutes", tableName: "Localizable", comment: "Remaining time: minutes only")
+        let fmt = NSLocalizedString(
+            "remainingMinutes",
+            tableName: "Localizable",
+            comment: "Remaining time: minutes only"
+        )
         return String(format: fmt, minutes)
     }
-    return NSLocalizedString("remainingLessThanMinute", tableName: "Localizable", comment: "Remaining time: less than a minute")
+    return NSLocalizedString(
+        "remainingLessThanMinute",
+        tableName: "Localizable",
+        comment: "Remaining time: less than a minute"
+    )
 }

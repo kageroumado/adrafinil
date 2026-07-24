@@ -195,20 +195,24 @@ final class AwayNotifier {
 
         var detail: [String] = []
         if finished > 0 {
-            let finishedLabel = String(localized: "finished", comment: "Notification: agent finished tally")
-            let agentLabel = String(localized: "agent", comment: "Notification: agent singular")
-            detail.append("\(finished) \(agentLabel) \(finishedLabel)")
+            // Preserve English singular/plural: "1 agent finished" / "3 agents finished".
+            if finished == 1 {
+                detail.append(String(localized: "1 agent finished", comment: "Notification: one agent finished"))
+            } else {
+                detail.append(String(localized: "\(finished) agents finished", comment: "Notification: N agents finished"))
+            }
         }
         if active > 0 {
-            let stillWorkingLabel = String(localized: "still working", comment: "Notification: still working")
-            let agentLabel = String(localized: "agent", comment: "Notification: agent singular")
-            detail.append("\(active) \(agentLabel) \(stillWorkingLabel)")
+            // Match original English phrasing: "2 still working" (no "agent" word).
+            detail.append(String(localized: "\(active) still working", comment: "Notification: N agents still working"))
         }
         let noAgentStr = String(localized: "No agents were running.", comment: "Notification: no agents")
         let tally = detail.isEmpty ? noAgentStr : detail.joined(separator: " · ") + "."
 
         if s.thermalCutout {
-            let peak = s.peakTemperatureCelsius.map { " (it peaked at \(Int($0))°C)" } ?? ""
+            let peak = s.peakTemperatureCelsius.map {
+                String(localized: " (it peaked at \(Int($0))°C)", comment: "Notification: peak temperature parenthetical")
+            } ?? ""
             let title = String(localized: "Your Mac was getting hot", comment: "Notification: thermal cutout title")
             let bodyBase = String(localized: "Adrafinil let it sleep to cool down", comment: "Notification: thermal cutout body")
             return (title, "\(bodyBase)\(peak). \(tally)")

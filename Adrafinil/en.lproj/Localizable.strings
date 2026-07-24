@@ -1,6 +1,9 @@
 /* Duration: minutes and seconds — e.g. "1m 30s" */
 "compactDuration" = "%1$dm %2$ds";
 
+/* Duration: seconds only — e.g. "42s" */
+"compactDurationSeconds" = "%1$ds";
+
 /* Remaining time: hours and minutes — e.g. "1h 5m left" */
 "remainingHoursMinutes" = "%1$dh %2$dm left";
 

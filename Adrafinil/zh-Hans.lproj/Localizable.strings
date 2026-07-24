@@ -124,7 +124,7 @@
 "Codex won't run these hooks until you trust them. Open Codex, run “/hooks”, and approve Adrafinil's acquire and release entries — otherwise it can't tell when Codex is working." = "除非你信任这些钩子，否则 Codex 不会运行它们。打开 Codex，运行「/hooks」，批准 Adrafinil 的 acquire 和 release 条目 — 否则它无法知道 Codex 何时在工作。";
 "How to trust" = "如何信任";
 "Reconnect" = "重新连接";
-"\(model.kind.displayName)'s Adrafinil hook isn't in the form Adrafinil expects — likely edited by hand or left over from an update — so it may not notice when \(model.kind.displayName) is working and keep your Mac awake. Reconnect restores it without touching your other \(model.kind.displayName) settings." = "\(model.kind.displayName) 的 Adrafinil 钩子格式不符合预期 — 可能是手动编辑或更新遗留 — 因此可能无法在 \(model.kind.displayName) 工作时保持 Mac 唤醒。重新连接可恢复而不影响其他设置。";
+"\(model.kind.displayName)'s Adrafinil hook isn't in the form Adrafinil expects — likely edited by hand or left over from an update — so it may not notice when \(model.kind.displayName) is working and keep your Mac awake. Reconnect restores it without touching your other \(model.kind.displayName) settings." = "\(model.kind.displayName) 的 Adrafinil 钩子格式不符合预期 — 可能是手动编辑或更新遗留 — 因此可能无法在 \(model.kind.displayName) 工作时保持 Mac 唤醒。重新连接可恢复，且不会影响你的其他 \(model.kind.displayName) 设置。";
 "\(model.kind.displayName)'s settings file couldn't be read (it may contain comments or a syntax error). Adrafinil won't modify it in this state — fix the file, then try connecting again." = "无法读取 \(model.kind.displayName) 的设置文件（可能包含注释或语法错误）。Adrafinil 在此状态下不会修改它 — 请修复文件后重试连接。";
 "\(subject) Adrafinil hook changed, so your Mac might not stay awake while \(verb). Open Settings to reconnect." = "\(subject) Adrafinil 钩子已更改，你的 Mac 可能无法在 \(verb) 时保持唤醒。打开设置重新连接。";
 
@@ -646,19 +646,26 @@
 "finished" = "已完成";
 
 /* Duration format: minutes and seconds */
-"compactDuration" = "%1$dm %2$ds";
+"compactDuration" = "%1$d分%2$d秒";
 
 /* Duration format: seconds only */
-"compactDurationSeconds" = "%1$ds";
+"compactDurationSeconds" = "%1$d秒";
 
 /* Remaining time: hours and minutes */
-"remainingHoursMinutes" = "%1$dh %2$dm 剩余";
+"remainingHoursMinutes" = "还剩 %1$d 小时 %2$d 分钟";
 
 /* Remaining time: hours only */
-"remainingHours" = "%1$dh 剩余";
+"remainingHours" = "还剩 %1$d 小时";
 
 /* Remaining time: minutes only */
-"remainingMinutes" = "%1$dm 剩余";
+"remainingMinutes" = "还剩 %1$d 分钟";
 
 /* Remaining time: less than a minute */
-"remainingLessThanMinute" = "不足 1m 剩余";
+"remainingLessThanMinute" = "还剩不到 1 分钟";
+"1 agent finished" = "1 个智能体已完成";
+"%lld agents finished" = "%lld 个智能体已完成";
+"\(finished) agents finished" = "\(finished) 个智能体已完成";
+"%lld still working" = "%lld 个仍在工作中";
+"\(active) still working" = "\(active) 个仍在工作中";
+" (it peaked at %lld°C)" = "（峰值 %lld°C）";
+" (it peaked at \(Int($0))°C)" = "（峰值 \(Int($0))°C）";
