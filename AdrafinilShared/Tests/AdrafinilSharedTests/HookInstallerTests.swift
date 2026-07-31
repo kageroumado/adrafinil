@@ -527,9 +527,49 @@ struct HookInstallerTests {
 
         let path = home.path + "/.pi/agent/extensions/adrafinil.ts"
         let ts = try String(contentsOfFile: path, encoding: .utf8)
-        #expect(ts.contains("session_start"))
-        #expect(ts.contains("session_shutdown"))
+        // Turn-scoped, not session-scoped (issue #17): acquire on agent_start, release on
+        // agent_settled — `agent_end` is too early (Pi may still auto-retry/compact/continue).
+        #expect(ts.contains("pi.on(\"agent_start\""))
+        #expect(ts.contains("pi.on(\"agent_settled\""))
+        #expect(!ts.contains("pi.on(\"session_start\""), "session_start would hold for the whole process lifetime")
+        #expect(!ts.contains("\"agent_end\""), "agent_end can be followed by an automatic continuation")
+        // session_shutdown stays as the safety net for a turn interrupted by exit.
+        #expect(ts.contains("pi.on(\"session_shutdown\""))
+        #expect(ts.contains("stdio: \"ignore\""), "the no-op safety-net release must not print into the TUI")
         #expect(ts.contains("--tool"))
+        #expect(installer.installState(for: .pi) == .installed)
+    }
+
+    @Test
+    func `pi reinstall migrates the session-scoped extension to turn-scoped events`() throws {
+        let home = try makeFakeHome(detectedDirs: [".pi"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        // The extension shipped through 1.5.2 (issue #17): a hold for the whole process lifetime.
+        let dir = home.path + "/.pi/agent/extensions"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let path = dir + "/adrafinil.ts"
+        try """
+        import { execFileSync } from "node:child_process"
+        
+        function run(args) {
+          try { execFileSync("/usr/local/bin/adrafinil", args) } catch (_) {}
+        }
+        
+        export default function (pi) {
+          const id = (ctx) => ctx?.sessionManager?.getSessionFile?.() ?? String(process.pid)
+          pi.on("session_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))
+          pi.on("session_shutdown", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
+        }
+        """.write(toFile: path, atomically: true, encoding: .utf8)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        #expect(installer.installState(for: .pi) == .modifiedExternally, "the old shape must read as drifted so the build migration reinstalls it")
+        _ = try installer.install(for: .pi, dryRun: false)
+
+        let ts = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(!ts.contains("pi.on(\"session_start\""), "the stale session-scoped acquire must be gone")
+        #expect(ts.contains("pi.on(\"agent_start\""))
         #expect(installer.installState(for: .pi) == .installed)
     }
 

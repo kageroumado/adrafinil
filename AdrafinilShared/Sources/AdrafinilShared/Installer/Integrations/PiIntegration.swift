@@ -37,24 +37,39 @@ struct PiIntegration: AgentIntegration {
     }
 
     /// Canonical Pi extension. Pi auto-discovers `.ts` extensions and calls `pi.on(<event>, handler)`
-    /// from the default export. `session_start` acquires; `session_shutdown` (fired on process exit)
-    /// releases. Pi has no session-id env var or stdin payload — the id is the session file path
+    /// from the default export. The hold is **turn-scoped**: `agent_start` acquires, `agent_settled`
+    /// releases, and `session_shutdown` releases again as a safety net for a turn interrupted by
+    /// exit. Pi has no session-id env var or stdin payload — the id is the session file path
     /// (`undefined` for ephemeral sessions, so fall back to the pid). Shells out via
     /// `node:child_process`, mirroring the OpenCode plugin.
     ///
-    /// Device-verified against pi 0.78.0: this exact extension fired `acquire <session-file> --tool
-    /// pi` on `session_start` and `release <same> --tool pi` on `session_shutdown`.
+    /// `agent_settled`, not `agent_end`: per Pi's own docs, after `agent_end` Pi may still auto-retry,
+    /// auto-compact and retry, or drain queued follow-up messages — `agent_settled` is the event that
+    /// means "Pi will not continue running automatically", which is exactly this hold's semantics.
+    ///
+    /// Bracketing the *session* instead (`session_start`/`session_shutdown`, shipped through 1.5.2)
+    /// was wrong in both directions: the Mac stayed awake for the whole `pi` process lifetime
+    /// including idle time at the prompt, and — since the only `acquire` was at t=0 — an idle release
+    /// left the rest of the session unprotected with nothing to re-acquire. Re-acquiring per turn is
+    /// safe because `acquire` is idempotent per key. (Issue #17.)
+    ///
+    /// `stdio: "ignore"` matters now that the safety-net release is routinely a no-op: `execFileSync`
+    /// inherits stderr by default, so `release`'s "released nothing" would print into the TUI.
+    ///
+    /// Device-verified against pi 0.83.0 (reporter, issue #17): the hold appears when a turn starts
+    /// and is gone before the process exits, with no hold while sitting at the prompt.
     private static func extensionTS(cliPath: String) -> String {
         """
         import { execFileSync } from "node:child_process"
         
         function run(args) {
-          try { execFileSync(\(swiftStringLiteral: cliPath), args) } catch (_) {}
+          try { execFileSync(\(swiftStringLiteral: cliPath), args, { stdio: "ignore" }) } catch (_) {}
         }
         
         export default function (pi) {
           const id = (ctx) => ctx?.sessionManager?.getSessionFile?.() ?? String(process.pid)
-          pi.on("session_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))
+          pi.on("agent_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))
+          pi.on("agent_settled", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
           pi.on("session_shutdown", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
         }
         """
