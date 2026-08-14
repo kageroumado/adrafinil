@@ -89,6 +89,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // that restart would otherwise leave Adrafinil stuck paused.
                 Task { await DaemonClient.shared.resumeAtLaunch() }
 
+                // Silent updates, from here on: checked in the background, installed only once
+                // the Mac is idle and the daemon reports nothing being kept awake. Started
+                // after setup and outside DEBUG, so a first-run window and a development build
+                // are both left alone.
+                SilentUpdates.start()
+
                 // Deliberately no window here when the icon is hidden. This branch also runs on a
                 // launch-at-login auto-start (the default), and stealing focus with a centered
                 // window on every login is exactly what a user who hid the icon does not want. The
