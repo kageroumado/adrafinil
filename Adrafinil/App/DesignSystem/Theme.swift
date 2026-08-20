@@ -43,6 +43,11 @@ enum Theme {
     /// Fixed width of the menu-bar popover (matches the platform norm).
     static let popoverWidth: CGFloat = 320
 
+    /// Height cap on the popover's assertion list. Beyond this the list scrolls internally, so a
+    /// fleet of holds can never push the bottom bar (lid, temperature, Quit) off-screen. Sized to
+    /// keep the whole popover comfortably on a 13" laptop display with every other card visible.
+    static let assertionListMaxHeight: CGFloat = 280
+
     // MARK: - Shapes
 
     static var cardShape: RoundedRectangle {

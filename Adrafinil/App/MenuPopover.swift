@@ -28,6 +28,9 @@ struct MenuPopover: View {
     /// The user's hold-duration cap (hours), read on appear. Bounds the presets and the custom field,
     /// and is the duration requested by "Until I turn it off".
     @State private var maxHoldHours = AdrafinilSettings().manualHoldMaxHours
+    /// Measured natural height of the assertion list, so its ScrollView (greedy by nature) can be
+    /// pinned to hug the rows until `Theme.assertionListMaxHeight`, then scroll.
+    @State private var agentListContentHeight: CGFloat = 0
 
     /// Preset hold durations, in minutes. Filtered to those within the user's cap before display.
     /// Longer holds are reachable via `∞` (the cap) or the custom stepper, so the row stays compact.
@@ -376,14 +379,23 @@ struct MenuPopover: View {
     // MARK: - Agent list
 
     private func agentList(_ assertions: [Assertion], now: Date) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(assertions.enumerated()), id: \.element.id) { index, a in
-                if index > 0 { Divider().padding(.leading, Theme.Space.md) }
-                AssertionRow(assertion: a, now: now) {
-                    Task { await status.releaseAssertion(key: a.key) }
+        // Scrolls internally past `assertionListMaxHeight` so a fleet of holds can't push the
+        // bottom bar off-screen. A ScrollView is greedy in its scroll axis, so the frame is pinned
+        // to the measured content height (capped) — with few rows the card hugs its content
+        // exactly as the plain VStack did.
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(Array(assertions.enumerated()), id: \.element.id) { index, a in
+                    if index > 0 { Divider().padding(.leading, Theme.Space.md) }
+                    AssertionRow(assertion: a, now: now) {
+                        Task { await status.releaseAssertion(key: a.key) }
+                    }
                 }
             }
+            .onGeometryChange(for: CGFloat.self, of: \.size.height) { agentListContentHeight = $0 }
         }
+        .frame(height: min(agentListContentHeight, Theme.assertionListMaxHeight))
+        .scrollBounceBehavior(.basedOnSize)
         .padding(.vertical, Theme.Space.xs)
         // A top-level card in the popover, sibling to the hero — so it shares the hero's `card`
         // radius (the `glassCard` default), not the smaller `inner` radius meant for nesting.
