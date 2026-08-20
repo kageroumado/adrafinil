@@ -33,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_: Notification) {
         Self.shared = self
 
+        // Opt out of macOS automatic termination (TAL). Without this, closing the Settings window
+        // leaves a regular-policy, window-less, non-frontmost app — exactly TAL's target — and the
+        // system sends a Quit AppleEvent ~2s later. `applicationShouldTerminateAfterLastWindowClosed`
+        // does not cover this path: TAL is a LaunchServices mechanism, not AppKit's own
+        // quit-on-last-window-close. (MenuBarExtra's status item does not count as a window.)
+        ProcessInfo.processInfo.disableAutomaticTermination("Adrafinil is a resident menu-bar app")
+
         // Single instance. macOS blocks double-launch from Finder, but launching via Xcode (or a
         // different build path) bypasses that — and Xcode's Stop doesn't reliably kill a menu-bar
         // (LSUIElement) app, so old copies pile up. Terminate any other running instance on launch.
