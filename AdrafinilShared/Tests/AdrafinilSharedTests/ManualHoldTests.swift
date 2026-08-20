@@ -38,6 +38,41 @@ struct ManualHoldTests {
         #expect(ManualHold.newKey() != ManualHold.newKey())
     }
 
+    // MARK: - sessionKey (acquire/release key derivation)
+
+    @Test
+    func `sessionKey prefixes a bare session id`() {
+        #expect(ManualHold.sessionKey(tool: "opencode", sessionID: "ses_xyz") == "opencode:ses_xyz")
+    }
+
+    @Test
+    func `sessionKey passes a hold id through verbatim`() {
+        #expect(ManualHold.sessionKey(tool: "manual", sessionID: "hold:ab12cd34") == "hold:ab12cd34")
+    }
+
+    /// `status --json` prints the full `<tool>:<session>` key; `release` fed that form back must
+    /// target the same assertion, not a double-prefixed `<tool>:<tool>:<session>` that matches
+    /// nothing (the silent no-op of issue #25).
+    @Test
+    func `sessionKey passes an already-prefixed key through verbatim`() {
+        #expect(ManualHold.sessionKey(tool: "opencode", sessionID: "opencode:ses_xyz") == "opencode:ses_xyz")
+        #expect(ManualHold.sessionKey(tool: "claude-code", sessionID: "claude-code:f9b4e284") == "claude-code:f9b4e284")
+    }
+
+    @Test
+    func `sessionKey still prefixes a foreign tool prefix`() {
+        // Only THIS tool's prefix is a passthrough — a session id that merely contains a colon
+        // (or another tool's key under a mismatched --tool) still gets the standard derivation,
+        // keeping acquire/release symmetric for exotic ids.
+        #expect(ManualHold.sessionKey(tool: "cursor", sessionID: "opencode:ses_xyz") == "cursor:opencode:ses_xyz")
+    }
+
+    @Test
+    func `sessionKey derivation is idempotent`() {
+        let once = ManualHold.sessionKey(tool: "opencode", sessionID: "ses_xyz")
+        #expect(ManualHold.sessionKey(tool: "opencode", sessionID: once) == once)
+    }
+
     // MARK: - clampExpiry (daemon-side TTL ceiling for hook acquires)
 
     @Test

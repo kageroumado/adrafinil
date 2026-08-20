@@ -71,6 +71,9 @@ enum CLIUsage {
             adrafinil release "$HOLD"
         
         `acquire`/`release` are the reference-counted hooks wired into agents at setup.
+        `release` accepts a key in any form `status --json` prints: a bare session id, the
+        prefixed `<tool>:<session>`, a `sniffed:` key, or a `hold:` id. Releasing a key that
+        matches nothing warns and exits 1 at a TTY (hooks always exit 0).
         `mcp` runs a Model Context Protocol server exposing holds as agent-callable tools.
         """)
     }

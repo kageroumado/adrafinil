@@ -35,11 +35,14 @@ enum ReleaseCommand {
             guard let key = CLIStdin.sessionID() ?? (positional?.isEmpty == false ? positional : nil) else {
                 AcquireCommand.hookFailure("release: no session key (stdin payload or positional) — ignored")
             }
-            // An agent-hold id (`hold:…`) is already the full registry key — release it verbatim. Hook
-            // sessions, by contrast, are keyed `<tool>:<session>`. `sessionKey` encodes both rules,
-            // and is the same derivation acquire uses, so a session's Stop release targets exactly the
+            // An agent-hold id (`hold:…`), an already-prefixed `<tool>:<session>` key, or a
+            // daemon-minted `sniffed:` key is already the full registry key — release it verbatim,
+            // so `release` accepts every key form `status --json` prints. Bare ids get the same
+            // `<tool>:` derivation acquire uses, so a session's Stop release targets exactly the
             // key its UserPromptSubmit acquire placed.
-            fullKey = ManualHold.sessionKey(tool: tool, sessionID: key)
+            fullKey = key.hasPrefix(CLIRequestValidator.sniffedKeyPrefix)
+                ? key
+                : ManualHold.sessionKey(tool: tool, sessionID: key)
         }
         Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
             .notice("release \(fullKey, privacy: .public)")
@@ -56,9 +59,12 @@ enum ReleaseCommand {
 
         do {
             let resp = try DaemonSocketClient.send(req)
-            // Releasing an unknown key is a warning, not an error.
             if let warning = resp.warning {
                 FileHandle.standardError.write(Data("adrafinil: \(warning)\n".utf8))
+                // A release that matched nothing must be visible to scripts — a cleanup loop
+                // "releasing" with exit 0 and zero effect is the worst case. Agent hooks stay
+                // fail-soft, same TTY discrimination as `hookFailure`.
+                exit(isatty(FileHandle.standardInput.fileDescriptor) != 0 ? 1 : 0)
             }
             exit(0)
         } catch {

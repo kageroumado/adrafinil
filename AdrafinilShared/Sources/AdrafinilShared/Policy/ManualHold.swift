@@ -19,13 +19,18 @@ public enum ManualHold {
     }
 
     /// The registry key for a hook-driven session hold. Hook sessions are keyed `<tool>:<sessionID>`;
-    /// an id that is already a full agent-hold key (`hold:…`) is used verbatim, so releasing an
-    /// MCP/CLI-placed hold by its key targets it directly. Acquire and release derive the key
-    /// identically, which is what guarantees a session's `UserPromptSubmit` acquire and its matching
-    /// `Stop` release land on the same key — the property the Codex (and Claude Code) hook model relies
-    /// on for per-turn bracketing.
+    /// an id that is already a full agent-hold key (`hold:…`) or already carries this tool's prefix
+    /// (`<tool>:…`, the form `status --json` prints) is used verbatim, so releasing an assertion by
+    /// its displayed key targets it directly. Acquire and release derive the key identically, which
+    /// is what guarantees a session's `UserPromptSubmit` acquire and its matching `Stop` release land
+    /// on the same key — the property the Codex (and Claude Code) hook model relies on for per-turn
+    /// bracketing. (The passthrough preserves that: hooks pass bare session ids, and a bare id never
+    /// starts with `<tool>:`.)
     public static func sessionKey(tool: String, sessionID: String) -> String {
-        isHoldKey(sessionID) ? sessionID : "\(tool):\(sessionID)"
+        if isHoldKey(sessionID) || sessionID.hasPrefix("\(tool):") {
+            return sessionID
+        }
+        return "\(tool):\(sessionID)"
     }
 
     /// A fresh hold key: `hold:` + 8 lowercase hex chars. Short enough to echo back to an agent,
