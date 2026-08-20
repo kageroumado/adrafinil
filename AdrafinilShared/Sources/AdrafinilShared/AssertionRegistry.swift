@@ -6,6 +6,12 @@ public actor AssertionRegistry {
     private var assertions: [String: Assertion] = [:]
     private var wasBlocking: Bool = false
 
+    /// Monotonic change counter, bumped on every mutation of the store. A snapshot taken together
+    /// with this version (`versionedSnapshot`) is totally ordered by content, which lets consumers
+    /// receiving full-state payloads over racing transports (the XPC push stream vs. an in-flight
+    /// poll reply) drop the stale one instead of letting the last writer win.
+    public private(set) var version: UInt64 = 0
+
     /// Emits the new value of `isBlocking` whenever it flips (false→true or true→false).
     /// A single consumer (the daemon) iterates this to drive the sleep-blocking helper.
     /// The stream is buffered, so a transition emitted before iteration begins is not lost,
@@ -32,6 +38,13 @@ public actor AssertionRegistry {
         Array(assertions.values).sorted { $0.acquiredAt < $1.acquiredAt }
     }
 
+    /// The assertions and the version they correspond to, read atomically — the pair is what makes
+    /// cross-payload ordering sound (a version read separately from its snapshot could describe a
+    /// different state).
+    public func versionedSnapshot() -> (assertions: [Assertion], version: UInt64) {
+        (snapshot(), version)
+    }
+
     /// Adds an assertion. Returns `true` if it was newly added, `false` if a duplicate (same
     /// key) — a no-op for the count, but the existing assertion is refreshed: its
     /// `lastActivityAt` advances (the idle sweep treats a re-acquire as activity), and the
@@ -53,9 +66,11 @@ public actor AssertionRegistry {
             updated.lastActivityAt = Date()
             updated.expiresAt = assertion.expiresAt ?? existing.expiresAt
             assertions[assertion.key] = updated
+            version += 1
             return false
         }
         assertions[assertion.key] = assertion
+        version += 1
         notifyIfNeeded()
         return true
     }
@@ -65,6 +80,7 @@ public actor AssertionRegistry {
     @discardableResult
     public func release(key: String) -> Bool {
         guard assertions.removeValue(forKey: key) != nil else { return false }
+        version += 1
         notifyIfNeeded()
         return true
     }
@@ -79,12 +95,14 @@ public actor AssertionRegistry {
         for k in matching {
             assertions.removeValue(forKey: k)
         }
+        if !matching.isEmpty { version += 1 }
         notifyIfNeeded()
         return matching.count
     }
 
     public func removeAll() {
         assertions.removeAll()
+        version += 1
         notifyIfNeeded()
     }
 
@@ -92,6 +110,7 @@ public actor AssertionRegistry {
         // Last-wins on duplicate keys rather than trapping — a corrupted or hand-edited
         // state.json with repeated keys must not crash the daemon on restore.
         assertions = Dictionary(values.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
+        version += 1
         notifyIfNeeded()
     }
 
@@ -99,6 +118,7 @@ public actor AssertionRegistry {
         guard var a = assertions[key] else { return }
         a.lastActivityAt = Date()
         assertions[key] = a
+        version += 1
     }
 
     private func notifyIfNeeded() {

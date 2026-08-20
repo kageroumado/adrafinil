@@ -120,4 +120,26 @@ struct AssertionTests {
         #expect(d2.cpuTemperatureCelsius == nil)
         #expect(d2.lastEventAt == nil)
     }
+
+    @Test
+    func `daemon status generation roundtrips and old payloads decode as generationless`() throws {
+        let boot = UUID()
+        let stamped = DaemonStatus(
+            isBlocking: false, assertions: [], lidClosed: false,
+            helperConnected: true, cpuTemperatureCelsius: nil,
+            lastEvent: nil, generation: 42, daemonBootID: boot,
+        )
+        let d = try JSONDecoder().decode(DaemonStatus.self, from: JSONEncoder().encode(stamped))
+        #expect(d.generation == 42)
+        #expect(d.daemonBootID == boot)
+
+        // A payload from a pre-generation daemon must decode to (0, nil) — the pair the app's
+        // stale-drop guard always accepts, preserving old behavior across a version skew.
+        let legacy = Data("""
+        {"isBlocking": false, "assertions": [], "lidClosed": false, "helperConnected": true}
+        """.utf8)
+        let old = try JSONDecoder().decode(DaemonStatus.self, from: legacy)
+        #expect(old.generation == 0)
+        #expect(old.daemonBootID == nil)
+    }
 }

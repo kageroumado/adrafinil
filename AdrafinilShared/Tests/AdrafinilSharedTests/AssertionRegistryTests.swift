@@ -222,4 +222,50 @@ struct AssertionRegistryTests {
         }
         #expect(events == [true, false])
     }
+
+    // MARK: - Version (snapshot ordering for racing status payloads)
+
+    @Test
+    func `version increases on every content mutation`() async {
+        let r = AssertionRegistry()
+        let v0 = await r.version
+        await r.acquire(make(key: "a"))
+        let v1 = await r.version
+        #expect(v1 > v0)
+        await r.acquire(make(key: "a")) // duplicate refresh mutates lastActivityAt/pid → still a change
+        let v2 = await r.version
+        #expect(v2 > v1)
+        await r.touch(key: "a")
+        let v3 = await r.version
+        #expect(v3 > v2)
+        await r.release(key: "a")
+        let v4 = await r.version
+        #expect(v4 > v3)
+    }
+
+    @Test
+    func `version is untouched by no-op release`() async {
+        let r = AssertionRegistry()
+        await r.acquire(make(key: "a"))
+        let v1 = await r.version
+        await r.release(key: "nope")
+        #expect(await r.version == v1)
+        await r.releaseAll(matchingPid: 999)
+        #expect(await r.version == v1)
+    }
+
+    /// The pair returned by `versionedSnapshot` is what the daemon stamps into `DaemonStatus`:
+    /// a later-versioned snapshot must reflect a later content state, so a receiver comparing
+    /// generations can safely drop the lower one.
+    @Test
+    func `versioned snapshot orders content states`() async {
+        let r = AssertionRegistry()
+        await r.acquire(make(key: "a"))
+        let before = await r.versionedSnapshot()
+        await r.acquire(make(key: "b"))
+        let after = await r.versionedSnapshot()
+        #expect(before.assertions.count == 1)
+        #expect(after.assertions.count == 2)
+        #expect(after.version > before.version)
+    }
 }

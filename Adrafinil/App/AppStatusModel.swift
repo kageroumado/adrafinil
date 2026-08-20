@@ -314,6 +314,18 @@ final class AppStatusModel {
     /// the pending away summary — so the summary costs a round-trip exactly when it exists, not on
     /// every update.
     private func apply(_ status: DaemonStatus) {
+        // The push subscription and in-flight fetch replies race, and both deliver full snapshots
+        // with no ordering between the channels: a poll reply computed before an acquire can land
+        // after the push that announced it, clobbering the UI back to "No agents active" while a
+        // hold is live — with nothing to correct it until the next transition or heartbeat. Drop
+        // any payload older than what's shown. Generations only order within one daemon run; after
+        // a restart (different boot id, counter back at zero) accept unconditionally. Statuses
+        // from a pre-generation daemon carry (0, nil) and always pass, matching old behavior.
+        if let current = self.status,
+           status.daemonBootID == current.daemonBootID,
+           status.generation < current.generation {
+            return
+        }
         self.status = status
         lastError = nil
         // Live data means the daemon is reachable: clear any unreachable/repair state and re-arm the

@@ -7,6 +7,12 @@ final class Daemon {
     let log = Logger(subsystem: AdrafinilConstants.daemonBundleID, category: "Daemon")
 
     let registry = AssertionRegistry()
+
+    /// Identity of this daemon run, stamped into every `DaemonStatus` alongside the registry's
+    /// change version — generations restart at zero with the process, so receivers may only
+    /// compare them within one boot id.
+    let bootID = UUID()
+
     let helperClient = HelperClient()
     let stateStore = StateStore()
     let eventLog = EventLog()
@@ -294,7 +300,7 @@ final class Daemon {
     }
 
     func currentStatus() async -> DaemonStatus {
-        let snapshot = await registry.snapshot()
+        let (snapshot, generation) = await registry.versionedSnapshot()
         // While blocking, the monitor polls and `lastReadingCelsius` is current. While idle the
         // poll is stopped (no wakeups), so read once on demand for callers that want a live temp.
         let temperature = thermalMonitor.isBlocking ? thermalMonitor.lastReadingCelsius : thermalMonitor.readNow()
@@ -321,6 +327,8 @@ final class Daemon {
             paused: isPaused,
             awaySummaryPending: pendingAwaySummary != nil,
             warnings: warnings,
+            generation: generation,
+            daemonBootID: bootID,
         )
     }
 

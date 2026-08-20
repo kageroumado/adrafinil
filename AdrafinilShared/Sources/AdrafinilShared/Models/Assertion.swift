@@ -110,6 +110,17 @@ public struct DaemonStatus: Codable, Sendable {
     /// The user trusts a closed lid to a working safety net — when part of it is down, say so.
     public var warnings: [String]
 
+    /// The assertion registry's monotonic change version at the moment `assertions` was snapshotted.
+    /// The XPC push stream and in-flight poll replies race on the way to the app; comparing
+    /// generations (within one `daemonBootID`) lets the receiver drop the stale payload instead of
+    /// letting the last writer win — which could show "No agents active" while a hold is live.
+    public var generation: UInt64
+
+    /// Identity of the daemon run that minted this status. Generations restart at zero when the
+    /// daemon restarts, so they are only comparable between statuses carrying the same boot id;
+    /// across a restart the receiver must accept the payload unconditionally.
+    public var daemonBootID: UUID?
+
     public init(
         isBlocking: Bool,
         assertions: [Assertion],
@@ -121,6 +132,8 @@ public struct DaemonStatus: Codable, Sendable {
         paused: Bool = false,
         awaySummaryPending: Bool = false,
         warnings: [String] = [],
+        generation: UInt64 = 0,
+        daemonBootID: UUID? = nil,
     ) {
         self.isBlocking = isBlocking
         self.assertions = assertions
@@ -132,6 +145,8 @@ public struct DaemonStatus: Codable, Sendable {
         self.paused = paused
         self.awaySummaryPending = awaySummaryPending
         self.warnings = warnings
+        self.generation = generation
+        self.daemonBootID = daemonBootID
     }
 
     /// Tolerant decode: a status from a build without `warnings` still decodes.
@@ -147,6 +162,8 @@ public struct DaemonStatus: Codable, Sendable {
         self.paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? false
         self.awaySummaryPending = try c.decodeIfPresent(Bool.self, forKey: .awaySummaryPending) ?? false
         self.warnings = try c.decodeIfPresent([String].self, forKey: .warnings) ?? []
+        self.generation = try c.decodeIfPresent(UInt64.self, forKey: .generation) ?? 0
+        self.daemonBootID = try c.decodeIfPresent(UUID.self, forKey: .daemonBootID)
     }
 }
 
