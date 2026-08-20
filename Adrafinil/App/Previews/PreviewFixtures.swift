@@ -63,6 +63,28 @@
             )
         }
 
+        /// A fleet of headless workers (issue #23's regression case: ~33 holds once pushed the
+        /// footer off-screen). Exercises the assertion list's height cap and internal scrolling.
+        static var fleet: DaemonStatus {
+            let tools = ["claude-code", "codex", "cursor", "opencode"]
+            let workers = (0 ..< 30).map { i in
+                assertion(
+                    tools[i % tools.count],
+                    reason: i.isMultiple(of: 5) ? "worker \(i)" : nil,
+                    minutesAgo: Double(i) * 3 + 2,
+                    pid: pid_t(9_000 + i),
+                )
+            }
+            return DaemonStatus(
+                isBlocking: true,
+                assertions: workers + [
+                    hold("claude-code", reason: "overnight sweep", minutesAgo: 40, ttlMinutes: 240),
+                    assertion("claude-code", reason: "Refactoring auth module", minutesAgo: 1, pid: 101),
+                ],
+                lidClosed: true, helperConnected: true, cpuTemperatureCelsius: 68, lastEvent: .acquired,
+            )
+        }
+
         /// A live agent plus a deliberate agent hold (exercises the pin glyph, reason, countdown, ✕).
         static var withHold: DaemonStatus {
             DaemonStatus(

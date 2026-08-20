@@ -15,6 +15,7 @@
                         tile("Idle") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle)) }
                         tile("One agent") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.oneAgent)) }
                         tile("Many agents") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.manyAgents)) }
+                        tile("Fleet (32 holds)") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.fleet)) }
                         tile("Thermal cutout") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.thermalCutout)) }
                         tile("Low-battery cutout") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.lowBatteryCutout)) }
                         tile("Daemon error") { MenuPopover(status: AppStatusModel(previewStatus: Fixtures.idle, error: Fixtures.DaemonUnreachable())) }
