@@ -20,14 +20,30 @@ public actor AssertionRegistry {
     public nonisolated let blockingStateChanges: AsyncStream<Bool>
     private let blockingContinuation: AsyncStream<Bool>.Continuation
 
+    /// Emits the new value of `wantsDisplay` whenever it flips — the display-class sibling of
+    /// `blockingStateChanges`, consumed by the daemon to raise/drop its display assertion. Composed
+    /// from the assertions themselves, so every release path (explicit, idle sweep, TTL expiry,
+    /// process exit, pause, cutouts) drops the display hold with no extra bookkeeping.
+    public nonisolated let displayStateChanges: AsyncStream<Bool>
+    private let displayContinuation: AsyncStream<Bool>.Continuation
+    private var wasWantingDisplay: Bool = false
+
     public init() {
         let (stream, continuation) = AsyncStream.makeStream(of: Bool.self)
         self.blockingStateChanges = stream
         self.blockingContinuation = continuation
+        let (displayStream, displayCont) = AsyncStream.makeStream(of: Bool.self)
+        self.displayStateChanges = displayStream
+        self.displayContinuation = displayCont
     }
 
     public var isBlocking: Bool {
         !assertions.isEmpty
+    }
+
+    /// Whether any active assertion carries the display class (`holdsDisplay`).
+    public var wantsDisplay: Bool {
+        assertions.values.contains(where: \.holdsDisplay)
     }
 
     public var count: Int {
@@ -65,8 +81,13 @@ public actor AssertionRegistry {
             )
             updated.lastActivityAt = Date()
             updated.expiresAt = assertion.expiresAt ?? existing.expiresAt
+            // Display class is sticky for the key's lifetime: a re-acquire can upgrade to it but
+            // never downgrade — dropping it mid-work would blind a screen-reading agent.
+            updated.holdsDisplay = assertion.holdsDisplay || existing.holdsDisplay
             assertions[assertion.key] = updated
             version += 1
+            // A duplicate can't flip `isBlocking`, but the sticky upgrade can flip `wantsDisplay`.
+            notifyIfNeeded()
             return false
         }
         assertions[assertion.key] = assertion
@@ -126,6 +147,11 @@ public actor AssertionRegistry {
         if nowBlocking != wasBlocking {
             wasBlocking = nowBlocking
             blockingContinuation.yield(nowBlocking)
+        }
+        let nowWantingDisplay = wantsDisplay
+        if nowWantingDisplay != wasWantingDisplay {
+            wasWantingDisplay = nowWantingDisplay
+            displayContinuation.yield(nowWantingDisplay)
         }
     }
 }

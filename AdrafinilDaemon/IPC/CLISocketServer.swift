@@ -140,6 +140,7 @@ final class CLISocketServer {
                 pid: req.pid ?? -1,
                 processName: req.processName ?? tool,
                 ttl: CLIRequestValidator.clampedTTL(req.ttlSeconds),
+                holdsDisplay: req.display ?? false,
             )
             let result: (outcome: Daemon.AcquireResult, snapshot: [Assertion]) = runOnMain { @MainActor in
                 let outcome = await daemonRef.handleAcquire(assertion)
@@ -147,7 +148,9 @@ final class CLISocketServer {
             }
             switch result.outcome {
             case .accepted:
-                return CLIResponse(ok: true, error: nil, blocking: !result.snapshot.isEmpty, assertionCount: result.snapshot.count, statusJSON: nil)
+                // `displayApplied` echoes even when false — its presence is what tells a new CLI
+                // it isn't talking to a pre-display daemon (which omits the field entirely).
+                return CLIResponse(ok: true, error: nil, blocking: !result.snapshot.isEmpty, assertionCount: result.snapshot.count, statusJSON: nil, displayApplied: req.display ?? false)
             case .paused:
                 // A paused daemon ignoring an acquire is expected behavior, not a hook failure.
                 return CLIResponse(ok: true, error: nil, blocking: false, assertionCount: result.snapshot.count, statusJSON: nil, warning: "Adrafinil is paused — acquire ignored")
@@ -159,11 +162,11 @@ final class CLISocketServer {
 
         case .hold:
             let result = runOnMain { @MainActor in
-                await daemonRef.handleHold(reason: req.reason, requestedTTL: req.ttlSeconds, pid: req.pid, tool: req.tool)
+                await daemonRef.handleHold(reason: req.reason, requestedTTL: req.ttlSeconds, pid: req.pid, tool: req.tool, display: req.display ?? false)
             }
             switch result {
             case let .placed(key, ttl, count):
-                return CLIResponse(ok: true, error: nil, blocking: count > 0, assertionCount: count, statusJSON: nil, holdKey: key, appliedTTLSeconds: ttl)
+                return CLIResponse(ok: true, error: nil, blocking: count > 0, assertionCount: count, statusJSON: nil, holdKey: key, appliedTTLSeconds: ttl, displayApplied: req.display ?? false)
             case .disabled:
                 return CLIResponse(ok: false, error: "Agent holds are turned off in Adrafinil settings.", blocking: nil, assertionCount: nil, statusJSON: nil)
             case .paused:

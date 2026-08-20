@@ -51,9 +51,9 @@ enum CLIUsage {
         adrafinil — keep your Mac awake only while AI agents are working
         
         USAGE:
-          adrafinil hold [--reason <text>] [--for <duration>] [--pid <n>] [--tool <name>]
+          adrafinil hold [--reason <text>] [--for <duration>] [--pid <n>] [--tool <name>] [--display]
           adrafinil release <hold-id | session-key> | --all
-          adrafinil acquire <session-key> --tool <name> [--reason <text>] [--ttl <seconds>]
+          adrafinil acquire <session-key> --tool <name> [--reason <text>] [--ttl <seconds>] [--display]
           adrafinil status [--json]
           adrafinil install-hooks [--tool <name>] [--dry-run]
           adrafinil uninstall-hooks [--tool <name>] [--dry-run]
@@ -69,6 +69,10 @@ enum CLIUsage {
             HOLD=$(adrafinil hold --reason "running migration" --for 30m)
             ./migrate.sh
             adrafinil release "$HOLD"
+        
+          --display additionally keeps the DISPLAY awake (and wakes it if dark) — for agents
+          that read the screen: a sleeping display collapses every app's accessibility tree,
+          so a system-only hold keeps the machine on while blinding the agent.
         
         `acquire`/`release` are the reference-counted hooks wired into agents at setup.
         `release` accepts a key in any form `status --json` prints: a bare session id, the

@@ -49,6 +49,29 @@ struct CLIFramingTests {
         #expect(!respJSON.contains("\"blocking\":"))
     }
 
+    /// Display-class version skew, both directions. Old CLI → new daemon: a frame without the
+    /// `display` field decodes as nil (system-only, nothing changes). New CLI → old daemon: a
+    /// reply without `displayApplied` decodes as nil — the CLI's cue to warn that the display is
+    /// NOT protected instead of trusting a bare ok.
+    @Test
+    func `display field skews tolerantly in both directions`() throws {
+        let oldRequest = Data(#"{"op": "hold", "reason": "screen work"}"#.utf8)
+        let req = try JSONDecoder().decode(CLIRequest.self, from: oldRequest)
+        #expect(req.display == nil)
+
+        let newRequest = CLIRequest(op: .hold, key: nil, tool: "rocuronium", reason: "screen work", pid: nil, processName: nil, ttlSeconds: nil, display: true)
+        let decodedReq = try decode(CLIRequest.self, from: CLIFraming.encode(newRequest))
+        #expect(decodedReq.display == true)
+
+        let oldReply = Data(#"{"ok": true, "holdKey": "hold:ab12cd34"}"#.utf8)
+        let resp = try JSONDecoder().decode(CLIResponse.self, from: oldReply)
+        #expect(resp.displayApplied == nil)
+
+        let newReply = CLIResponse(ok: true, error: nil, blocking: true, assertionCount: 1, statusJSON: nil, holdKey: "hold:ab12cd34", displayApplied: true)
+        let decoded = try decode(CLIResponse.self, from: CLIFraming.encode(newReply))
+        #expect(decoded.displayApplied == true)
+    }
+
     @Test
     func `release all roundtrips with released count`() throws {
         let req = CLIRequest(op: .releaseAll, key: nil, tool: nil, reason: nil, pid: nil, processName: nil, ttlSeconds: nil)

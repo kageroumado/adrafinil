@@ -26,6 +26,10 @@ public struct CLIRequest: Codable, Sendable {
     public let pid: pid_t?
     public let processName: String?
     public let ttlSeconds: TimeInterval?
+    /// Display class for `hold`/`acquire`: also keep the *display* awake (`Assertion.holdsDisplay`).
+    /// Optional so an old CLI's frames (no field) and an old daemon (ignores it) both stay valid;
+    /// the response's `displayApplied` echo is what makes that skew visible.
+    public let display: Bool?
 
     /// Wire keys match the documented protocol: `ttlSeconds` serializes as `ttl`.
     enum CodingKeys: String, CodingKey {
@@ -36,9 +40,10 @@ public struct CLIRequest: Codable, Sendable {
         case pid
         case processName
         case ttlSeconds = "ttl"
+        case display
     }
 
-    public init(op: Op, key: String?, tool: String?, reason: String?, pid: pid_t?, processName: String?, ttlSeconds: TimeInterval?) {
+    public init(op: Op, key: String?, tool: String?, reason: String?, pid: pid_t?, processName: String?, ttlSeconds: TimeInterval?, display: Bool? = nil) {
         self.op = op
         self.key = key
         self.tool = tool
@@ -46,6 +51,7 @@ public struct CLIRequest: Codable, Sendable {
         self.pid = pid
         self.processName = processName
         self.ttlSeconds = ttlSeconds
+        self.display = display
     }
 }
 
@@ -65,6 +71,12 @@ public struct CLIResponse: Codable, Sendable {
     /// How many assertions a `.releaseAll` dropped (distinct from `assertionCount`, which is
     /// always the number still active after the operation).
     public let releasedCount: Int?
+    /// Whether the daemon applied the display class a `hold`/`acquire` requested. Its real job is
+    /// making version skew visible: an old daemon ignores the unknown `display` field and omits
+    /// this echo, so the CLI can warn "daemon predates --display" instead of silently leaving the
+    /// display unprotected. (House rule: a return code is never evidence; the reply must say what
+    /// actually happened.)
+    public let displayApplied: Bool?
 
     /// Wire keys match the documented protocol: `blocking` serializes as `blockingState`.
     enum CodingKeys: String, CodingKey {
@@ -76,10 +88,11 @@ public struct CLIResponse: Codable, Sendable {
         case holdKey
         case appliedTTLSeconds
         case releasedCount
+        case displayApplied
         case blocking = "blockingState"
     }
 
-    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil, appliedTTLSeconds: TimeInterval? = nil, releasedCount: Int? = nil) {
+    public init(ok: Bool, error: String?, blocking: Bool?, assertionCount: Int?, statusJSON: Data?, warning: String? = nil, holdKey: String? = nil, appliedTTLSeconds: TimeInterval? = nil, releasedCount: Int? = nil, displayApplied: Bool? = nil) {
         self.ok = ok
         self.error = error
         self.blocking = blocking
@@ -89,6 +102,7 @@ public struct CLIResponse: Codable, Sendable {
         self.holdKey = holdKey
         self.appliedTTLSeconds = appliedTTLSeconds
         self.releasedCount = releasedCount
+        self.displayApplied = displayApplied
     }
 }
 

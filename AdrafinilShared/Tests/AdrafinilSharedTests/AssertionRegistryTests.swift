@@ -254,6 +254,64 @@ struct AssertionRegistryTests {
         #expect(await r.version == v1)
     }
 
+    // MARK: - Display class
+
+    private func makeDisplay(key: String, pid: pid_t = 100) -> Assertion {
+        Assertion(key: key, tool: "rocuronium", pid: pid, processName: "rocuronium", holdsDisplay: true)
+    }
+
+    @Test
+    func `wants display tracks display-class assertions only`() async {
+        let r = AssertionRegistry()
+        await r.acquire(make(key: "plain"))
+        #expect(await r.wantsDisplay == false)
+        await r.acquire(makeDisplay(key: "seeing"))
+        #expect(await r.wantsDisplay == true)
+        await r.release(key: "seeing")
+        #expect(await r.wantsDisplay == false, "system-only holds must not keep the display awake")
+        #expect(await r.isBlocking == true, "the plain hold still blocks system sleep")
+    }
+
+    /// Every release path drops the display want — this is what makes pause and the
+    /// thermal/battery cutouts (which remove everything) outrank a display hold for free.
+    @Test
+    func `remove all drops the display want`() async {
+        let r = AssertionRegistry()
+        await r.acquire(makeDisplay(key: "seeing"))
+        #expect(await r.wantsDisplay == true)
+        await r.removeAll()
+        #expect(await r.wantsDisplay == false)
+    }
+
+    @Test
+    func `display class is sticky across re-acquires`() async {
+        let r = AssertionRegistry()
+        await r.acquire(makeDisplay(key: "k"))
+        // A later per-turn re-acquire without the flag (same key) must not downgrade the hold —
+        // dropping the display mid-work would blind the agent it exists for.
+        await r.acquire(make(key: "k", tool: "rocuronium"))
+        #expect(await r.wantsDisplay == true)
+        // And the upgrade direction works: a plain hold re-acquired with the flag gains it.
+        await r.acquire(make(key: "up"))
+        await r.acquire(makeDisplay(key: "up"))
+        #expect(await r.snapshot().first { $0.key == "up" }?.holdsDisplay == true)
+    }
+
+    @Test
+    func `display state changes emits on flips including duplicate-acquire upgrades`() async {
+        let r = AssertionRegistry()
+        await r.acquire(make(key: "plain")) // no display flip
+        await r.acquire(make(key: "up"))
+        await r.acquire(makeDisplay(key: "up")) // duplicate upgrade → flips true
+        await r.release(key: "up") // → flips false
+        var events: [Bool] = []
+        for await wanted in r.displayStateChanges {
+            events.append(wanted)
+            if events.count == 2 { break }
+        }
+        #expect(events == [true, false])
+    }
+
     /// The pair returned by `versionedSnapshot` is what the daemon stamps into `DaemonStatus`:
     /// a later-versioned snapshot must reflect a later content state, so a receiver comparing
     /// generations can safely drop the lower one.

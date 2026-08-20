@@ -175,6 +175,31 @@ struct Assertion {
 
 `AssertionRegistry` is an actor; `isBlocking` is `!assertions.isEmpty`. It emits the new value of `isBlocking` on an `AsyncStream` whenever it flips. The daemon iterates that single stream and drives the helper serially, so the helper never sees a stale or out-of-order value. `isBlocking` true → `setSleepBlocked(true)`; false → `setSleepBlocked(false)`.
 
+### 4.1b Display-class holds
+
+Adrafinil's default keeps the **system** awake while letting the **display** sleep — correct for
+a headless coding agent, and exactly wrong for an agent that reads the screen: when the display
+sleeps, every app's accessibility tree collapses to the bare application element, so a
+system-only hold keeps the machine on while blinding the agent. An assertion can therefore opt
+into the display class (`holdsDisplay`, via `--display` on `hold`/`acquire` or the MCP tool's
+`keep_display_awake`), composed by the daemon exactly like the blocking decision:
+
+- block system sleep ⇐ any active assertion (unchanged)
+- hold display awake ⇐ any active assertion with `holdsDisplay`
+
+The display assertion (`PreventUserIdleDisplaySleep`) lives **in the daemon, not the privileged
+helper** — it needs no root, and the helper's root surface stays minimal. Acquiring it also
+**wakes** the display if it is dark (`IOPMAssertionDeclareUserActivity`, the one call that
+relights it — an assertion only prevents *future* sleep), and the 60s reconcile plus the wake
+re-assertion (§4.5) relight it again if a sleep/wake cycle darkened the panel. Because the
+class is composed from the assertions themselves, every release path — including pause and the
+thermal/low-battery cutouts — drops it with no extra bookkeeping: the safety nets outrank the
+hold, since an agent that cannot see is recoverable and a cooked machine is not. Display class
+is sticky per key (a re-acquire without the flag never downgrades a hold mid-work), the wire
+reply echoes `displayApplied` so version skew is visible (an old daemon omits it and the CLI
+warns instead of silently not protecting the display), and status warns when a display hold is
+active behind a closed lid with no other display attached — the agent behind it is blind there.
+
 ### 4.2 Idle release
 
 A periodic check (every 30s) releases an assertion when: its owning PID is gone; its process *tree* has stayed below a CPU-rate threshold (default 3% of a core) for ≥ `idleReleaseSeconds` (default 90, configurable); or its `--ttl` deadline has passed. This is the reliable Esc-interrupt catch. CPU is sampled with `proc_pidinfo(PROC_PIDTASKINFO)` summed over the agent process and all descendants (so a long tool call with a busy child still reads as active), and turned into a *rate* between ticks — an absolute-change rule would never fire, because an idle `claude` TUI still burns ~1% CPU. A max-age backstop releases assertions with an unresolved PID and a missed end hook so a leak can't pin sleep forever.

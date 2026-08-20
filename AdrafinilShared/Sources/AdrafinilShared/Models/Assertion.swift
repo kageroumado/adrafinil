@@ -23,6 +23,12 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     public var lastActivityAt: Date
     public var expiresAt: Date?
     public let origin: AssertionOrigin
+    /// Display class (opt-in): this assertion also keeps the *display* awake, not just the system.
+    /// For agents that read the screen — when the display sleeps, every app's accessibility tree
+    /// collapses to the bare application element, so a system-only hold keeps the machine on while
+    /// blinding the agent. Sticky for the key's lifetime: a re-acquire without the flag never
+    /// downgrades a display hold mid-work (dropping it would blind the agent the same way).
+    public var holdsDisplay: Bool
 
     public var id: String {
         key
@@ -46,6 +52,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         acquiredAt: Date = Date(),
         ttl: TimeInterval? = nil,
         origin: AssertionOrigin = .hook,
+        holdsDisplay: Bool = false,
     ) {
         self.key = key
         self.tool = tool
@@ -56,6 +63,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         self.lastActivityAt = acquiredAt
         self.expiresAt = ttl.map { acquiredAt.addingTimeInterval($0) }
         self.origin = origin
+        self.holdsDisplay = holdsDisplay
     }
 
     enum CodingKeys: String, CodingKey {
@@ -68,6 +76,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         case lastActivityAt
         case expiresAt
         case origin
+        case holdsDisplay
     }
 
     /// Custom decode so state files written before `origin` existed still restore (defaulting to
@@ -83,12 +92,20 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         self.lastActivityAt = try c.decode(Date.self, forKey: .lastActivityAt)
         self.expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
         self.origin = try c.decodeIfPresent(AssertionOrigin.self, forKey: .origin) ?? .hook
+        self.holdsDisplay = try c.decodeIfPresent(Bool.self, forKey: .holdsDisplay) ?? false
     }
 }
 
 public struct DaemonStatus: Codable, Sendable {
     public var isBlocking: Bool
     public var assertions: [Assertion]
+
+    /// Whether any active assertion carries the display class — derived, so it can never disagree
+    /// with the assertion list it summarizes (and costs nothing on the wire).
+    public var isHoldingDisplay: Bool {
+        assertions.contains(where: \.holdsDisplay)
+    }
+
     public var lidClosed: Bool
     public var helperConnected: Bool
     public var cpuTemperatureCelsius: Double?

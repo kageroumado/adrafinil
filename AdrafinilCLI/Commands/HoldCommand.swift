@@ -37,6 +37,7 @@ enum HoldCommand {
         Logger(subsystem: AdrafinilConstants.appBundleID, category: "CLI")
             .notice("hold reason='\(reason ?? "", privacy: .public)' ttl=\(ttl.map { String(Int($0)) } ?? "default", privacy: .public) pid=\(pid ?? -1, privacy: .public)")
 
+        let wantsDisplay = parser.flag("--display")
         let req = CLIRequest(
             op: .hold,
             key: nil,
@@ -45,6 +46,7 @@ enum HoldCommand {
             pid: pid,
             processName: tool,
             ttlSeconds: ttl,
+            display: wantsDisplay ? true : nil,
         )
 
         do {
@@ -52,6 +54,12 @@ enum HoldCommand {
             guard resp.ok, let key = resp.holdKey else {
                 FileHandle.standardError.write(Data("hold failed: \(resp.error ?? "unknown error")\n".utf8))
                 exit(1)
+            }
+            // Version-skew check: an old daemon ignores the unknown `display` field and omits the
+            // echo. A hold whose whole point may be the display must say so out loud — the caller
+            // still gets the system hold, hence warn-and-continue rather than fail.
+            if wantsDisplay, resp.displayApplied == nil {
+                FileHandle.standardError.write(Data("hold: the running daemon predates --display — the system stays awake but the display is NOT held. Update Adrafinil.\n".utf8))
             }
             // Machine-readable id on stdout; human summary on stderr. The daemon clamps the TTL
             // to the configured cap, so the summary reports what was actually applied.

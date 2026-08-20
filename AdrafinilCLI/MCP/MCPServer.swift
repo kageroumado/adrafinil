@@ -95,6 +95,10 @@ enum MCPServer {
                             "type": "integer",
                             "description": "Optional process id of the background job. When given, the hold releases automatically the moment that process exits — the most precise option.",
                         ],
+                        "keep_display_awake": [
+                            "type": "boolean",
+                            "description": "Also keep the DISPLAY awake (and wake it if it is dark). Set this ONLY when the task reads the screen — vision or accessibility-tree work: a sleeping display collapses every app's accessibility tree, so a normal (system-only) hold would keep the machine running while blinding the agent. Leave unset for headless work; the display then sleeps as usual.",
+                        ],
                     ],
                     "required": ["reason"],
                 ],
@@ -146,6 +150,7 @@ enum MCPServer {
         // unrelated process the truncated value happens to name.
         let pid: pid_t? = (arguments["pid"] as? NSNumber).flatMap { pid_t(exactly: $0) }
 
+        let wantsDisplay = (arguments["keep_display_awake"] as? Bool) == true
         let req = CLIRequest(
             op: .hold,
             key: nil,
@@ -154,6 +159,7 @@ enum MCPServer {
             pid: (pid ?? 0) > 0 ? pid : nil,
             processName: toolLabel,
             ttlSeconds: ttl,
+            display: wantsDisplay ? true : nil,
         )
         do {
             let resp = try DaemonSocketClient.send(req)
@@ -162,6 +168,13 @@ enum MCPServer {
                 return
             }
             var text = "Keeping the Mac awake, including with the lid closed (hold id: \(key))."
+            if wantsDisplay {
+                // Skew visibility: an old daemon ignores the display field and omits the echo —
+                // the agent must know its screen-reading plan is not actually protected.
+                text += resp.displayApplied == nil
+                    ? " WARNING: the running Adrafinil daemon predates display holds — the display is NOT being kept awake."
+                    : " The display is held awake too."
+            }
             // The daemon clamps the TTL to the user's cap — report what was applied, not what
             // was asked for, so the agent doesn't plan around time it won't get.
             let applied = resp.appliedTTLSeconds ?? ttl ?? ManualHold.defaultTTL

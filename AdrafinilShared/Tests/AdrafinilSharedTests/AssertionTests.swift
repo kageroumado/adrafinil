@@ -122,6 +122,37 @@ struct AssertionTests {
     }
 
     @Test
+    func `holds display roundtrips and legacy payloads decode as system-only`() throws {
+        let display = Assertion(key: "k", tool: "rocuronium", pid: 1, processName: "rocuronium", holdsDisplay: true)
+        let decoded = try JSONDecoder().decode(Assertion.self, from: JSONEncoder().encode(display))
+        #expect(decoded.holdsDisplay)
+
+        // A state file or wire frame from a pre-display build must restore as a system-only hold.
+        let legacy = Data("""
+        {"key": "k", "tool": "t", "pid": 1, "processName": "t",
+         "acquiredAt": 700000000, "lastActivityAt": 700000000}
+        """.utf8)
+        let old = try JSONDecoder().decode(Assertion.self, from: legacy)
+        #expect(!old.holdsDisplay)
+    }
+
+    @Test
+    func `daemon status derives isHoldingDisplay from assertions`() {
+        let plain = Assertion(key: "a", tool: "t", pid: 1, processName: "t")
+        let display = Assertion(key: "b", tool: "t", pid: 1, processName: "t", holdsDisplay: true)
+        let without = DaemonStatus(
+            isBlocking: true, assertions: [plain], lidClosed: false,
+            helperConnected: true, cpuTemperatureCelsius: nil, lastEvent: nil,
+        )
+        #expect(!without.isHoldingDisplay)
+        let with = DaemonStatus(
+            isBlocking: true, assertions: [plain, display], lidClosed: false,
+            helperConnected: true, cpuTemperatureCelsius: nil, lastEvent: nil,
+        )
+        #expect(with.isHoldingDisplay)
+    }
+
+    @Test
     func `daemon status generation roundtrips and old payloads decode as generationless`() throws {
         let boot = UUID()
         let stamped = DaemonStatus(

@@ -107,6 +107,7 @@ enum AcquireCommand {
             cliLog.notice("acquire \(fullKey, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
         }
 
+        let wantsDisplay = parser.flag("--display")
         let req = CLIRequest(
             op: .acquire,
             key: fullKey,
@@ -115,12 +116,19 @@ enum AcquireCommand {
             pid: watchedPID,
             processName: tool,
             ttlSeconds: effectiveTTL,
+            display: wantsDisplay ? true : nil,
         )
 
         do {
             let resp = try DaemonSocketClient.send(req)
             if !resp.ok {
                 FileHandle.standardError.write(Data("adrafinil: acquire refused: \(resp.error ?? "?")\n".utf8))
+            }
+            // Version-skew check: an old daemon ignores the unknown `display` field and omits the
+            // echo — the display is NOT protected, and silence would hide that. Warn (fail-soft:
+            // this still runs inside hooks).
+            if resp.ok, wantsDisplay, resp.displayApplied == nil {
+                FileHandle.standardError.write(Data("adrafinil: the running daemon predates --display — the display is NOT being kept awake. Update Adrafinil and retry.\n".utf8))
             }
             exit(0)
         } catch DaemonSocketClient.ClientError.daemonUnreachable {

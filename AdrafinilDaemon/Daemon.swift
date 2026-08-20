@@ -43,6 +43,12 @@ final class Daemon {
     private var sweepTimer: Timer?
     private var reconcileTimer: Timer?
     private var blockingObserver: Task<Void, Never>?
+    private var displayObserver: Task<Void, Never>?
+
+    /// The display assertion for display-class holds. Daemon-owned (needs no root — the helper's
+    /// surface stays minimal); raised/dropped by `observeDisplayState`, re-asserted by the 60s
+    /// reconcile and on system wake.
+    let displayHold = DisplayHold()
 
     /// Latches fired cutouts so the agent that was just cut off can't immediately re-pin a hot
     /// or draining Mac (see `CutoutLatch`). While latched, `handleAcquire` rejects.
@@ -103,6 +109,7 @@ final class Daemon {
         }
 
         observeBlockingState()
+        observeDisplayState()
         wireMonitors()
 
         appXPCServer = AppXPCServer(daemon: self)
@@ -169,7 +176,7 @@ final class Daemon {
     /// Places an explicit agent hold: clamps the TTL to the configured cap, mints a `hold:` key,
     /// and acquires it as a `.manual` assertion (idle-exempt, TTL-bounded). Honors the
     /// `agentHoldsEnabled` master switch and the pause state.
-    func handleHold(reason: String?, requestedTTL: TimeInterval?, pid: pid_t?, tool: String?) async -> HoldResult {
+    func handleHold(reason: String?, requestedTTL: TimeInterval?, pid: pid_t?, tool: String?, display: Bool = false) async -> HoldResult {
         guard settings.agentHoldsEnabled else {
             log.notice("hold rejected — agent holds are disabled in settings")
             return .disabled
@@ -189,6 +196,7 @@ final class Daemon {
             processName: label,
             ttl: ttl,
             origin: .manual,
+            holdsDisplay: display,
         )
         switch await handleAcquire(assertion) {
         case .accepted:
@@ -315,6 +323,10 @@ final class Daemon {
         if settings.thermalCutoutEnabled, !snapshot.isEmpty, temperature == nil {
             warnings.append("CPU temperature is unreadable, so the thermal cutout can't trigger.")
         }
+        if snapshot.contains(where: \.holdsDisplay),
+           DisplayHold.onlyDisplayIsClosedBuiltIn(lidClosed: lidMonitor.isLidClosed) {
+            warnings.append("A display hold is active but the lid is closed with no other display — the agent behind it can't see the screen.")
+        }
 
         return DaemonStatus(
             isBlocking: !snapshot.isEmpty,
@@ -392,6 +404,20 @@ final class Daemon {
         }
     }
 
+    /// The display-class sibling of `observeBlockingState`: raises/drops the daemon's display
+    /// assertion as `wantsDisplay` flips. Composed from the assertions themselves, so every
+    /// release path — explicit, idle sweep, TTL expiry, process exit, pause, thermal and battery
+    /// cutouts — drops the display hold with no extra bookkeeping. The safety nets thereby
+    /// outrank the hold: an agent that cannot see is recoverable; a cooked or dead machine is not.
+    private func observeDisplayState() {
+        displayObserver = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await wanted in registry.displayStateChanges {
+                displayHold.set(held: wanted)
+            }
+        }
+    }
+
     /// Plays the pre-sleep cue for the release that just emptied the registry (issue #8): the
     /// audible "your Mac is going back to sleep" for a user who closed the lid and walked away.
     /// `SleepCueDecider` gates it — silent when the lid is open (the user can see the state),
@@ -443,6 +469,9 @@ final class Daemon {
                 Task { @MainActor in
                     guard let self, self.isBlocking else { return }
                     await self.syncHelperToRegistry()
+                    // Idempotent display re-assert (and relight, if the panel went dark through a
+                    // path the assertion doesn't govern) — the clamshell re-apply philosophy.
+                    await self.displayHold.set(held: self.registry.wantsDisplay)
                 }
             }
         } else if !isBlocking, let timer = reconcileTimer {
@@ -486,6 +515,10 @@ final class Daemon {
                 // CPU sample would read a mid-work agent as long-idle on the first sweep.
                 self.idleMonitor.resetBaselines()
                 await self.syncHelperToRegistry()
+                // Re-assert and relight for display-class holds: the panel does not necessarily
+                // come back on after a system wake, and a dark panel blinds the agent the hold
+                // exists for.
+                await self.displayHold.set(held: self.registry.wantsDisplay)
             }
         }
     }
