@@ -104,6 +104,18 @@ struct AgentKindTests {
         #expect(ProcessResolver.pathMatchesAgent(arm, names: AgentKind.allBinaryNames))
     }
 
+    /// npm's `opencode-ai` maps its bin entry to `bin/opencode.exe` even on macOS, and Homebrew
+    /// symlinks `opencode` → that file, so `proc_pidpath` reports basename `opencode.exe`. It must
+    /// resolve to `.openCode`, or the owning-PID walk binds the plugin's hold to whatever agent
+    /// ancestor spawned opencode and the sniff sweep never sees the process at all.
+    @Test
+    func `for running process matches homebrew opencode exe`() {
+        let path = "/opt/homebrew/Cellar/opencode/1.18.0/libexec/lib/node_modules/opencode-ai/bin/opencode.exe"
+        #expect(AgentKind.forRunningProcess(name: "opencode.exe", path: path) == .openCode)
+        // The owning-PID walk uses the same name set; the .exe basename must satisfy it too.
+        #expect(ProcessResolver.pathMatchesAgent(path, names: AgentKind.allBinaryNames))
+    }
+
     @Test
     func `for running process matches versioned path component`() {
         let kind = AgentKind.forRunningProcess(name: "2.1.156", path: "/Users/u/.local/share/claude/versions/2.1.156")

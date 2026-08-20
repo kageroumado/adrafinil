@@ -41,7 +41,12 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         case .geminiCLI: ["gemini"]
         case .aider: ["aider"]
         case .hermes: ["hermes"]
-        case .openCode: ["opencode"]
+        // npm's `opencode-ai` package maps its bin entry to `bin/opencode.exe` (yes, on macOS), and
+        // Homebrew symlinks `opencode` → that file, so `proc_pidpath` sees basename `opencode.exe`.
+        // Without it the owning-PID walk binds the plugin's hold to whatever agent ancestor spawned
+        // opencode, and the sniff sweep never sees the process at all. (Direct npm installs spawn a
+        // wrapper actually named `opencode`.)
+        case .openCode: ["opencode", "opencode.exe"]
         case .cline: ["cline"]
         // `pi` runs as a Node process (argv0 often "node"), so the sniffer rarely matches it —
         // the TS extension hook is the real integration; this is a weak best-effort fallback.
