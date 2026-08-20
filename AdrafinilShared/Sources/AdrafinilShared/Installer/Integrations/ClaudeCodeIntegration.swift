@@ -15,7 +15,30 @@ import Foundation
 /// hook here, `Notification` matched to `idle_prompt`, is a *best-effort fast-path*: when Claude does
 /// emit its "waiting for your input" notification it releases sooner, but that notification is gated
 /// by version/focus/notification-channel and often doesn't fire, so it is not relied upon. The
-/// process-exit watcher covers a terminal closed mid-turn. None of these need a session-end hook.
+/// process-exit watcher covers a terminal closed mid-turn.
+///
+/// **Session retirement.** Claude Code retires a session id *inside a living process*: `/clear`,
+/// in-REPL `/resume`/`/fork`, and plan approval with "clear context" all end session A and mint a
+/// new UUID B in place (verified in `clearConversation` — source and 2.1.237 binary agree). No
+/// `Stop` fires for A on the plan-approval path (the tool rejection unwinds the turn before stop
+/// hooks), so A's per-turn hold would linger as a phantom "1 agent working" until the CPU-idle net
+/// reaped it — while every safety net keyed on the still-alive pid stays blind, and the orphans
+/// count against `maxAssertionsPerPid`. `SessionEnd` fires exactly at that boundary, before the new
+/// id is minted, with the *retiring* session's id on stdin (all reasons: clear, resume, logout,
+/// prompt_input_exit, other) — so a `SessionEnd` → release is an exact, non-heuristic match for the
+/// hold being orphaned. It also fires on graceful process exit, which just makes release faster
+/// than the process-exit watcher. This is release-only cleanup; it does NOT reintroduce the
+/// session-scoped holding this integration deliberately moved away from.
+///
+/// The companion gap: after a clear-context plan approval, B's first message (the plan) bypasses
+/// `UserPromptSubmit` entirely (it goes straight to the model to preserve plan metadata), yet B
+/// immediately starts a long agentic run and fires `Stop` at its end. Acquire-on-`UserPromptSubmit`
+/// alone leaves that whole run unheld. The `SessionStart` hook matched to `source: "clear"` acquires
+/// B at the boundary: the plan run is held from its first instant and `Stop`/`SessionEnd` release
+/// it. For a plain `/clear` (same source, no auto-run) the acquire is reaped by the idle sweep —
+/// a bounded cost, taken deliberately over an unheld plan run. Other sources stay unhooked:
+/// `startup`/`resume`/`fork` land at an idle prompt, where holding would be the session-scoped
+/// mistake again.
 ///
 /// Claude Code is the only agent that also exposes a real session-id env var to hooks —
 /// `CLAUDE_CODE_SESSION_ID` (verified against 2.1.158; *not* `CLAUDE_SESSION_ID`, which expands
@@ -61,17 +84,22 @@ struct ClaudeCodeIntegration: AgentIntegration {
             endEvent: "Stop",
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
             releaseCommand: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
-            obsoleteEvents: ["SessionStart", "SessionEnd"],
             // Notification/idle_prompt: fast-path release after an Esc-interrupt (see above). The two
             // `SubagentStart`/`SubagentStop` hooks keep the Mac awake for a backgrounded sub-agent that
             // outlives the parent turn's `Stop`: they key on the sub-agent's `agent_id` from stdin
             // (hence `subagent: true`, and no `$CLAUDE_CODE_SESSION_ID` positional — that would be the
             // parent's session), so the sub-agent hold is a distinct key released only by its own
             // `SubagentStop`. A foreground sub-agent's start+stop is net-neutral on the parent hold.
+            // `SessionEnd`/`SessionStart(clear)` bracket in-process session retirement (see above);
+            // both read the correct session id from the hook's stdin JSON — SessionEnd carries the
+            // retiring id, SessionStart the new one — so the shared `$CLAUDE_CODE_SESSION_ID`
+            // positional is only the usual fallback.
             extraHandlers: [
                 .init(event: "Notification", command: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"), matcher: "idle_prompt"),
                 .init(event: "SubagentStart", command: ctx.hookCommand("acquire", tool: agent.rawValue, subagent: true)),
                 .init(event: "SubagentStop", command: ctx.hookCommand("release", tool: agent.rawValue, subagent: true)),
+                .init(event: "SessionEnd", command: ctx.hookCommand("release", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID")),
+                .init(event: "SessionStart", command: ctx.hookCommand("acquire", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"), matcher: "clear"),
             ],
         )
     }

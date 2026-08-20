@@ -97,7 +97,7 @@ These support shell-command hooks with a session-start and (mostly) a session-en
 
 | Tool | Config path | Start event | End event |
 |------|-------------|-------------|-----------|
-| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit` | `Stop` + `Notification`[`idle_prompt`] |
+| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit` + `SessionStart`[`clear`] | `Stop` + `Notification`[`idle_prompt`] + `SessionEnd` |
 | Codex | `~/.codex/hooks.json` | `UserPromptSubmit` | `Stop` |
 | Cursor | `~/.cursor/hooks.json` | `beforeSubmitPrompt` (`--ttl 3600`) | `stop` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
@@ -113,9 +113,15 @@ The reliable catch is the daemon's **CPU-idle sweep** (§4): an interrupted sess
 drops to ~idle and the sweep releases it after the idle window. The `Notification`-matched-`idle_prompt`
 release hook is a best-effort fast-path (Claude's "waiting for input" notification is gated by
 version/focus/channel and often doesn't fire, so it isn't relied upon). The process-exit watcher
-(§3.4) covers a terminal closed mid-turn, so no `SessionEnd` hook is needed. Upgrading strips the legacy `SessionStart`/`SessionEnd`
-entries (the shape's `obsoleteEvents`) so a stale `SessionStart` → acquire can't re-pin the whole
-session. **Codex and Cursor are turn-scoped too** (verified events: Codex `UserPromptSubmit`/`Stop`,
+(§3.4) covers a terminal closed mid-turn. A `SessionEnd` → release covers **in-process session
+retirement** (issue #19): `/clear`, in-REPL `/resume`/`/fork`, and clear-context plan approval all
+end session A and mint a new UUID in the same process — with no `Stop` for A on the plan-approval
+path — and `SessionEnd` fires exactly at that boundary carrying the retiring id, so the old hold is
+released instead of lingering as a phantom until the CPU-idle sweep. Its companion
+`SessionStart`[matcher `clear`] → acquire covers the post-clear plan run, whose first message
+bypasses `UserPromptSubmit`; other `SessionStart` sources stay unhooked (they land at an idle
+prompt, where holding would re-introduce the whole-session hold this integration moved away from).
+**Codex and Cursor are turn-scoped too** (verified events: Codex `UserPromptSubmit`/`Stop`,
 issue #2; Cursor `beforeSubmitPrompt`/`stop`, issue #15). Cursor's acquire additionally carries a
 `--ttl`: its holds attach to the single long-lived Cursor app process, which neither the process-exit
 watcher nor the CPU-idle sweep can catch (the app's own UI keeps the tree busy), so the TTL —
@@ -146,7 +152,7 @@ Verified against Codex 0.135.0 on a real device:
 
 ### 3.6 Subagent and resume semantics
 
-For Claude Code, every turn re-fires `UserPromptSubmit` → acquire and `Stop` → release on the *same* session key, so a multi-turn session cycles acquire→release→acquire harmlessly; subagents run inside a turn (their `SubagentStop` is not wired). For the session-scoped agents, `SessionStart` fires on resume and clear, and subagents fire their own start/end. Reference counting handles all of it: each acquire is keyed by `(tool, session_key)`, release with the same key is idempotent, a re-acquire of a live key just refreshes its activity timestamp, and releases for unknown keys are warnings, not errors.
+For Claude Code, every turn re-fires `UserPromptSubmit` → acquire and `Stop` → release on the *same* session key, so a multi-turn session cycles acquire→release→acquire harmlessly. Backgrounded subagents get their own `<tool>:<agent_id>` hold via `SubagentStart`/`SubagentStop --subagent`, keyed on the stable `agent_id` from stdin — deliberately not the session id, because background agents survive `/clear` and keep running under the *new* session id while their `agent_id` stays fixed; `SessionEnd` therefore releases only the retiring session's own key and never touches agent-keyed holds. For the session-scoped agents, `SessionStart` fires on resume and clear, and subagents fire their own start/end. Reference counting handles all of it: each acquire is keyed by `(tool, session_key)`, release with the same key is idempotent, a re-acquire of a live key just refreshes its activity timestamp, and releases for unknown keys are warnings, not errors.
 
 ---
 

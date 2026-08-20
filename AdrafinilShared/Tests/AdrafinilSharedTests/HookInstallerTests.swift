@@ -62,9 +62,20 @@ struct HookInstallerTests {
         let hooks = try #require(dict["hooks"] as? [String: Any])
         #expect(hooks["UserPromptSubmit"] != nil)
         #expect(hooks["Stop"] != nil)
-        // Session-scoped events must not be wired — that was the whole-session-hold bug.
-        #expect(hooks["SessionStart"] == nil)
-        #expect(hooks["SessionEnd"] == nil)
+
+        // Session-retirement bracketing (issue #19) — release-only cleanup, NOT the whole-session
+        // hold this integration migrated away from. SessionEnd releases for every reason (a /clear
+        // or clear-context plan approval retires the session id mid-turn with no Stop for it);
+        // SessionStart acquires only for source "clear" (the post-clear plan run fires no
+        // UserPromptSubmit, so it would otherwise run unheld).
+        let sessionEnd = try #require(hooks["SessionEnd"] as? [[String: Any]])
+        #expect(sessionEnd.first?["matcher"] == nil, "every end reason must release — clear, resume, logout, exit")
+        let endInner = try #require(sessionEnd.first?["hooks"] as? [[String: Any]])
+        #expect((endInner.first?["command"] as? String)?.contains("release") == true)
+        let sessionStart = try #require(hooks["SessionStart"] as? [[String: Any]])
+        #expect(sessionStart.first?["matcher"] as? String == "clear", "an unmatched acquire would re-introduce the whole-session hold")
+        let startInner = try #require(sessionStart.first?["hooks"] as? [[String: Any]])
+        #expect((startInner.first?["command"] as? String)?.contains("acquire") == true)
 
         // Esc-interrupt release: Notification matched to idle_prompt, carrying the release command.
         let notif = try #require(hooks["Notification"] as? [[String: Any]])
@@ -179,10 +190,12 @@ struct HookInstallerTests {
         #expect(installer.installState(for: .claudeCode) == .modifiedExternally)
     }
 
-    /// Upgrading from the old `SessionStart`/`SessionEnd` wiring must strip the stale acquire/release
-    /// entries, or a lingering `SessionStart` → acquire would keep re-introducing the whole-session hold.
+    /// Upgrading from the old session-scoped `SessionStart`/`SessionEnd` wiring must canonicalize the
+    /// stale entries in place: `SessionStart` gains the `clear` matcher (a legacy unmatched acquire
+    /// would keep re-introducing the whole-session hold), `SessionEnd` keeps its release for every
+    /// reason, and the per-turn pair is added alongside.
     @Test
-    func `install claude code migrates away from session scoped hooks`() throws {
+    func `install claude code upgrades legacy session scoped hooks in place`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let path = home.path + "/.claude/settings.json"
@@ -200,14 +213,19 @@ struct HookInstallerTests {
         let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
         #expect(hooks["UserPromptSubmit"] != nil)
         #expect(hooks["Stop"] != nil)
-        #expect(hooks["SessionStart"] == nil, "obsolete event dropped entirely, not left as an empty array")
-        #expect(hooks["SessionEnd"] == nil, "obsolete event dropped entirely, not left as an empty array")
+        let sessionStart = try #require(hooks["SessionStart"] as? [[String: Any]])
+        #expect(sessionStart.count == 1)
+        #expect(sessionStart.first?["matcher"] as? String == "clear", "legacy unmatched acquire narrowed to source clear")
+        let sessionEnd = try #require(hooks["SessionEnd"] as? [[String: Any]])
+        let endInner = try #require(sessionEnd.first?["hooks"] as? [[String: Any]])
+        #expect((endInner.first?["command"] as? String)?.contains("release") == true)
         #expect(installer.installState(for: .claudeCode) == .installed)
     }
 
-    /// A user's own `SessionStart` hook must survive the migration cleanup untouched.
+    /// A user's own `SessionStart` hook must survive the upgrade untouched: our group is
+    /// canonicalized in place (command refreshed, `clear` matcher applied), theirs is never edited.
     @Test
-    func `migration preserves user session start hook`() throws {
+    func `upgrade preserves user session start hook`() throws {
         let home = try makeFakeHome(detectedDirs: [".claude"])
         defer { try? FileManager.default.removeItem(at: home) }
         let path = home.path + "/.claude/settings.json"
@@ -226,9 +244,17 @@ struct HookInstallerTests {
 
         let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
         let sessionStart = try #require(hooks["SessionStart"] as? [[String: Any]])
-        #expect(sessionStart.count == 1)
-        let inner = try #require(sessionStart.first?["hooks"] as? [[String: Any]])
-        #expect(inner.first?["command"] as? String == "echo my-own-hook")
+        #expect(sessionStart.count == 2, "our group upgraded in place, the user's own group intact")
+        let ourGroup = try #require(sessionStart.first { entry in
+            ((entry["hooks"] as? [[String: Any]])?.contains { ($0["_adrafinil"] as? Bool) == true }) == true
+        })
+        #expect(ourGroup["matcher"] as? String == "clear")
+        let ourInner = try #require(ourGroup["hooks"] as? [[String: Any]])
+        #expect((ourInner.first?["command"] as? String)?.contains("$CLAUDE_CODE_SESSION_ID") == true, "stale command refreshed to canonical")
+        let userGroup = try #require(sessionStart.first { entry in
+            ((entry["hooks"] as? [[String: Any]])?.first?["command"] as? String) == "echo my-own-hook"
+        })
+        #expect(userGroup["matcher"] == nil)
     }
 
     @Test
