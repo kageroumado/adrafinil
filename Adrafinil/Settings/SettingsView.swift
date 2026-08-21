@@ -82,6 +82,10 @@ struct SettingsView: View {
                     }
                 }
             }
+            // Auto-install starts or stops the background update loop in-process; no daemon involved.
+            if old.autoInstallUpdates != new.autoInstallUpdates {
+                SilentUpdates.shared.setAutoInstall(new.autoInstallUpdates)
+            }
             // Debounce the daemon reload so a slider drag doesn't fire a cross-process reload (and a
             // daemon-side disk re-read) on every intermediate value.
             reloadTask?.cancel()
@@ -109,6 +113,9 @@ struct GeneralSettingsTab: View {
     @State private var showUninstallIssues = false
     /// Notify-only check against GitHub Releases; drives the "Check for Updates" row.
     @State private var updateCheck = UpdateCheckService()
+    /// The in-place updater — the Update Now button, the manual-install phase, and the version
+    /// the silent path has already downloaded.
+    @State private var installer = SilentUpdates.shared
     /// Whether the user has denied notification permission — the away recap is silently dark
     /// then, and this is the one place that says so.
     @State private var notificationsDenied = false
@@ -250,28 +257,19 @@ struct GeneralSettingsTab: View {
             }
 
             Section {
-                Button {
-                    if updateCheck.availableVersion != nil {
-                        NSWorkspace.shared.open(updateCheck.releasesPageURL)
-                    } else {
-                        Task { await updateCheck.check(manual: true) }
-                    }
-                } label: {
-                    HStack(spacing: Theme.Space.sm) {
-                        if updateCheck.isChecking {
-                            ProgressView().controlSize(.small)
-                        }
-                        Text(updateButtonTitle)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .tint(updateCheck.availableVersion != nil ? .accentColor : nil)
-                .disabled(updateCheck.isChecking)
-                .focusEffectDisabled()
+                Toggle("Install updates automatically", isOn: $settings.autoInstallUpdates)
+                updateActionRow
             } header: {
                 Text("Updates")
             } footer: {
-                Text("Adrafinil updates through GitHub Releases. This checks for a newer version and, if one's available, opens the download page — it never downloads or installs on its own.")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(updatesFooter)
+                    if case let .failed(message) = installer.manualPhase {
+                        Text("\(message) [Releases page.](https://github.com/kageroumado/adrafinil/releases)")
+                            .foregroundStyle(.red)
+                            .tint(Theme.awake)
+                    }
+                }
             }
 
             Section {
@@ -287,7 +285,10 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { notificationsDenied = await AwayNotifier.shared.authorizationDenied() }
-        .task { await updateCheck.checkIfDue() }
+        .task {
+            installer.refreshPending()
+            await updateCheck.checkIfDue()
+        }
         .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
             Button("Uninstall and Quit", role: .destructive) { performUninstall() }
             Button("Cancel", role: .cancel) {}
@@ -301,8 +302,66 @@ struct GeneralSettingsTab: View {
         }
     }
 
-    private var updateButtonTitle: String {
-        if let version = updateCheck.availableVersion { return "Update available — get version \(version)" }
+    /// The action row under the auto-install toggle: an Update Now + What's New pair when a newer
+    /// version is known (found by the notify check or already downloaded by the silent path), a
+    /// plain manual check otherwise.
+    @ViewBuilder
+    private var updateActionRow: some View {
+        if let version = updateCheck.availableVersion ?? installer.pendingVersion {
+            HStack(spacing: Theme.Space.sm) {
+                Button {
+                    Task { await installer.updateNow() }
+                } label: {
+                    HStack(spacing: Theme.Space.sm) {
+                        if installer.manualPhase == .working {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(installer.manualPhase == .working ? "Updating…" : "Update to \(version) Now")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(installer.manualPhase == .working)
+
+                Button("What's New…") {
+                    AppDelegate.shared?.presentWhatsNew(
+                        version: version,
+                        context: .updateAvailable(autoInstall: settings.autoInstallUpdates),
+                    )
+                }
+                .buttonStyle(.bordered)
+            }
+            .focusEffectDisabled()
+        } else {
+            Button {
+                Task {
+                    await updateCheck.check(manual: true)
+                    installer.refreshPending()
+                }
+            } label: {
+                HStack(spacing: Theme.Space.sm) {
+                    if updateCheck.isChecking {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(checkButtonTitle)
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(updateCheck.isChecking)
+            .focusEffectDisabled()
+        }
+    }
+
+    private var updatesFooter: String {
+        if settings.autoInstallUpdates {
+            if let pending = installer.pendingVersion {
+                return "Version \(pending) is downloaded and verified — it installs at a quiet moment, when your Mac is idle and no agents are being kept awake."
+            }
+            return "Adrafinil checks GitHub Releases once a day and verifies every download's code signature. Updates install themselves when your Mac is idle and no agents are being kept awake — or right away with Update Now."
+        }
+        return "Adrafinil checks GitHub Releases once a day and tells you here and in the menu when a new version is out. Nothing downloads or installs until you choose Update Now."
+    }
+
+    private var checkButtonTitle: String {
         if updateCheck.isChecking { return "Checking for updates…" }
         if updateCheck.checkedUpToDate { return "You're up to date" }
         return "Check for updates"

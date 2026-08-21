@@ -61,6 +61,12 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var launchAtLogin: Bool = true
     public var showInMenuBar: Bool = true
 
+    /// Download and install app updates automatically, at a moment when the Mac is idle and no
+    /// agents are being kept awake. When off, Adrafinil still checks GitHub Releases daily and
+    /// surfaces "update available" in the menu and Settings — installing waits for the user's
+    /// explicit Update Now.
+    public var autoInstallUpdates: Bool = true
+
     public init() {}
 
     enum CodingKeys: String, CodingKey {
@@ -86,6 +92,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case keepAwakeForBackgroundBash
         case launchAtLogin
         case showInMenuBar
+        case autoInstallUpdates
     }
 
     /// Decode-only key for the retired `idleReleaseMinutes` field, migrated to `idleReleaseSeconds`.
@@ -133,6 +140,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.keepAwakeForBackgroundBash = (try? c.decodeIfPresent(Bool.self, forKey: .keepAwakeForBackgroundBash)) ?? d.keepAwakeForBackgroundBash
         self.launchAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? d.launchAtLogin
         self.showInMenuBar = (try? c.decodeIfPresent(Bool.self, forKey: .showInMenuBar)) ?? d.showInMenuBar
+        self.autoInstallUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .autoInstallUpdates)) ?? d.autoInstallUpdates
         clampToSupportedRanges()
     }
 

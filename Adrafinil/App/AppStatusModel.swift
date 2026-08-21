@@ -56,12 +56,17 @@ final class AppStatusModel {
     /// update as an attention reason (the Settings tab drives a manual check separately).
     let updateCheck = UpdateCheckService()
 
+    /// The version a silent update brought us to, until the user opens its What's New notice.
+    /// Read from `SilentUpdates` during launch maintenance; the debug panel drives it directly.
+    var justUpdatedVersion: String?
+
     /// One concrete reason the user's attention is wanted, surfaced as a menu-bar badge + popover card.
     enum AttentionReason: Equatable {
         case serviceProblem
         case agentsDrifted(Int)
         case codexNeedsTrust
         case updateAvailable(String)
+        case justUpdated(String)
     }
 
     /// Whether Codex's hooks are installed but not (verifiably) trusted, so they won't fire. `.unknown`
@@ -78,6 +83,7 @@ final class AppStatusModel {
         if !driftedAgents.isEmpty { reasons.append(.agentsDrifted(driftedAgents.count)) }
         if codexNeedsTrust { reasons.append(.codexNeedsTrust) }
         if let version = updateCheck.availableVersion { reasons.append(.updateAvailable(version)) }
+        if let version = justUpdatedVersion { reasons.append(.justUpdated(version)) }
         return reasons
     }
 
@@ -180,7 +186,15 @@ final class AppStatusModel {
     private func runLaunchMaintenance() async {
         HookMigrator.runIfNeeded(agentHooks: agentHooks)
         refreshAgentHealth()
+        // If the last launch's silent update landed, the badge announces it until acknowledged.
+        justUpdatedVersion = SilentUpdates.shared.justUpdatedVersion
         await updateCheck.checkIfDue()
+    }
+
+    /// The user opened the post-update notice — clear the badge and the persisted flag.
+    func acknowledgeJustUpdated() {
+        justUpdatedVersion = nil
+        SilentUpdates.shared.acknowledgeUpdate()
     }
 
     isolated deinit {
