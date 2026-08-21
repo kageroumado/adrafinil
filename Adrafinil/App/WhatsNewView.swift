@@ -273,19 +273,19 @@ struct ReleaseNotesText: View {
     }
 }
 
-#Preview("What's New — update available") {
-    WhatsNewView(
-        version: "9.9.9",
-        context: .updateAvailable(autoInstall: true),
-        preloadedNotes: .debugSample,
-    )
-}
-
-#Preview("What's New — just updated") {
-    WhatsNewView(version: "9.9.9", context: .justUpdated, preloadedNotes: .debugSample)
-}
-
 #if DEBUG
+    #Preview("What's New — update available") {
+        WhatsNewView(
+            version: "9.9.9",
+            context: .updateAvailable(autoInstall: true),
+            preloadedNotes: .debugSample,
+        )
+    }
+
+    #Preview("What's New — just updated") {
+        WhatsNewView(version: "9.9.9", context: .justUpdated, preloadedNotes: .debugSample)
+    }
+
     extension ReleaseNotes {
         /// Exercises every block shape the renderer knows: headings, bold, links, a bullet with an
         /// indented continuation paragraph, and a trailing plain paragraph.
