@@ -30,6 +30,11 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
     /// downgrades a display hold mid-work (dropping it would blind the agent the same way).
     public var holdsDisplay: Bool
 
+    /// What the owning agent is waiting on when it has stopped mid-turn for the user ("approve
+    /// Bash", "input needed"), else nil. Stamped and cleared by the daemon's session-status sweep;
+    /// the popover row shows it so a hold that isn't working reads as *waiting*, not stuck.
+    public var waitingFor: String?
+
     public var id: String {
         key
     }
@@ -64,6 +69,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         self.expiresAt = ttl.map { acquiredAt.addingTimeInterval($0) }
         self.origin = origin
         self.holdsDisplay = holdsDisplay
+        self.waitingFor = nil
     }
 
     enum CodingKeys: String, CodingKey {
@@ -77,6 +83,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         case expiresAt
         case origin
         case holdsDisplay
+        case waitingFor
     }
 
     /// Custom decode so state files written before `origin` existed still restore (defaulting to
@@ -93,6 +100,7 @@ public struct Assertion: Codable, Sendable, Hashable, Identifiable {
         self.expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
         self.origin = try c.decodeIfPresent(AssertionOrigin.self, forKey: .origin) ?? .hook
         self.holdsDisplay = try c.decodeIfPresent(Bool.self, forKey: .holdsDisplay) ?? false
+        self.waitingFor = try c.decodeIfPresent(String.self, forKey: .waitingFor)
     }
 }
 

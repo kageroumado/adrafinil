@@ -17,6 +17,10 @@ struct AdrafinilSettingsTests {
         #expect(s.launchAtLogin == true)
         #expect(s.showInMenuBar == true)
         #expect(s.autoInstallUpdates == true)
+        // The grace default is what makes answering a waiting Claude Code question from a phone
+        // possible (the Mac must stay reachable) while still letting an unanswered one sleep.
+        #expect(s.agentWaitingPolicy == .grace)
+        #expect(s.agentWaitingGraceMinutes == 10)
         // The background-shell keep-awake is opt-in: it holds the Mac awake for a `run_in_background`
         // command with no completion hook, so it must be OFF unless the user turns it on.
         #expect(s.keepAwakeForBackgroundBash == false)
@@ -45,6 +49,8 @@ struct AdrafinilSettingsTests {
         original.sleepChimeSafetyCutout = "Submarine"
         original.sleepChimeUserAction = "Tink"
         original.autoInstallUpdates = false
+        original.agentWaitingPolicy = .sleep
+        original.agentWaitingGraceMinutes = 25
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: data)

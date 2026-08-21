@@ -8,6 +8,7 @@
         case oneAgent
         case manyAgents
         case fleet
+        case agentWaiting
         case withHold
         case lidClosedHot
         case thermalCutout
@@ -29,6 +30,7 @@
             case .oneAgent: "One agent"
             case .manyAgents: "Many agents"
             case .fleet: "Fleet (32 holds)"
+            case .agentWaiting: "Waiting on you"
             case .withHold: "Agent hold"
             case .lidClosedHot: "Lid closed (warm)"
             case .thermalCutout: "Thermal cutout"
@@ -48,6 +50,7 @@
             case .oneAgent: Fixtures.oneAgent
             case .manyAgents: Fixtures.manyAgents
             case .fleet: Fixtures.fleet
+            case .agentWaiting: Fixtures.agentWaiting
             case .withHold: Fixtures.withHold
             case .lidClosedHot: Fixtures.lidClosedHot
             case .thermalCutout: Fixtures.thermalCutout

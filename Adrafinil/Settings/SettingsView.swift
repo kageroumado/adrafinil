@@ -680,6 +680,25 @@ struct SafetySettingsTab: View {
             }
 
             Section {
+                Picker("While it waits", selection: $settings.agentWaitingPolicy) {
+                    Text("Keep your Mac awake").tag(AgentWaitingPolicy.keepAwake)
+                    Text("Sleep after a grace period").tag(AgentWaitingPolicy.grace)
+                    Text("Let it sleep right away").tag(AgentWaitingPolicy.sleep)
+                }
+                Stepper(value: $settings.agentWaitingGraceMinutes, in: 1 ... 60) {
+                    LabeledContent(
+                        "Grace period",
+                        value: "\(settings.agentWaitingGraceMinutes) min",
+                    )
+                }
+                .disabled(settings.agentWaitingPolicy != .grace)
+            } header: {
+                Text("When Claude Code asks you something")
+            } footer: {
+                Text("A question, a plan approval, or a permission prompt stops the work until you answer — but the question can be answered from your phone with Remote Control, which needs the Mac awake to receive it. The grace period keeps it reachable exactly that long; if nobody answers, your Mac sleeps, and the moment the session resumes Adrafinil protects it again. The menu shows a countdown while it waits.")
+            }
+
+            Section {
                 Toggle(
                     "Notice other agents while one is active",
                     isOn: $settings.processSniffingEnabled,

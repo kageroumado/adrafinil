@@ -27,6 +27,7 @@ final class Daemon {
     let lidMonitor = LidStateMonitor()
     let processWatcher = ProcessWatcher()
     let idleMonitor = IdleMonitor()
+    let sessionStatusMonitor = SessionStatusMonitor()
     let thermalMonitor = ThermalMonitor()
     let batteryMonitor = BatteryMonitor()
     let chimePlayer = ChimePlayer()
@@ -128,6 +129,7 @@ final class Daemon {
         batteryMonitor.isBlocking = blocking
         batteryMonitor.lidClosed = lidMonitor.isLidClosed
         idleMonitor.isBlocking = blocking
+        sessionStatusMonitor.isBlocking = blocking
         for a in await registry.snapshot() where a.pid > 0 {
             processWatcher.watch(pid: a.pid)
         }
@@ -361,6 +363,8 @@ final class Daemon {
         settings = AdrafinilSettings.load()
         idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
+        sessionStatusMonitor.policy = settings.agentWaitingPolicy
+        sessionStatusMonitor.graceSeconds = TimeInterval(settings.agentWaitingGraceMinutes * 60)
         thermalMonitor.thresholdCelsius = settings.thermalThresholdCelsius
         thermalMonitor.enabled = settings.thermalCutoutEnabled
         batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
@@ -385,6 +389,7 @@ final class Daemon {
                 // sniff only matter while we're keeping the Mac awake. No timers while idle means no
                 // CPU wakeups exactly when the Mac would otherwise be asleep.
                 idleMonitor.isBlocking = blocking
+                sessionStatusMonitor.isBlocking = blocking
                 updateSweepTimer()
                 updateReconcileTimer()
                 // Pre-sleep cue *before* clearing the block: with the lid closed,
@@ -501,6 +506,7 @@ final class Daemon {
         wireLidMonitor()
         wireProcessWatcher()
         wireIdleMonitor()
+        wireSessionStatusMonitor()
         wireThermalMonitor()
         wireBatteryMonitor()
     }
@@ -600,6 +606,51 @@ final class Daemon {
         idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
         idleMonitor.start()
+    }
+
+    private func wireSessionStatusMonitor() {
+        sessionStatusMonitor.assertionSource = { [weak self] in
+            await self?.registry.snapshot() ?? []
+        }
+        sessionStatusMonitor.onActions = { [weak self] actions in
+            await self?.applySessionWaitActions(actions)
+        }
+        sessionStatusMonitor.policy = settings.agentWaitingPolicy
+        sessionStatusMonitor.graceSeconds = TimeInterval(settings.agentWaitingGraceMinutes * 60)
+        sessionStatusMonitor.start()
+    }
+
+    /// Executes one session-status sweep's decisions (see `SessionWaitEvaluator.Action`). TTL and
+    /// mark mutations persist once at the end; releases and re-acquires go through the same paths
+    /// as every other release/acquire so watching, logging, and events stay uniform.
+    private func applySessionWaitActions(_ actions: [SessionWaitEvaluator.Action]) async {
+        var mutated = false
+        for action in actions {
+            switch action {
+            case let .setWaitingFor(key, label):
+                await registry.setWaitingFor(key: key, label: label)
+                mutated = true
+            case let .park(key, expiresAt):
+                await registry.setExpiry(key: key, to: expiresAt)
+                mutated = true
+            case let .restore(key, expiry):
+                await registry.setExpiry(key: key, to: expiry)
+                mutated = true
+            case let .release(key):
+                // The agent is waiting, not finished — with the lid closed this cue must say
+                // "the work may not be done", exactly what the expired-hold cue exists for.
+                lastReleaseCause = .holdExpired
+                if await registry.release(key: key) {
+                    await persistAndSync(event: .released)
+                }
+            case let .reacquire(assertion):
+                await handleAcquire(assertion)
+            }
+        }
+        if mutated {
+            await persistState()
+            await broadcastStatus()
+        }
     }
 
     private func wireThermalMonitor() {

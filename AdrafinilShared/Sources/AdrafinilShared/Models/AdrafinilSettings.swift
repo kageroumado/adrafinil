@@ -1,5 +1,19 @@
 import Foundation
 
+/// What happens to an agent's hold while that agent is waiting for the user — a question, a plan
+/// approval, a permission prompt. The agent has declared it is not working, but the person may be
+/// answering from a phone (Claude Code Remote Control), which needs the Mac awake to receive the
+/// answer.
+public enum AgentWaitingPolicy: String, Codable, Sendable, CaseIterable {
+    /// Keep the Mac awake for as long as the agent waits.
+    case keepAwake
+    /// Keep it awake for a grace window, then let it sleep. Answering within the window — at the
+    /// keyboard or from a phone — resumes seamlessly; walking away lets the Mac sleep.
+    case grace
+    /// Let the Mac sleep as soon as the agent starts waiting.
+    case sleep
+}
+
 public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var soundOnLidClose: Bool = true
     public var soundVolume: Float = 0.5
@@ -34,6 +48,13 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     /// hard shutdown in a bag (the battery sibling of the thermal cutout).
     public var lowBatteryCutoutEnabled: Bool = true
     public var lowBatteryThresholdPercent: Int = 20
+
+    /// Policy for a Claude Code session that has stopped mid-turn to wait for the user (detected
+    /// via its session status file — see `ClaudeSessionStatus`). Grace by default: long enough to
+    /// answer from a phone, bounded so an unanswered question can't pin the Mac awake for hours.
+    public var agentWaitingPolicy: AgentWaitingPolicy = .grace
+    /// Length of the grace window, in minutes, when `agentWaitingPolicy` is `.grace`.
+    public var agentWaitingGraceMinutes: Int = 10
 
     public var idleReleaseEnabled: Bool = true
     /// Release a hook/sniffed hold once the agent's process tree has been CPU-idle this long. This is
@@ -83,6 +104,8 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case thermalThresholdCelsius
         case lowBatteryCutoutEnabled
         case lowBatteryThresholdPercent
+        case agentWaitingPolicy
+        case agentWaitingGraceMinutes
         case idleReleaseEnabled
         case idleReleaseSeconds
         case processSniffingEnabled
@@ -122,6 +145,8 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.thermalThresholdCelsius = (try? c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius)) ?? d.thermalThresholdCelsius
         self.lowBatteryCutoutEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .lowBatteryCutoutEnabled)) ?? d.lowBatteryCutoutEnabled
         self.lowBatteryThresholdPercent = (try? c.decodeIfPresent(Int.self, forKey: .lowBatteryThresholdPercent)) ?? d.lowBatteryThresholdPercent
+        self.agentWaitingPolicy = (try? c.decodeIfPresent(AgentWaitingPolicy.self, forKey: .agentWaitingPolicy)) ?? d.agentWaitingPolicy
+        self.agentWaitingGraceMinutes = (try? c.decodeIfPresent(Int.self, forKey: .agentWaitingGraceMinutes)) ?? d.agentWaitingGraceMinutes
         self.idleReleaseEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled)) ?? d.idleReleaseEnabled
         // Prefer the seconds field; migrate a legacy `idleReleaseMinutes` (×60) if that's all that's
         // present; otherwise fall back to the default.
@@ -158,6 +183,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         lowBatteryThresholdPercent = min(max(lowBatteryThresholdPercent, 1), 99)
         idleReleaseSeconds = min(max(idleReleaseSeconds, 30), 3_600)
         manualHoldMaxHours = min(max(manualHoldMaxHours, 0.25), 24)
+        agentWaitingGraceMinutes = min(max(agentWaitingGraceMinutes, 1), 120)
     }
 
     public static func load(from url: URL = AdrafinilConstants.appSupportURL.appendingPathComponent(AdrafinilConstants.configFilename)) -> AdrafinilSettings {

@@ -85,6 +85,26 @@
             )
         }
 
+        /// An agent stopped mid-turn waiting on the user, grace TTL running (exercises the dimmed
+        /// dot, the "Waiting for you" line, and the countdown on a non-manual row).
+        static var agentWaiting: DaemonStatus {
+            var waiting = assertion("claude-code", reason: "Refactoring auth module", minutesAgo: 12, pid: 101)
+            waiting.waitingFor = "approve Bash"
+            waiting.expiresAt = Date().addingTimeInterval(9 * 60 + 30)
+            var asking = assertion("claude-code", reason: nil, minutesAgo: 3, pid: 102)
+            asking.waitingFor = "input needed"
+            asking.expiresAt = Date().addingTimeInterval(4 * 60)
+            return DaemonStatus(
+                isBlocking: true,
+                assertions: [
+                    waiting,
+                    asking,
+                    assertion("cursor", reason: "Running tests", minutesAgo: 4, pid: 103),
+                ],
+                lidClosed: false, helperConnected: true, cpuTemperatureCelsius: 55, lastEvent: .acquired,
+            )
+        }
+
         /// A live agent plus a deliberate agent hold (exercises the pin glyph, reason, countdown, ✕).
         static var withHold: DaemonStatus {
             DaemonStatus(

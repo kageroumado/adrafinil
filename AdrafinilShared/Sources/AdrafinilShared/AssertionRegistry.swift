@@ -142,6 +142,25 @@ public actor AssertionRegistry {
         version += 1
     }
 
+    /// Overwrites an assertion's expiry outright — unlike `acquire`, whose TTL adoption is sticky
+    /// (`assertion.expiresAt ?? existing.expiresAt` can set but never clear one). The
+    /// session-status sweep uses this to arm a grace TTL while the owning agent waits for the
+    /// user, and to put the original expiry (usually none) back when the wait resolves.
+    public func setExpiry(key: String, to date: Date?) {
+        guard var a = assertions[key] else { return }
+        a.expiresAt = date
+        assertions[key] = a
+        version += 1
+    }
+
+    /// Stamps or clears the assertion's waiting-on-user label (see `Assertion.waitingFor`).
+    public func setWaitingFor(key: String, label: String?) {
+        guard var a = assertions[key] else { return }
+        a.waitingFor = label
+        assertions[key] = a
+        version += 1
+    }
+
     private func notifyIfNeeded() {
         let nowBlocking = isBlocking
         if nowBlocking != wasBlocking {

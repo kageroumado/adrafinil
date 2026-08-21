@@ -219,9 +219,11 @@ struct MenuPopover: View {
     /// (e.g. "2 agents working · 1 hold").
     private func awakeSubtitle(_ s: DaemonStatus) -> String {
         let holds = s.assertions.count(where: { $0.origin == .manual })
-        let agents = s.assertions.count - holds
+        let waiting = s.assertions.count(where: { $0.origin != .manual && $0.waitingFor != nil })
+        let agents = s.assertions.count - holds - waiting
         var parts: [String] = []
         if agents > 0 { parts.append("\(agents) \(agents == 1 ? "agent" : "agents") working") }
+        if waiting > 0 { parts.append("\(waiting) waiting on you") }
         if holds > 0 { parts.append("\(holds) \(holds == 1 ? "hold" : "holds")") }
         return parts.isEmpty ? "Your Mac will stay awake" : parts.joined(separator: " · ")
     }
@@ -1021,12 +1023,20 @@ struct AssertionRow: View {
         AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 
+    /// The owning agent has stopped mid-turn and is waiting for the user (see
+    /// `Assertion.waitingFor`). The row dims its dot, says so, and — under the grace policy —
+    /// shows the time left before the Mac may sleep.
+    private var isWaitingOnUser: Bool {
+        assertion.waitingFor != nil
+    }
+
     /// A hold shows the time left at minute granularity (`1h 59m`, `23m`, `<1m`) — the same word style
     /// as an agent's elapsed time, not a `1:59:59` clock; it ticks on the popover's coarse TimelineView
     /// (a per-second countdown would be noise at minute resolution). A live agent shows how long it's
-    /// been working.
+    /// been working; a waiting one with a grace TTL shows the countdown instead, since "how long
+    /// until the Mac may sleep" is the number that matters then.
     private var trailingText: String {
-        if isHold, let exp = assertion.expiresAt {
+        if isHold || isWaitingOnUser, let exp = assertion.expiresAt {
             let remaining = max(0, Int(exp.timeIntervalSince(now)))
             let hours = remaining / 3_600, minutes = (remaining % 3_600) / 60
             if hours > 0 { return "\(hours)h \(minutes)m" }
@@ -1058,7 +1068,10 @@ struct AssertionRow: View {
                     .help("Release this hold — let the Mac sleep normally")
                 }
             }
-            if let reason = assertion.reason, !reason.isEmpty {
+            if let waitingLine {
+                Text(waitingLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .padding(.leading, 14 + Theme.Space.sm)
+            } else if let reason = assertion.reason, !reason.isEmpty {
                 Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     .padding(.leading, 14 + Theme.Space.sm)
             }
@@ -1067,13 +1080,22 @@ struct AssertionRow: View {
         .padding(.horizontal, Theme.Space.md)
     }
 
+    /// "Waiting for you — approve Bash", or just "Waiting for your answer" when the agent's own
+    /// label ("input needed") would read as redundant. Replaces the reason line while waiting —
+    /// the wait is the row's current truth, the reason its history.
+    private var waitingLine: String? {
+        guard let label = assertion.waitingFor else { return nil }
+        return label == "input needed" ? "Waiting for your answer" : "Waiting for you — \(label)"
+    }
+
     /// One filled dot for every row — holds and agents alike. A single glyph keeps every mark on the
     /// same optical baseline (mixing a `pin.fill` with a dot left them visibly misaligned); the row's
-    /// label and the trailing ✕ already distinguish a manual hold from a live agent.
+    /// label and the trailing ✕ already distinguish a manual hold from a live agent. Dimmed while
+    /// the agent is waiting on the user: it is holding, not working.
     private var leadingMark: some View {
         Image(systemName: "circle.fill")
             .font(.system(size: 7))
-            .foregroundStyle(Theme.awake)
+            .foregroundStyle(isWaitingOnUser ? Theme.idle : Theme.awake)
             .frame(width: 14, alignment: .leading)
     }
 }
