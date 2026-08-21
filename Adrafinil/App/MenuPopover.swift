@@ -100,6 +100,10 @@ struct MenuPopover: View {
                         updateAvailableCard(version).transition(.popoverSection)
                     }
 
+                    if let version = status.justUpdatedVersion {
+                        justUpdatedCard(version).transition(.popoverSection)
+                    }
+
                     if !live.warnings.isEmpty {
                         daemonWarningsCard(live.warnings).transition(.popoverSection)
                     }
@@ -136,7 +140,7 @@ struct MenuPopover: View {
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     /// Excludes `confirmingQuit` too — the confirmation is now an overlay that doesn't resize the panel.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)|\(status.codexNeedsTrust)|\(status.updateCheck.availableVersion ?? "")"
+        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)|\(status.codexNeedsTrust)|\(status.updateCheck.availableVersion ?? "")|\(status.justUpdatedVersion ?? "")"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its
@@ -484,11 +488,14 @@ struct MenuPopover: View {
 
     // MARK: - Update available
 
-    /// A newer release exists on GitHub. Notify-only — tapping opens the releases page (Adrafinil
-    /// ships notarized DMGs / Homebrew; there's no in-app updater).
+    /// A newer release exists on GitHub. Tapping opens the What's New window — the changelog,
+    /// plus the Update Now button (and, with auto-install on, the note that it will handle itself).
     private func updateAvailableCard(_ version: String) -> some View {
         Button {
-            NSWorkspace.shared.open(status.updateCheck.releasesPageURL)
+            AppDelegate.shared?.presentWhatsNew(
+                version: version,
+                context: .updateAvailable(autoInstall: AdrafinilSettings.load().autoInstallUpdates),
+            )
         } label: {
             HStack(spacing: Theme.Space.md) {
                 Image(systemName: "arrow.down.circle.fill")
@@ -499,7 +506,7 @@ struct MenuPopover: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Update available — \(version)")
                         .font(.system(.body, design: .rounded).weight(.semibold))
-                    Text("A newer version of Adrafinil is out. Open the releases page to download it.")
+                    Text("A newer version of Adrafinil is out. See what's new and install it.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -510,6 +517,40 @@ struct MenuPopover: View {
             .padding(Theme.Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard(tint: Theme.awake.opacity(0.16))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Just updated
+
+    /// A silent update landed since the user last looked. Tapping opens the changelog for the
+    /// version now running and clears the notice (and the badge with it).
+    private func justUpdatedCard(_ version: String) -> some View {
+        Button {
+            AppDelegate.shared?.presentWhatsNew(version: version, context: .justUpdated)
+            status.acknowledgeJustUpdated()
+        } label: {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24))
+                    .foregroundStyle(Theme.awake)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Updated to \(version)")
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                    Text("Adrafinil updated itself at a quiet moment. See what's new.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Theme.Space.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(tint: Theme.ok.opacity(0.14))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

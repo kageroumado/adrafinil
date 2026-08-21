@@ -112,6 +112,25 @@
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    GroupBox("Settings → Updates row") {
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                            Button("Pending update 9.9.9 (downloaded)") {
+                                SilentUpdates.shared.debugSet(pending: "9.9.9")
+                            }
+                            Button("Manual install failed") {
+                                SilentUpdates.shared.debugSet(manualPhase: .failed("The update couldn't be installed. Try again, or get it from the releases page."))
+                            }
+                            Button("Reset") {
+                                SilentUpdates.shared.debugSet(pending: nil)
+                                SilentUpdates.shared.debugSet(manualPhase: .idle)
+                            }
+                            Text("Drives the General tab's Updates section (open Settings to see it). The real daily check also runs there, so a genuinely newer release shows on its own.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, Theme.Space.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     GroupBox("Windows & flows") {
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             Button {
@@ -136,6 +155,22 @@
                                 appDelegate?.presentMenuWindow()
                             } label: {
                                 Label("Open fallback menu window", systemImage: "macwindow")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            Button {
+                                appDelegate?.presentWhatsNew(
+                                    version: "9.9.9",
+                                    context: .updateAvailable(autoInstall: AdrafinilSettings.load().autoInstallUpdates),
+                                    notes: .debugSample,
+                                )
+                            } label: {
+                                Label("Open What's New (update available)", systemImage: "arrow.down.circle")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            Button {
+                                appDelegate?.presentWhatsNew(version: "9.9.9", context: .justUpdated, notes: .debugSample)
+                            } label: {
+                                Label("Open What's New (just updated)", systemImage: "sparkles")
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }

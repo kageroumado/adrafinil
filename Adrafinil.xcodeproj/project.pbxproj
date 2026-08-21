@@ -229,6 +229,7 @@
 			name = Adrafinil;
 			packageProductDependencies = (
 				0B11485B2FC6A68C00D7D25C /* AdrafinilShared */,
+				7A0000000000000000000002 /* TiptoeGitHub */,
 			);
 			productName = Adrafinil;
 			productReference = 0B1147BA2FC6A14B00D7D25C /* Adrafinil.app */;
@@ -332,6 +333,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0B11485A2FC6A68C00D7D25C /* XCLocalSwiftPackageReference "AdrafinilShared" */,
+				7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 0B1147BB2FC6A14B00D7D25C /* Products */;
@@ -818,7 +820,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/artginzburg/Tiptoe";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+			traits = (
+				GitHubSupport,
+			);
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		7A0000000000000000000002 /* TiptoeGitHub */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */;
+			productName = TiptoeGitHub;
+		};
 		0B11485B2FC6A68C00D7D25C /* AdrafinilShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AdrafinilShared;

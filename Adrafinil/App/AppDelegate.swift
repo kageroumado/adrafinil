@@ -19,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// autorelease-pool drain and crashes. Cleared in `windowWillClose`, so each present is fresh.
     private var menuWindow: NSWindow?
 
+    /// The What's New window (release notes before or after an update). Same ownership rules as
+    /// `menuWindow`.
+    private var whatsNewWindow: NSWindow?
+
     /// The live delegate, so SwiftUI views can reach it without depending on `NSApp.delegate`
     /// (which, under `@NSApplicationDelegateAdaptor`, isn't guaranteed to be this concrete type).
     weak static var shared: AppDelegate?
@@ -96,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // that restart would otherwise leave Adrafinil stuck paused.
                 Task { await DaemonClient.shared.resumeAtLaunch() }
 
+                // Updates, from here on: with the user's auto-install setting on (the default),
+                // checked in the background and installed only once the Mac is idle and the
+                // daemon reports nothing being kept awake. Started after setup and outside
+                // DEBUG, so a first-run window and a development build are both left alone.
+                SilentUpdates.shared.start(autoInstall: AdrafinilSettings.load().autoInstallUpdates)
+
                 // Deliberately no window here when the icon is hidden. This branch also runs on a
                 // launch-at-login auto-start (the default), and stealing focus with a centered
                 // window on every login is exactly what a user who hid the icon does not want. The
@@ -167,9 +177,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menuWindow?.close()
     }
 
+    /// Shows the release notes for `version` — from the popover's update cards and the Settings
+    /// "What's New" button. `notes` is injected by the debug panel so the window renders offline.
+    func presentWhatsNew(version: String, context: WhatsNewView.Context, notes: ReleaseNotes? = nil) {
+        // Always built fresh: the same window can be asked to show a different version or
+        // context (available → just-updated), and replacing it is simpler than mutating it.
+        whatsNewWindow?.close()
+        let hosting = NSHostingController(rootView: WhatsNewView(
+            version: version, context: context, preloadedNotes: notes,
+            onClose: { [weak self] in self?.whatsNewWindow?.close() },
+        ))
+        hosting.sizingOptions = .standardBounds
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "What's New" // for the window menu / accessibility only
+        window.styleMask = [.titled, .closable]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        whatsNewWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func windowWillClose(_ notification: Notification) {
         if notification.object as? NSWindow === menuWindow {
             menuWindow = nil
+        }
+        if notification.object as? NSWindow === whatsNewWindow {
+            whatsNewWindow = nil
         }
     }
 

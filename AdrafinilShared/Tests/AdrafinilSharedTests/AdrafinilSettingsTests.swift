@@ -16,6 +16,7 @@ struct AdrafinilSettingsTests {
         #expect(s.autoAcquireForKnownAgents == false)
         #expect(s.launchAtLogin == true)
         #expect(s.showInMenuBar == true)
+        #expect(s.autoInstallUpdates == true)
         // The background-shell keep-awake is opt-in: it holds the Mac awake for a `run_in_background`
         // command with no completion hook, so it must be OFF unless the user turns it on.
         #expect(s.keepAwakeForBackgroundBash == false)
@@ -43,6 +44,7 @@ struct AdrafinilSettingsTests {
         original.sleepChimeHoldExpired = "off"
         original.sleepChimeSafetyCutout = "Submarine"
         original.sleepChimeUserAction = "Tink"
+        original.autoInstallUpdates = false
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: data)

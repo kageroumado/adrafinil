@@ -94,6 +94,7 @@
         case codexTrust
         case drift
         case update
+        case justUpdated
         case all
 
         var id: String {
@@ -106,6 +107,7 @@
             case .codexTrust: "Codex needs trust"
             case .drift: "Agent drifted"
             case .update: "Update available"
+            case .justUpdated: "Just updated"
             case .all: "All at once"
             }
         }
@@ -196,6 +198,7 @@
             model.driftedAgents = (scenario == .drift || scenario == .all) ? [.claudeCode] : []
             model.codexTrustStatus = (scenario == .codexTrust || scenario == .all) ? .untrusted : nil
             model.updateCheck.debugSetAvailable((scenario == .update || scenario == .all) ? "9.9.9" : nil)
+            model.justUpdatedVersion = (scenario == .justUpdated || scenario == .all) ? "9.9.9" : nil
         }
     }
 
