@@ -4,6 +4,13 @@ import Foundation
 struct PiIntegration: AgentIntegration {
     let agent = AgentKind.pi
 
+    /// Backstop TTL on each acquire, refreshed per turn (a re-acquire adopts the new expiry).
+    /// TTL expiry releases unconditionally — even a CPU-busy tree — so this must sit safely above
+    /// any real single agent run; with `--pid` attached, the dead-process and CPU-idle nets are the
+    /// working cleanup and the TTL only catches the case where both lifecycle hooks were missed
+    /// *and* no PID could attach (issue #26's 24-hour leak, capped to 4 hours).
+    static let holdTTLSeconds = 4 * 3_600
+
     private func pluginRoot(_ ctx: HookContext) -> String {
         "\(ctx.homeRoot)/.pi/agent/extensions"
     }
@@ -56,6 +63,14 @@ struct PiIntegration: AgentIntegration {
     /// `stdio: "ignore"` matters now that the safety-net release is routinely a no-op: `execFileSync`
     /// inherits stderr by default, so `release`'s "released nothing" would print into the TUI.
     ///
+    /// The acquire carries `--pid` and `--ttl` (issue #26). Pi is a Node-hosted process — its
+    /// executable path is Node's, so the CLI's executable-path parent walk can't find it and the
+    /// hold used to sit with `pid=-1`, unreachable by the dead-process and CPU-idle nets; a missed
+    /// `agent_settled` then leaked until the 24h backstop. Extensions load in-process (jiti import),
+    /// so `process.pid` *is* the Pi host PID, whatever wrapper (npm, Homebrew, Nix) launched it —
+    /// pass it explicitly and every net applies. The TTL is a second backstop for the residual
+    /// missed-everything case, refreshed on each `agent_start` like the Cursor integration's.
+    ///
     /// Device-verified against pi 0.83.0 (reporter, issue #17): the hold appears when a turn starts
     /// and is gone before the process exits, with no hold while sitting at the prompt.
     private static func extensionTS(cliPath: String) -> String {
@@ -68,7 +83,8 @@ struct PiIntegration: AgentIntegration {
         
         export default function (pi) {
           const id = (ctx) => ctx?.sessionManager?.getSessionFile?.() ?? String(process.pid)
-          pi.on("agent_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))
+          pi.on("agent_start", async (_event, ctx) =>
+            run(["acquire", id(ctx), "--tool", "pi", "--pid", String(process.pid), "--ttl", "\(holdTTLSeconds)"]))
           pi.on("agent_settled", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
           pi.on("session_shutdown", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
         }

@@ -136,7 +136,7 @@ device-verified yet, so it stays session-scoped with the CPU-idle sweep as its i
 | Hermes | A **shell hook** in `~/.hermes/config.yaml` (`hooks.on_session_start`/`on_session_end`), plus an approval in `~/.hermes/shell-hooks-allowlist.json` (first-use consent). Runs in CLI + Gateway; session id on stdin. Device-verified — Hermes's other two hook systems (Python plugins, gateway-only `HOOK.yaml`) don't fit. |
 | OpenCode | TS plugin at `~/.config/opencode/plugins/adrafinil.ts`. Acquire on `session.created` (id = `event.properties.info.id`); release via the process-exit watcher (`session.idle` is per-turn). |
 | Cline | Shell-alias wrapper in `~/.zshrc`/`~/.bashrc`. Limited: misses in-editor VS Code sessions — Cline's native `~/Documents/Cline/Rules/Hooks/` would be the proper path. |
-| Pi | TS extension at `~/.pi/agent/extensions/adrafinil.ts`. Turn-scoped: acquire on `agent_start`, release on `agent_settled` (not `agent_end` — Pi may still auto-retry/compact/continue), with `session_shutdown` as a safety net. Id = session file path, pid for ephemeral sessions. |
+| Pi | TS extension at `~/.pi/agent/extensions/adrafinil.ts`. Turn-scoped: acquire on `agent_start`, release on `agent_settled` (not `agent_end` — Pi may still auto-retry/compact/continue), with `session_shutdown` as a safety net. Id = session file path, pid for ephemeral sessions. The acquire passes `--pid` (the extension runs in-process, so `process.pid` is the Node-hosted Pi the executable-path walk can't find) and a 4h `--ttl` refreshed per turn; the CLI also falls back to an argv-based ancestor walk gated on Pi's `AI_AGENT`/`PI_CODING_AGENT` env markers, for extensions predating `--pid`. |
 
 ### 3.4 Fallback: process sniffing
 

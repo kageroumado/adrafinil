@@ -116,6 +116,30 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         return nil
     }
 
+    /// Environment markers Pi's CLI and RPC entry points set in their own process at startup
+    /// (`AI_AGENT=pi`, `PI_CODING_AGENT=true`), inherited by every child Pi spawns — including the
+    /// CLI its extension shells out to. Their presence proves Pi is an ancestor of this process,
+    /// which is what authorizes the argv-based owner walk (`argvIsPi`): without the gate, that walk
+    /// could bind a hold to an arbitrary Node ancestor of a non-Pi invocation.
+    public static func environmentMarksPi(_ environment: [String: String]) -> Bool {
+        environment["PI_CODING_AGENT"] == "true" || environment["AI_AGENT"] == "pi"
+    }
+
+    /// Whether an argument vector identifies a Node-hosted Pi process. Pi's `bin` entry is a
+    /// `#!/usr/bin/env node` script, so the running process is `node <script> …` — its executable
+    /// path is Node's, and only argv reveals the agent (issue #26: the path-based walk returned -1,
+    /// leaving the hold with no PID for the dead-process and CPU-idle nets). `<script>` is the
+    /// launcher path the user invoked: an npm/Homebrew symlink with basename `pi`, or (for Nix-style
+    /// wrappers that exec the real entry point) a path inside the `pi-coding-agent` package.
+    /// `argv[0]` — the interpreter — is skipped; a standalone binary actually named `pi` is matched
+    /// by the executable-path walk instead. Callers must gate on `environmentMarksPi`: these
+    /// patterns alone are too weak to identify Pi among arbitrary processes.
+    public static func argvIsPi(_ argv: [String]) -> Bool {
+        argv.dropFirst().contains { arg in
+            (arg as NSString).lastPathComponent == "pi" || arg.contains("pi-coding-agent")
+        }
+    }
+
     /// For an agent that runs as a single long-lived **shared process** (a gateway/daemon)
     /// multiplexing many logical sessions — rather than one process per session — this is the path,
     /// relative to the user's home, of the pid-file that process writes. `nil` for the normal

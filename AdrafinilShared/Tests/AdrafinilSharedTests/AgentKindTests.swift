@@ -41,6 +41,41 @@ struct AgentKindTests {
     }
 
     @Test
+    func `pi env markers authorize the argv walk`() {
+        // Pi sets both in its own env at startup, so the hook-spawned CLI inherits both;
+        // either alone is proof enough (issue #26).
+        #expect(AgentKind.environmentMarksPi(["PI_CODING_AGENT": "true"]))
+        #expect(AgentKind.environmentMarksPi(["AI_AGENT": "pi"]))
+        #expect(!AgentKind.environmentMarksPi(["AI_AGENT": "claude"]))
+        #expect(!AgentKind.environmentMarksPi(["PI_CODING_AGENT": "false"]))
+        #expect(!AgentKind.environmentMarksPi([:]))
+    }
+
+    @Test
+    func `argv identifies node-hosted pi launchers`() {
+        // npm/Homebrew: the shebang passes the launcher symlink through, basename `pi`.
+        #expect(AgentKind.argvIsPi(["node", "/opt/homebrew/bin/pi"]))
+        #expect(AgentKind.argvIsPi(["node", "/opt/homebrew/bin/pi", "--continue"]))
+        // Nix-style wrappers exec the real entry point inside the package directory.
+        #expect(AgentKind.argvIsPi([
+            "node",
+            "/nix/store/abc-pi-0.84.2/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        ]))
+    }
+
+    @Test
+    func `argv rejects non-pi node processes`() {
+        // A directory merely named `pi` must not match — only a script *basename* of `pi` does.
+        #expect(!AgentKind.argvIsPi(["node", "/Users/u/src/pi/serve.js"]))
+        #expect(!AgentKind.argvIsPi(["node", "/usr/local/bin/pinch"]))
+        // argv[0] is the interpreter and never consulted; a real `pi` *binary* is matched by the
+        // executable-path walk instead.
+        #expect(!AgentKind.argvIsPi(["pi"]))
+        #expect(!AgentKind.argvIsPi(["node"]))
+        #expect(!AgentKind.argvIsPi([]))
+    }
+
+    @Test
     func `aider and cline are tier 2`() {
         #expect(AgentKind.aider.tier == 2)
         #expect(AgentKind.cline.tier == 2)

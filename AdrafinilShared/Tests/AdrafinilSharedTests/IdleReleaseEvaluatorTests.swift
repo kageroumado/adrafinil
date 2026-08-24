@@ -312,4 +312,14 @@ struct IdleReleaseEvaluatorTests {
         )
         #expect(reasons(out) == [.ttlExpired])
     }
+
+    @Test
+    func `a hook hold with no resolved PID still expires on TTL`() {
+        // Issue #26: a Node-hosted Pi acquire resolved pid=-1, so the dead-process and CPU-idle
+        // rules could never evaluate it — the TTL must be the net that still works.
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0.addingTimeInterval(-10), pid: -1, ttl: 5, origin: .hook)
+        let out = e.evaluate(assertions: [a], now: t0, config: .init(), pidAlive: { _ in true }, cpuTime: { _ in nil })
+        #expect(reasons(out) == [.ttlExpired])
+    }
 }

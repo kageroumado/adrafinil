@@ -563,6 +563,45 @@ struct HookInstallerTests {
         #expect(ts.contains("pi.on(\"session_shutdown\""))
         #expect(ts.contains("stdio: \"ignore\""), "the no-op safety-net release must not print into the TUI")
         #expect(ts.contains("--tool"))
+        // Node-hosted owner + leak backstop (issue #26): the extension runs in-process, so its
+        // process.pid is the Pi host PID the parent walk can't find; the TTL caps a hold that
+        // missed every release path.
+        #expect(ts.contains("\"--pid\", String(process.pid)"))
+        #expect(ts.contains("\"--ttl\", \"\(PiIntegration.holdTTLSeconds)\""))
+        #expect(installer.installState(for: .pi) == .installed)
+    }
+
+    @Test
+    func `pi reinstall migrates the pid-less turn-scoped extension`() throws {
+        let home = try makeFakeHome(detectedDirs: [".pi"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        // The extension shipped in 1.6.0 (issue #26): turn-scoped, but the acquire carries no
+        // --pid or --ttl, so a Node-hosted Pi's hold had no owner and no expiry.
+        let dir = home.path + "/.pi/agent/extensions"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let path = dir + "/adrafinil.ts"
+        try """
+        import { execFileSync } from "node:child_process"
+        
+        function run(args) {
+          try { execFileSync("/usr/local/bin/adrafinil", args, { stdio: "ignore" }) } catch (_) {}
+        }
+        
+        export default function (pi) {
+          const id = (ctx) => ctx?.sessionManager?.getSessionFile?.() ?? String(process.pid)
+          pi.on("agent_start", async (_event, ctx) => run(["acquire", id(ctx), "--tool", "pi"]))
+          pi.on("agent_settled", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
+          pi.on("session_shutdown", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
+        }
+        """.write(toFile: path, atomically: true, encoding: .utf8)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        #expect(installer.installState(for: .pi) == .modifiedExternally, "the pid-less shape must read as drifted so the build migration reinstalls it")
+        _ = try installer.install(for: .pi, dryRun: false)
+
+        let ts = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(ts.contains("\"--pid\", String(process.pid)"))
         #expect(installer.installState(for: .pi) == .installed)
     }
 

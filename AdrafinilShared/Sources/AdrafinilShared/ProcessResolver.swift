@@ -28,6 +28,27 @@ public enum ProcessResolver {
         return -1
     }
 
+    /// Walks up the parent chain matching ancestors by *argument vector* rather than executable
+    /// path — for interpreter-hosted agents (Pi under Node), where the executable path is the
+    /// interpreter's and only argv reveals the agent. Same contract as
+    /// `owningAgentPID(binaryNames:)`: the matched ancestor's PID, or `-1` if none matches (the
+    /// daemon then must not process-watch). An ancestor whose argv can't be read (permission) is
+    /// skipped, not matched.
+    public static func owningAgentPID(argvMatches: ([String]) -> Bool) -> pid_t {
+        var pid = getppid()
+        var depth = 0
+        while pid > 1, depth < 16 {
+            if let argv = arguments(of: pid), argvMatches(argv) {
+                return pid
+            }
+            let parent = parentPID(of: pid)
+            guard parent > 0, parent != pid else { break }
+            pid = parent
+            depth += 1
+        }
+        return -1
+    }
+
     /// Whether an executable path belongs to a known agent. The basename is checked against
     /// `names`; path *components* are additionally checked, but only for the agents in
     /// `AgentKind.componentMatchedBinaryNames` — versioned installs have a version string as

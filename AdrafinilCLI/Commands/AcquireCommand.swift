@@ -15,6 +15,38 @@ enum AcquireCommand {
         exit(isatty(FileHandle.standardInput.fileDescriptor) != 0 ? 2 : 0)
     }
 
+    /// The PID the daemon should watch for a session-keyed hold, in trust order:
+    ///
+    /// 1. `--pid` from the hook itself. Pi's extension runs in-process in the host, so the
+    ///    `process.pid` it passes is the agent's own PID — authoritative regardless of how the
+    ///    agent is packaged. Verified alive first, so a stale value can't bind the hold to a
+    ///    recycled PID (the daemon would then instantly dead-process-release a live turn).
+    /// 2. The executable-path parent walk — the normal case for agents that run as their own binary.
+    ///    getppid() is the shell (/bin/sh) that runs the hook command — it exits as soon as
+    ///    adrafinil returns, so the walk continues to the first ancestor whose binary name matches
+    ///    a known agent.
+    /// 3. For Pi only: an argv-based walk, authorized by the `AI_AGENT=pi`/`PI_CODING_AGENT=true`
+    ///    markers Pi sets in its own environment (and this CLI therefore inherits). Covers an
+    ///    installed extension that predates `--pid`: a Node-hosted Pi's executable path is Node's,
+    ///    so step 2 returns -1 and the hold had no PID for the dead-process and CPU-idle nets
+    ///    (issue #26). The marker gate keeps the walk from binding an arbitrary Node ancestor of a
+    ///    non-Pi invocation.
+    ///
+    /// Returns `-1` when nothing resolves — the daemon then must not process-watch (safer than
+    /// watching the wrong PID).
+    static func resolveOwningPID(hookPID: pid_t?, tool: String) -> pid_t {
+        if let hookPID {
+            if kill(hookPID, 0) == 0 || errno == EPERM { return hookPID }
+            FileHandle.standardError.write(Data("adrafinil: --pid \(hookPID) is not alive — falling back to process-tree resolution\n".utf8))
+        }
+        let walked = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
+        if walked > 0 { return walked }
+        if tool == AgentKind.pi.rawValue, AgentKind.environmentMarksPi(ProcessInfo.processInfo.environment) {
+            return ProcessResolver.owningAgentPID(argvMatches: AgentKind.argvIsPi(_:))
+        }
+        return -1
+    }
+
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
         let tool = parser.option("--tool") ?? "unknown"
@@ -23,6 +55,11 @@ enum AcquireCommand {
         let ttl = ttlRaw.flatMap { Double($0) }.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         if ttlRaw != nil, ttl == nil {
             FileHandle.standardError.write(Data("adrafinil: ignoring invalid --ttl '\(ttlRaw!)'\n".utf8))
+        }
+        let pidRaw = parser.option("--pid")
+        let hookPID = pidRaw.flatMap { pid_t($0) }.flatMap { $0 > 0 ? $0 : nil }
+        if pidRaw != nil, hookPID == nil {
+            FileHandle.standardError.write(Data("adrafinil: ignoring invalid --pid '\(pidRaw!)'\n".utf8))
         }
 
         let fullKey: String
@@ -96,13 +133,7 @@ enum AcquireCommand {
                 hookFailure("acquire: no session key (stdin payload or positional) — ignored")
             }
             fullKey = ManualHold.sessionKey(tool: tool, sessionID: key)
-            // Walk up the process tree to find the real agent PID.
-            // getppid() is the shell (/bin/sh) that runs the hook command — it exits as soon as
-            // adrafinil returns, which would cause the daemon to force-release the assertion while
-            // the agent is still working. ProcessResolver walks to the first ancestor whose binary
-            // name matches a known agent. If no agent is found, we pass nil so the daemon skips
-            // process-watching entirely (safer than watching the wrong PID).
-            let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
+            let agentPID = resolveOwningPID(hookPID: hookPID, tool: tool)
             watchedPID = agentPID == -1 ? nil : agentPID
             cliLog.notice("acquire \(fullKey, privacy: .public) — resolved owning agent pid=\(agentPID, privacy: .public)\(watchedPID == nil ? " (no agent process matched; daemon will not process-watch)" : "", privacy: .public)")
         }

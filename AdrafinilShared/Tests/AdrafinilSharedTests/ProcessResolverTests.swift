@@ -33,6 +33,18 @@ struct ProcessResolverTests {
     }
 
     @Test
+    func `owning agent PID by argv with never-matching predicate is negative`() {
+        #expect(ProcessResolver.owningAgentPID(argvMatches: { _ in false }) == -1)
+    }
+
+    @Test
+    func `owning agent PID by argv walks real ancestors`() {
+        // An always-true predicate must bind some live ancestor (the test runner), proving the
+        // walk actually reads ancestor argv rather than failing before the predicate runs.
+        #expect(ProcessResolver.owningAgentPID(argvMatches: { !$0.isEmpty }) > 0)
+    }
+
+    @Test
     func `path matches agent by basename`() {
         #expect(ProcessResolver.pathMatchesAgent("/usr/local/bin/codex", names: ["codex"]))
     }
