@@ -200,7 +200,7 @@
             model.debugOwnsAttention = scenario != .none
             model.driftedAgents = (scenario == .drift || scenario == .all) ? [.claudeCode] : []
             model.codexTrustStatus = (scenario == .codexTrust || scenario == .all) ? .untrusted : nil
-            model.updateCheck.debugSetAvailable((scenario == .update || scenario == .all) ? "9.9.9" : nil)
+            model.availableUpdateVersion = (scenario == .update || scenario == .all) ? "9.9.9" : nil
             model.justUpdatedVersion = (scenario == .justUpdated || scenario == .all) ? "9.9.9" : nil
         }
     }

@@ -52,9 +52,11 @@ final class AppStatusModel {
     /// awake. Recomputed by `refreshAgentHealth()`. See `CodexHookTrust`.
     var codexTrustStatus: CodexHookTrust.Status?
 
-    /// Notify-only update check, owned here so the menu-bar icon and popover can surface an available
-    /// update as an attention reason (the Settings tab drives a manual check separately).
-    let updateCheck = UpdateCheckService()
+    /// The newest published version when one is newer than the running app, so the menu-bar icon
+    /// and popover can surface it as an attention reason. Mirrored from `SilentUpdates` (whose
+    /// check loop answers in both auto-install modes) on the heartbeat; per-model so previews and
+    /// the debug panel can drive it without touching the shared updater.
+    var availableUpdateVersion: String?
 
     /// The version a silent update brought us to, until the user opens its What's New notice.
     /// Read from `SilentUpdates` during launch maintenance; the debug panel drives it directly.
@@ -82,7 +84,7 @@ final class AppStatusModel {
         if serviceState != .ok { reasons.append(.serviceProblem) }
         if !driftedAgents.isEmpty { reasons.append(.agentsDrifted(driftedAgents.count)) }
         if codexNeedsTrust { reasons.append(.codexNeedsTrust) }
-        if let version = updateCheck.availableVersion { reasons.append(.updateAvailable(version)) }
+        if let version = availableUpdateVersion { reasons.append(.updateAvailable(version)) }
         if let version = justUpdatedVersion { reasons.append(.justUpdated(version)) }
         return reasons
     }
@@ -187,8 +189,9 @@ final class AppStatusModel {
         HookMigrator.runIfNeeded(agentHooks: agentHooks)
         refreshAgentHealth()
         // If the last launch's silent update landed, the badge announces it until acknowledged.
+        // No update check here: SilentUpdates' loop (started by AppDelegate) makes the day's
+        // request, and `mirrorAvailableUpdate()` picks its answer up on the next heartbeat.
         justUpdatedVersion = SilentUpdates.shared.justUpdatedVersion
-        await updateCheck.checkIfDue()
     }
 
     /// The user opened the post-update notice — clear the badge and the persisted flag.
@@ -204,12 +207,25 @@ final class AppStatusModel {
     }
 
     func refresh() async {
+        mirrorAvailableUpdate()
         do {
             try await apply(provider.fetchStatus())
         } catch {
             lastError = error.localizedDescription
             evaluateServiceReachability()
         }
+    }
+
+    /// Copies the updater's answer into the observable, per-model property — `SilentUpdates`'
+    /// check loop has no change callback, so the heartbeat (and each popover tick) picks it up.
+    /// Only the live model mirrors: previews and the debug panel own their value.
+    private func mirrorAvailableUpdate() {
+        guard isLive else { return }
+        #if DEBUG
+            if debugOwnsAttention { return } // debug panel is driving the scenario
+        #endif
+        SilentUpdates.shared.refresh()
+        availableUpdateVersion = SilentUpdates.shared.availableVersion
     }
 
     /// The live mapping from the LaunchAgent's `SMAppService` registration to a `ServiceState`.

@@ -96,7 +96,7 @@ struct MenuPopover: View {
                         codexTrustCard.transition(.popoverSection)
                     }
 
-                    if let version = status.updateCheck.availableVersion {
+                    if let version = status.availableUpdateVersion {
                         updateAvailableCard(version).transition(.popoverSection)
                     }
 
@@ -140,7 +140,7 @@ struct MenuPopover: View {
     /// many rows the agent list has. Excludes `now`, so the 5-second tick doesn't trigger animation.
     /// Excludes `confirmingQuit` too — the confirmation is now an overlay that doesn't resize the panel.
     private func layoutSignature(_ live: DaemonStatus?, _ hero: HeroState) -> String {
-        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)|\(status.codexNeedsTrust)|\(status.updateCheck.availableVersion ?? "")|\(status.justUpdatedVersion ?? "")"
+        "\(pickingDuration)|\(customMode)|\(status.serviceState)|\(status.repairPhase)|\(status.lastError != nil)|\(hero)|\(live?.assertions.count ?? -1)|\(status.driftedAgents.count)|\(live?.warnings.count ?? 0)|\(status.codexNeedsTrust)|\(status.availableUpdateVersion ?? "")|\(status.justUpdatedVersion ?? "")"
     }
 
     /// The daemon snapshot with TTL-expired holds dropped, so a hold disappears the instant its

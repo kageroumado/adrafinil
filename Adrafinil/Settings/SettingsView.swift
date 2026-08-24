@@ -111,10 +111,8 @@ struct GeneralSettingsTab: View {
     @State private var showUninstallConfirm = false
     @State private var uninstallIssues: [String] = []
     @State private var showUninstallIssues = false
-    /// Notify-only check against GitHub Releases; drives the "Check for Updates" row.
-    @State private var updateCheck = UpdateCheckService()
-    /// The in-place updater — the Update Now button, the manual-install phase, and the version
-    /// the silent path has already downloaded.
+    /// The updater — one check loop answers both the "Check for Updates" row and the Update Now
+    /// button, whichever mode the auto-install toggle has it in.
     @State private var installer = SilentUpdates.shared
     /// Whether the user has denied notification permission — the away recap is silently dark
     /// then, and this is the one place that says so.
@@ -285,10 +283,7 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { notificationsDenied = await AwayNotifier.shared.authorizationDenied() }
-        .task {
-            installer.refreshPending()
-            await updateCheck.checkIfDue()
-        }
+        .task { installer.refresh() }
         .alert("Uninstall Adrafinil?", isPresented: $showUninstallConfirm) {
             Button("Uninstall and Quit", role: .destructive) { performUninstall() }
             Button("Cancel", role: .cancel) {}
@@ -307,7 +302,7 @@ struct GeneralSettingsTab: View {
     /// plain manual check otherwise.
     @ViewBuilder
     private var updateActionRow: some View {
-        if let version = updateCheck.availableVersion ?? installer.pendingVersion {
+        if let version = installer.availableVersion ?? installer.pendingVersion {
             HStack(spacing: Theme.Space.sm) {
                 Button {
                     Task { await installer.updateNow() }
@@ -333,20 +328,17 @@ struct GeneralSettingsTab: View {
             .focusEffectDisabled()
         } else {
             Button {
-                Task {
-                    await updateCheck.check(manual: true)
-                    installer.refreshPending()
-                }
+                Task { await installer.checkForUpdates() }
             } label: {
                 HStack(spacing: Theme.Space.sm) {
-                    if updateCheck.isChecking {
+                    if installer.isChecking {
                         ProgressView().controlSize(.small)
                     }
                     Text(checkButtonTitle)
                 }
             }
             .buttonStyle(.bordered)
-            .disabled(updateCheck.isChecking)
+            .disabled(installer.isChecking)
             .focusEffectDisabled()
         }
     }
@@ -362,8 +354,8 @@ struct GeneralSettingsTab: View {
     }
 
     private var checkButtonTitle: String {
-        if updateCheck.isChecking { return "Checking for updates…" }
-        if updateCheck.checkedUpToDate { return "You're up to date" }
+        if installer.isChecking { return "Checking for updates…" }
+        if installer.checkedUpToDate { return "You're up to date" }
         return "Check for updates"
     }
 

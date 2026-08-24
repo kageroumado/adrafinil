@@ -18,9 +18,11 @@ import TiptoeGitHub
 ///
 /// The gate is a veto, not a preference: Tiptoe's own patience relaxes over days, this never does.
 ///
-/// With `autoInstallUpdates` off, the daily check loop never runs. `UpdateCheckService` still
-/// notifies (Settings row, menu-bar card), and ``updateNow()`` performs the same
-/// download-verify-swap on demand.
+/// One check loop serves both modes (Tiptoe ≥ 1.1's `installsAutomatically`): with
+/// `autoInstallUpdates` off the daily check still runs and still answers ``availableVersion`` —
+/// the Settings row and menu-bar card draw from it — but nothing downloads or installs except
+/// through ``updateNow()``. This is the single daily request to GitHub; there is no separate
+/// notify-only poller.
 @MainActor
 @Observable
 final class SilentUpdates {
@@ -29,8 +31,8 @@ final class SilentUpdates {
     static let owner = "kageroumado"
     static let repo = "adrafinil"
 
-    /// Matches `UpdateCheckService`'s own cadence — this app has never wanted to poll GitHub more
-    /// often than once a day, and finding an update sooner would not install it sooner anyway.
+    /// This app has never wanted to poll GitHub more often than once a day — finding an update
+    /// sooner would not install it sooner anyway.
     private static let checkInterval: TimeInterval = 60 * 60 * 24
 
     /// Progress of a user-initiated Update Now, for the Settings row. A successful install
@@ -43,73 +45,101 @@ final class SilentUpdates {
 
     private(set) var manualPhase: ManualPhase = .idle
 
+    /// The newest published version when it is newer than the running app, from the check loop —
+    /// in both modes, downloaded or not. Refreshed by ``refresh()`` — Tiptoe itself is not
+    /// observable.
+    private(set) var availableVersion: String?
+
     /// The version the automatic path has downloaded and is holding for a quiet moment, if any.
-    /// Refreshed by ``refreshPending()`` — Tiptoe itself is not observable.
+    /// A stronger claim than ``availableVersion`` (downloaded and verified, not merely published);
+    /// refreshed by ``refresh()``.
     private(set) var pendingVersion: String?
+
+    /// True while a user-initiated check is in flight (drives the Settings button's state).
+    private(set) var isChecking = false
+
+    /// Set after a manual check that found no newer version, so the button can briefly confirm
+    /// "You're up to date". Reset when a new check starts.
+    private(set) var checkedUpToDate = false
 
     /// The version a silent (or manual) install brought us to, until the user has seen the
     /// "what's new" notice. Read from Tiptoe's store at launch; cleared by ``acknowledgeUpdate()``.
     private(set) var justUpdatedVersion: String?
 
-    /// The long-lived automatic updater: daily check loop + quiet-moment install. Created up
-    /// front so its `Tiptoe` reconciles the recorded wait (and surfaces `justUpdatedTo`) even
-    /// when auto-install is off; the check loop only runs after `start()`.
+    /// The one long-lived updater: daily check loop, `availableVersion`, and the quiet-moment
+    /// install when the mode allows it. Created up front so its `Tiptoe` reconciles the recorded
+    /// wait (and surfaces `justUpdatedTo`) even before `start()`.
     @ObservationIgnored private let github: TiptoeGitHub
-    @ObservationIgnored private var autoRunning = false
     @ObservationIgnored private let log = Logger(
         subsystem: AdrafinilConstants.appBundleID, category: "SilentUpdates",
     )
 
     private init() {
+        // Notify-only until `start()` applies the user's real setting — which never happens in
+        // DEBUG, so a development build's manual "Check for updates" stays a metadata request
+        // and can't download a DMG on the side.
         github = TiptoeGitHub(owner: Self.owner, repo: Self.repo, checkInterval: Self.checkInterval)
             .gate("agents are being kept awake") { await Self.nothingIsBeingKeptAwake() }
+            .installsAutomatically(false)
+        github.onChecksFailing = { [log] error in
+            log.error("update checks have been failing: \(error.localizedDescription, privacy: .public)")
+        }
         justUpdatedVersion = github.tiptoe.justUpdatedTo
     }
 
-    // MARK: - Automatic installs
+    // MARK: - The check loop
 
-    /// Called once at launch (release, post-setup) with the user's setting.
+    /// Called once at launch (release, post-setup) with the user's setting. The loop always runs;
+    /// the setting only decides whether a found update is downloaded and installed at a quiet
+    /// moment or merely reported.
     func start(autoInstall: Bool) {
-        if autoInstall { startAuto() }
-    }
-
-    /// Reacts to the Settings toggle. Turning auto off stops the check loop and the quiet-moment
-    /// watcher; a DMG already downloaded stays downloaded but installs only via ``updateNow()``.
-    func setAutoInstall(_ enabled: Bool) {
-        enabled ? startAuto() : stopAuto()
-    }
-
-    private func startAuto() {
         // Never in DEBUG: a development build must not poll GitHub, and must never be swapped
         // out from under Xcode. The debug control panel exercises the UI states directly.
         #if !DEBUG
-            guard !autoRunning else { return }
-            autoRunning = true
-            github.start()
+            github.installsAutomatically(autoInstall).start()
         #endif
     }
 
-    private func stopAuto() {
-        guard autoRunning else { return }
-        autoRunning = false
-        github.stop()
-        refreshPending()
+    /// Reacts to the Settings toggle. Turning auto off keeps the check loop (and
+    /// ``availableVersion``) running but downloads and installs nothing; a DMG already downloaded
+    /// stays downloaded and installs only via ``updateNow()``. Turning it on checks right away.
+    func setAutoInstall(_ enabled: Bool) {
+        #if !DEBUG
+            github.installsAutomatically(enabled)
+        #endif
     }
 
-    /// Copies Tiptoe's pending state into the observable ``pendingVersion``. Called when the
-    /// Settings tab appears and after update actions — Tiptoe has no change callback for it.
-    func refreshPending() {
+    /// Copies Tiptoe's state into the observable properties. Called when the Settings tab
+    /// appears, on the status model's heartbeat, and after update actions — Tiptoe has no
+    /// change callback.
+    func refresh() {
         #if DEBUG
             if debugOwnsPending { return } // the debug panel is driving the scenario
         #endif
         pendingVersion = github.tiptoe.pending?.version
+        availableVersion = github.availableVersion
+    }
+
+    /// A user-initiated check, for the Settings button: same request the loop makes, off-schedule.
+    func checkForUpdates() async {
+        guard !isChecking else { return }
+        isChecking = true
+        checkedUpToDate = false
+        await github.checkNow()
+        isChecking = false
+        refresh()
+        // "Nothing newer" and "couldn't reach GitHub" both leave availableVersion nil, so this
+        // reassurance can be a beat optimistic offline. The daily loop self-corrects, and
+        // onChecksFailing reports a real outage.
+        checkedUpToDate = availableVersion == nil && pendingVersion == nil
     }
 
     // MARK: - Update Now
 
-    /// Download (if needed), verify, and install the newest release right away — the user asked.
-    /// On success the app relaunches and this never returns to its caller in a meaningful way;
-    /// still running a few seconds later means the attempt failed and `manualPhase` says so.
+    /// Download (if needed), verify, and install the newest release right away — the user asked,
+    /// so no quiet moment is waited out and no gate is consulted. On success the app relaunches
+    /// and this never returns to its caller in a meaningful way; still running a few seconds
+    /// later means the attempt failed and `manualPhase` says so.
     func updateNow() async {
         guard manualPhase != .working else { return }
         #if DEBUG
@@ -117,27 +147,17 @@ final class SilentUpdates {
         #else
             manualPhase = .working
 
-            if autoRunning, github.tiptoe.pending != nil {
-                // The automatic path already downloaded and verified it — just stop waiting.
-                await github.tiptoe.installNow().value
-            } else {
-                // Auto is off (its instance is stopped, and a stopped TiptoeGitHub refuses
-                // `checkNow`), so run the download through a one-shot instance. It shares
-                // Tiptoe's on-disk store, so a successful install still records "just updated"
-                // for the relaunch to announce.
-                let oneShot = TiptoeGitHub(owner: Self.owner, repo: Self.repo)
-                await oneShot.checkNow()
-                guard oneShot.tiptoe.pending != nil else {
-                    manualPhase = .failed("Couldn't download the update. Check your connection, or get it from the releases page.")
-                    return
-                }
-                await oneShot.tiptoe.installNow().value
+            // Installs the DMG the automatic path already holds, or downloads and verifies one
+            // now — `false` means there was nothing newer or the download couldn't be prepared.
+            guard await github.updateNow() else {
+                manualPhase = .failed("Couldn't download the update. Check your connection, or get it from the releases page.")
+                return
             }
 
             // A successful swap terminates this process on its own schedule, possibly a beat
             // after the install call returns — wait it out before declaring failure.
             try? await Task.sleep(for: .seconds(4))
-            refreshPending()
+            refresh()
             manualPhase = .failed("The update couldn't be installed. Try again, or get it from the releases page.")
         #endif
     }
@@ -162,7 +182,7 @@ final class SilentUpdates {
     }
 
     #if DEBUG
-        /// While the debug panel drives `pendingVersion`, `refreshPending()` must not overwrite it
+        /// While the debug panel drives `pendingVersion`, `refresh()` must not overwrite it
         /// with the (empty) real Tiptoe state when the Settings tab appears.
         @ObservationIgnored private var debugOwnsPending = false
 
