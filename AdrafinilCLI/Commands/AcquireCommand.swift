@@ -49,7 +49,7 @@ enum AcquireCommand {
 
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
-        let tool = parser.option("--tool") ?? "unknown"
+        let tool = parser.option("--tool") ?? ManualHold.unknownTool
         let reason = parser.option("--reason")
         let ttlRaw = parser.option("--ttl")
         let ttl = ttlRaw.flatMap { Double($0) }.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }

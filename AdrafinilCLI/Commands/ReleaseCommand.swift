@@ -5,7 +5,8 @@ import OSLog
 enum ReleaseCommand {
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
-        let tool = parser.option("--tool") ?? "unknown"
+        let namedTool = parser.option("--tool")
+        let tool = namedTool ?? ManualHold.unknownTool
 
         // `release --all` is a *human* command (the SSH counterpart of the menu bar's force
         // release), not an agent hook — so unlike the paths below it reports its outcome and
@@ -62,9 +63,13 @@ enum ReleaseCommand {
             if let warning = resp.warning {
                 FileHandle.standardError.write(Data("adrafinil: \(warning)\n".utf8))
                 // A release that matched nothing must be visible to scripts — a cleanup loop
-                // "releasing" with exit 0 and zero effect is the worst case. Agent hooks stay
-                // fail-soft, same TTY discrimination as `hookFailure`.
-                exit(isatty(FileHandle.standardInput.fileDescriptor) != 0 ? 1 : 0)
+                // "releasing" with exit 0 and zero effect is the worst case (issue #25). Scripts
+                // run without a TTY, so TTY discrimination alone can't reach them; an omitted
+                // `--tool` is the reliable marker instead — every generated hook names its tool,
+                // so the bare form is a human or script working from `status --json` keys. Hooks
+                // (named tool, no TTY) stay fail-soft: their safety-net double releases are
+                // routine no-ops, and a nonzero exit would surface as an agent-side hook error.
+                exit(namedTool == nil || isatty(FileHandle.standardInput.fileDescriptor) != 0 ? 1 : 0)
             }
             exit(0)
         } catch {

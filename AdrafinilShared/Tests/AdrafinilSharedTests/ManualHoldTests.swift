@@ -67,6 +67,20 @@ struct ManualHoldTests {
         #expect(ManualHold.sessionKey(tool: "cursor", sessionID: "opencode:ses_xyz") == "cursor:opencode:ses_xyz")
     }
 
+    /// The rest of issue #25: with no `--tool` at all, the CLI's default tool used to prefix the
+    /// pasted key into `unknown:<tool>:<session>` — so the exact form `status --json` emits could
+    /// never match. A colon-bearing id under the unknown tool is a pasted full key, not a session id.
+    @Test
+    func `sessionKey passes a prefixed key through when no tool is named`() {
+        #expect(ManualHold.sessionKey(tool: ManualHold.unknownTool, sessionID: "opencode:repro-25") == "opencode:repro-25")
+        #expect(ManualHold.sessionKey(tool: ManualHold.unknownTool, sessionID: "pi:/Users/u/.pi/agent/sessions/s.jsonl") == "pi:/Users/u/.pi/agent/sessions/s.jsonl")
+    }
+
+    @Test
+    func `sessionKey still prefixes a bare id when no tool is named`() {
+        #expect(ManualHold.sessionKey(tool: ManualHold.unknownTool, sessionID: "repro-25") == "unknown:repro-25")
+    }
+
     @Test
     func `sessionKey derivation is idempotent`() {
         let once = ManualHold.sessionKey(tool: "opencode", sessionID: "ses_xyz")

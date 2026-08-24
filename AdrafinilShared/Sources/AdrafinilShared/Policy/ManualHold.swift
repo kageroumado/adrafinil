@@ -14,6 +14,11 @@ public enum ManualHold {
     /// Tool label stored on a hold that didn't name its originating agent.
     public static let defaultTool = "manual"
 
+    /// Tool label the CLI assumes when `--tool` is omitted. Every generated hook names its tool,
+    /// so this label marks a human or script invocation — which is what licenses `sessionKey`'s
+    /// verbatim passthrough of colon-bearing keys, and `release`'s strict exit on a no-match.
+    public static let unknownTool = "unknown"
+
     public static func isHoldKey(_ key: String) -> Bool {
         key.hasPrefix(keyPrefix)
     }
@@ -26,8 +31,18 @@ public enum ManualHold {
     /// on the same key — the property the Codex (and Claude Code) hook model relies on for per-turn
     /// bracketing. (The passthrough preserves that: hooks pass bare session ids, and a bare id never
     /// starts with `<tool>:`.)
+    ///
+    /// With no named tool, *any* colon-bearing id passes through verbatim — not just `unknown:`-
+    /// prefixed ones. Every generated hook names its tool, so the no-tool caller is a human or
+    /// script pasting a key from `status --json`, where prefixing would mint an unmatchable
+    /// `unknown:<tool>:<id>` and the release would target nothing (issue #25). The rule stays gated
+    /// on `unknownTool` so a *hook* whose session ids happen to contain colons still gets the
+    /// tool-prefix derivation its acquire/release bracketing relies on.
     public static func sessionKey(tool: String, sessionID: String) -> String {
         if isHoldKey(sessionID) || sessionID.hasPrefix("\(tool):") {
+            return sessionID
+        }
+        if tool == unknownTool, sessionID.contains(":") {
             return sessionID
         }
         return "\(tool):\(sessionID)"
