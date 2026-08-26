@@ -230,6 +230,7 @@
 			packageProductDependencies = (
 				0B11485B2FC6A68C00D7D25C /* AdrafinilShared */,
 				7A0000000000000000000002 /* TiptoeGitHub */,
+				7B0000000000000000000002 /* Propofol */,
 			);
 			productName = Adrafinil;
 			productReference = 0B1147BA2FC6A14B00D7D25C /* Adrafinil.app */;
@@ -334,6 +335,7 @@
 			packageReferences = (
 				0B11485A2FC6A68C00D7D25C /* XCLocalSwiftPackageReference "AdrafinilShared" */,
 				7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */,
+				7B0000000000000000000001 /* XCLocalSwiftPackageReference "propofol" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 0B1147BB2FC6A14B00D7D25C /* Products */;
@@ -818,6 +820,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = AdrafinilShared;
 		};
+		7B0000000000000000000001 /* XCLocalSwiftPackageReference "propofol" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../propofol;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -835,6 +841,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		7B0000000000000000000002 /* Propofol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7B0000000000000000000001 /* XCLocalSwiftPackageReference "propofol" */;
+			productName = Propofol;
+		};
 		7A0000000000000000000002 /* TiptoeGitHub */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */;

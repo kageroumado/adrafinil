@@ -1,4 +1,5 @@
 import AdrafinilShared
+import Propofol
 import SwiftUI
 
 struct InstallerView: View {

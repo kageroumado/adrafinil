@@ -1,5 +1,6 @@
 #if DEBUG
     import AdrafinilShared
+    import Propofol
     import SwiftUI
 
     /// A daemon-free gallery of every surface in every state, for live visual QA. Presented (instead of

@@ -1,5 +1,6 @@
 import AdrafinilShared
 import AppKit
+import Propofol
 import SwiftUI
 
 /// Explains how to trust Adrafinil's hooks in Codex, and live-verifies that trust.

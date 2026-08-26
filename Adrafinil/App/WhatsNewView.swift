@@ -1,5 +1,6 @@
 import AdrafinilShared
 import AppKit
+import Propofol
 import SwiftUI
 
 // MARK: - Release notes

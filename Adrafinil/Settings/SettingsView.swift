@@ -1,5 +1,6 @@
 import AdrafinilShared
 import AppKit
+import Propofol
 import ServiceManagement
 import SwiftUI
 

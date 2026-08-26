@@ -1,11 +1,10 @@
+import Propofol
 import SwiftUI
 
-/// Adrafinil's design tokens. The visual identity is the **warm sun**: amber is the "awake / staying
-/// up" hue (accent), a cool moon-grey is idle, red signals a safety cutout. Surfaces lean on macOS
-/// Liquid Glass; these tokens keep radii, spacing, and color usage consistent across every view.
-enum Theme {
-    // MARK: - Palette
-
+/// Adrafinil's palette on top of Propofol's shared tokens. The visual identity is the **warm sun**:
+/// amber is the "awake / staying up" hue (accent), a cool moon-grey is idle, red signals a safety
+/// cutout.
+extension Theme {
     /// The amber accent — "awake". Backed by the AccentColor asset (light + dark variants).
     static let awake = Color.accentColor
     /// Foreground for content sitting *on* the saturated amber accent (e.g. a prominent button).
@@ -21,49 +20,8 @@ enum Theme {
     /// Success (installed, finished cleanly).
     static let ok = Color.green
 
-    // MARK: - Geometry
-
-    enum Radius {
-        /// Outer cards / panels.
-        static let card: CGFloat = 14
-        /// Rows and grouped controls inside a card.
-        static let inner: CGFloat = 10
-        /// Small controls, chips, hover fills.
-        static let control: CGFloat = 8
-    }
-
-    enum Space {
-        static let xs: CGFloat = 4
-        static let sm: CGFloat = 8
-        static let md: CGFloat = 12
-        static let lg: CGFloat = 16
-        static let xl: CGFloat = 20
-    }
-
-    /// Fixed width of the menu-bar popover (matches the platform norm).
-    static let popoverWidth: CGFloat = 320
-
     /// Height cap on the popover's assertion list. Beyond this the list scrolls internally, so a
     /// fleet of holds can never push the bottom bar (lid, temperature, Quit) off-screen. Sized to
     /// keep the whole popover comfortably on a 13" laptop display with every other card visible.
     static let assertionListMaxHeight: CGFloat = 280
-
-    // MARK: - Shapes
-
-    static var cardShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-    }
-    static var innerShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Radius.inner, style: .continuous)
-    }
-    static var controlShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-    }
-}
-
-extension Font {
-    /// Rounded title used for hero lines and headers — friendlier than the default for a utility app.
-    static let heroTitle = Font.system(.headline, design: .rounded).weight(.semibold)
-    /// Rounded medium-weight body for agent/tool names.
-    static let toolName = Font.system(.body, design: .rounded).weight(.medium)
 }

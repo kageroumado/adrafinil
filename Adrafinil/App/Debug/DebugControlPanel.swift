@@ -1,5 +1,6 @@
 #if DEBUG
     import AdrafinilShared
+    import Propofol
     import SwiftUI
 
     /// DEBUG-only control room. Switch the menu-bar popover between mock scenarios (the real popover and

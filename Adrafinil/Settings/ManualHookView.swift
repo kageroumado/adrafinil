@@ -1,5 +1,6 @@
 import AdrafinilShared
 import AppKit
+import Propofol
 import SwiftUI
 
 /// "Add your own agent" — the manual / custom-hook control (issue #6). For any agent Adrafinil has no

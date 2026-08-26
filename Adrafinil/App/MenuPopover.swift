@@ -1,5 +1,6 @@
 import AdrafinilShared
 import AppKit
+import Propofol
 import ServiceManagement
 import SwiftUI
 
@@ -159,11 +160,7 @@ struct MenuPopover: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: Theme.Space.sm) {
-            Text("Adrafinil").font(.heroTitle)
-            Spacer()
-            AttributionLink()
-        }
+        PopoverHeader("Adrafinil")
     }
 
     // MARK: - Status card (hero)
@@ -975,31 +972,6 @@ private extension AnyTransition {
     /// upward settle, so sections appear to grow out of / collapse into the panel rather than pop.
     static var popoverSection: AnyTransition {
         .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
-    }
-}
-
-// MARK: - AttributionLink
-
-/// The "made by kageroumado" credit in the popover header. Reads as quiet secondary text but signals
-/// it's a link with a trailing external-link arrow, and underlines on hover so the affordance is
-/// unmistakable once the pointer lands on it.
-private struct AttributionLink: View {
-    @State private var hovering = false
-
-    var body: some View {
-        Link(destination: URL(string: "https://github.com/kageroumado")!) {
-            HStack(spacing: 2) {
-                Text("made by kageroumado")
-                    .underline(hovering)
-                Image(systemName: "arrow.up.right")
-                    .font(.caption2)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
     }
 }
 
