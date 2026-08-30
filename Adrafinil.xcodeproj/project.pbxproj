@@ -335,7 +335,7 @@
 			packageReferences = (
 				0B11485A2FC6A68C00D7D25C /* XCLocalSwiftPackageReference "AdrafinilShared" */,
 				7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */,
-				7B0000000000000000000001 /* XCLocalSwiftPackageReference "propofol" */,
+				7B0000000000000000000001 /* XCRemoteSwiftPackageReference "propofol" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 0B1147BB2FC6A14B00D7D25C /* Products */;
@@ -820,13 +820,17 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = AdrafinilShared;
 		};
-		7B0000000000000000000001 /* XCLocalSwiftPackageReference "propofol" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../propofol;
-		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		7B0000000000000000000001 /* XCRemoteSwiftPackageReference "propofol" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kageroumado/propofol.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
 		7A0000000000000000000001 /* XCRemoteSwiftPackageReference "Tiptoe" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/artginzburg/Tiptoe";
@@ -843,7 +847,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		7B0000000000000000000002 /* Propofol */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 7B0000000000000000000001 /* XCLocalSwiftPackageReference "propofol" */;
+			package = 7B0000000000000000000001 /* XCRemoteSwiftPackageReference "propofol" */;
 			productName = Propofol;
 		};
 		7A0000000000000000000002 /* TiptoeGitHub */ = {
