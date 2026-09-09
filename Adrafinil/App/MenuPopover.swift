@@ -174,20 +174,23 @@ struct MenuPopover: View {
     private func statusCard(_ s: DaemonStatus, state: HeroState, now _: Date) -> some View {
         let (tint, title, subtitle, dimmed): (Color, String, String, Bool) = switch state {
         case .awake:
-            (Theme.awake, "Keeping your Mac awake", awakeSubtitle(s), false)
+            (Theme.awake, String(localized: "Keeping your Mac awake"), awakeSubtitle(s), false)
         case .cutout:
-            (Theme.cutout, cutoutTitle(s), "Your Mac can sleep again", false)
+            (Theme.cutout, cutoutTitle(s), String(localized: "Your Mac can sleep again"), false)
         case .idle:
             (
                 .secondary,
-                "Sleeping normally",
+                String(localized: "Sleeping normally"),
                 device.hasLid
-                    ? "No agents active — close the lid and your Mac sleeps"
-                    : "No agents active — your Mac sleeps when idle",
+                    ? String(localized: "No agents active — close the lid and your Mac sleeps")
+                    : String(localized: "No agents active — your Mac sleeps when idle"),
                 true,
             )
         case .paused:
-            (.secondary, "Paused", "Agents can't keep your Mac awake until you resume", false)
+            (
+                .secondary, String(localized: "Paused"),
+                String(localized: "Agents can't keep your Mac awake until you resume"), false,
+            )
         }
         return heroCard(tint: tint, title: title, subtitle: subtitle, dimmed: dimmed) {
             if state == .cutout {
@@ -222,10 +225,24 @@ struct MenuPopover: View {
         let waiting = s.assertions.count(where: { $0.origin != .manual && $0.waitingFor != nil })
         let agents = s.assertions.count - holds - waiting
         var parts: [String] = []
-        if agents > 0 { parts.append("\(agents) \(agents == 1 ? "agent" : "agents") working") }
-        if waiting > 0 { parts.append("\(waiting) waiting on you") }
-        if holds > 0 { parts.append("\(holds) \(holds == 1 ? "hold" : "holds")") }
-        return parts.isEmpty ? "Your Mac will stay awake" : parts.joined(separator: " · ")
+        if agents > 0 {
+            if agents == 1 {
+                parts.append(String(localized: "1 agent working"))
+            } else {
+                parts.append(String(localized: "\(agents) agents working"))
+            }
+        }
+        if waiting > 0 { parts.append(String(localized: "\(waiting) waiting on you")) }
+        if holds > 0 {
+            if holds == 1 {
+                parts.append(String(localized: "1 hold"))
+            } else {
+                parts.append(String(localized: "\(holds) holds"))
+            }
+        }
+        return parts.isEmpty
+            ? String(localized: "Your Mac will stay awake")
+            : parts.joined(separator: " · ")
     }
 
     private func heroCard(
@@ -281,44 +298,44 @@ struct MenuPopover: View {
         switch status.repairPhase {
         case .repairing:
             serviceActionCard(
-                title: "Repairing Adrafinil…",
-                message: "Re-registering its background services and checking they respond.",
+                title: String(localized: "Repairing Adrafinil…"),
+                message: String(localized: "Re-registering its background services and checking they respond."),
                 busy: true,
             )
         case .failed:
             // Re-registration couldn't clear the wedged records: the one remaining fix is removing
             // Adrafinil's own entry in Login Items (a targeted reset, not a system-wide one).
             serviceActionCard(
-                title: "Couldn't repair Adrafinil automatically",
-                message: "Open Login Items & Extensions, switch Adrafinil off and remove it with the “–” button, then reopen the app — or try repairing once more.",
-                primaryTitle: "Open Login Items",
+                title: String(localized: "Couldn't repair Adrafinil automatically"),
+                message: String(localized: "Open Login Items & Extensions, switch Adrafinil off and remove it with the “–” button, then reopen the app — or try repairing once more."),
+                primaryTitle: String(localized: "Open Login Items"),
                 primaryAction: { SMAppService.openSystemSettingsLoginItems() },
-                secondaryTitle: "Repair Again",
+                secondaryTitle: String(localized: "Repair Again"),
                 secondaryAction: { Task { await status.repair() } },
             )
         case .idle:
             switch status.serviceState {
             case .needsApproval:
                 serviceActionCard(
-                    title: "Adrafinil needs your approval",
-                    message: "Turn Adrafinil on under “Allow in the Background” so it can keep your Mac awake while agents work. If it won't turn on, try Repair.",
-                    primaryTitle: "Open Login Items",
+                    title: String(localized: "Adrafinil needs your approval"),
+                    message: String(localized: "Turn Adrafinil on under “Allow in the Background” so it can keep your Mac awake while agents work. If it won't turn on, try Repair."),
+                    primaryTitle: String(localized: "Open Login Items"),
                     primaryAction: { SMAppService.openSystemSettingsLoginItems() },
-                    secondaryTitle: "Repair",
+                    secondaryTitle: String(localized: "Repair"),
                     secondaryAction: { Task { await status.repair() } },
                 )
             case .notRegistered:
                 serviceActionCard(
-                    title: "Adrafinil isn't set up",
-                    message: "Its background service isn't registered, so it can't keep your Mac awake. Repair it to register it again.",
-                    primaryTitle: "Repair",
+                    title: String(localized: "Adrafinil isn't set up"),
+                    message: String(localized: "Its background service isn't registered, so it can't keep your Mac awake. Repair it to register it again."),
+                    primaryTitle: String(localized: "Repair"),
                     primaryAction: { Task { await status.repair() } },
                 )
             case .unreachable:
                 serviceActionCard(
-                    title: "Adrafinil's helper stopped",
-                    message: "Its background service isn't responding. Repair it to re-register and bring it back.",
-                    primaryTitle: "Repair",
+                    title: String(localized: "Adrafinil's helper stopped"),
+                    message: String(localized: "Its background service isn't responding. Repair it to re-register and bring it back."),
+                    primaryTitle: String(localized: "Repair"),
                     primaryAction: { Task { await status.repair() } },
                 )
             case .ok:
@@ -964,7 +981,8 @@ struct MenuPopover: View {
         s.lastEvent == .lowBatteryCutout ? "battery.25percent" : "exclamationmark.triangle.fill"
     }
     private func cutoutTitle(_ s: DaemonStatus) -> String {
-        s.lastEvent == .lowBatteryCutout ? "Low-battery cutout" : "Thermal cutout"
+        s.lastEvent == .lowBatteryCutout
+            ? String(localized: "Low-battery cutout") : String(localized: "Thermal cutout")
     }
 }
 

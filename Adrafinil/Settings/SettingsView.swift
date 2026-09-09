@@ -505,7 +505,7 @@ private struct AgentInstallRow: View {
         .sheet(isPresented: $showCodexTrust, onDismiss: onChange) {
             CodexTrustView(
                 readStatus: { agentHooks.codexTrustStatus() },
-                primaryTitle: "Done",
+                primaryTitle: String(localized: "Done"),
                 onPrimary: { showCodexTrust = false },
             )
             .padding(Theme.Space.xl + Theme.Space.sm)

@@ -1,6 +1,105 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    " (it peaked at %lld°C)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（峰值 %lld°C）"
+          }
+        }
+      }
+    },
+    "%lld agents finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个 agent 已完成"
+          }
+        }
+      }
+    },
+    "%lld agents working": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个 agent 工作中"
+          }
+        }
+      }
+    },
+    "%lld holds": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个手动保持"
+          }
+        }
+      }
+    },
+    "%lld still working": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个仍在工作"
+          }
+        }
+      }
+    },
+    "%lld waiting on you": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个等待你确认"
+          }
+        }
+      }
+    },
+    "1 agent finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个 agent 已完成"
+          }
+        }
+      }
+    },
+    "1 agent working": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个 agent 工作中"
+          }
+        }
+      }
+    },
+    "1 hold": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个手动保持"
+          }
+        }
+      }
+    },
     "A background helper": {
       "localizations": {
         "zh-Hans": {
@@ -61,12 +160,67 @@
         }
       }
     },
+    "Adrafinil isn't set up": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adrafinil 尚未设置"
+          }
+        }
+      }
+    },
     "Adrafinil keeps your Mac awake — even with the lid closed — while your AI agents work.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "当你的 AI agent 工作时，Adrafinil 会让 Mac 保持唤醒——即使合上盖子。"
+          }
+        }
+      }
+    },
+    "Adrafinil kept your Mac awake": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adrafinil 让你的 Mac 保持唤醒"
+          }
+        }
+      }
+    },
+    "Adrafinil let it sleep to cool down%@. %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adrafinil 让 Mac 睡眠降温%@。%@"
+          }
+        }
+      }
+    },
+    "Adrafinil let your Mac sleep to save power. %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adrafinil 让 Mac 睡眠以节省电量。%@"
+          }
+        }
+      }
+    },
+    "Adrafinil needs your approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adrafinil 需要你的批准"
           }
         }
       }
@@ -101,6 +255,17 @@
         }
       }
     },
+    "Adrafinil's helper stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adrafinil 的辅助程序已停止"
+          }
+        }
+      }
+    },
     "Agent holds": {
       "localizations": {
         "zh-Hans": {
@@ -117,6 +282,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Agents"
+          }
+        }
+      }
+    },
+    "Agents can't keep your Mac awake until you resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在你恢复前，agent 无法让 Mac 保持唤醒"
           }
         }
       }
@@ -157,6 +333,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "后台 shell 任务"
+          }
+        }
+      }
+    },
+    "Battery was running low": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电量过低"
           }
         }
       }
@@ -211,6 +398,17 @@
         }
       }
     },
+    "Continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续"
+          }
+        }
+      }
+    },
     "Copy to clipboard": {
       "localizations": {
         "zh-Hans": {
@@ -237,6 +435,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法加载更新说明。"
+          }
+        }
+      }
+    },
+    "Couldn't repair Adrafinil automatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法自动修复 Adrafinil"
+          }
+        }
+      }
+    },
+    "Daemon not reachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辅助程序没有响应"
           }
         }
       }
@@ -371,6 +591,28 @@
         }
       }
     },
+    "Its background service isn't registered, so it can't keep your Mac awake. Repair it to register it again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台服务未注册，无法保持 Mac 唤醒。请修复以重新注册。"
+          }
+        }
+      }
+    },
+    "Its background service isn't responding. Repair it to re-register and bring it back.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台服务没有响应。请修复以重新注册并恢复。"
+          }
+        }
+      }
+    },
     "Keep awake": {
       "localizations": {
         "zh-Hans": {
@@ -407,6 +649,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅在 AI agent 工作时让 Mac 保持唤醒。"
+          }
+        }
+      }
+    },
+    "Keeping your Mac awake": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在保持唤醒"
+          }
+        }
+      }
+    },
+    "Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 agent 工作期间让 Mac 保持唤醒。已注册为登录服务，重启后自动就绪。"
           }
         }
       }
@@ -457,6 +721,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "立即让它睡眠"
+          }
+        }
+      }
+    },
+    "Lets your agents tell Adrafinil when they start and stop working.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 agent 告知 Adrafinil 它们何时开始、何时结束工作。"
           }
         }
       }
@@ -521,6 +796,39 @@
         }
       }
     },
+    "No agents active — close the lid and your Mac sleeps": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有活跃的 agent — 合上盖子，Mac 即会睡眠"
+          }
+        }
+      }
+    },
+    "No agents active — your Mac sleeps when idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有活跃的 agent — Mac 空闲时自动睡眠"
+          }
+        }
+      }
+    },
+    "No agents were running.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期间没有 agent 在运行。"
+          }
+        }
+      }
+    },
     "No supported agents detected.": {
       "localizations": {
         "zh-Hans": {
@@ -567,6 +875,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "打开「登录项」"
+          }
+        }
+      }
+    },
+    "Open Login Items & Extensions, switch Adrafinil off and remove it with the “–” button, then reopen the app — or try repairing once more.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开“登录项与扩展”，将 Adrafinil 关闭并用“–”按钮移除，然后重新打开 App — 或再试一次修复。"
           }
         }
       }
@@ -651,6 +970,17 @@
         }
       }
     },
+    "Paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暂停"
+          }
+        }
+      }
+    },
     "Pending update 9.9.9 (downloaded)": {
       "localizations": {
         "zh-Hans": {
@@ -721,6 +1051,17 @@
         }
       }
     },
+    "Re-registering its background services and checking they respond.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新注册后台服务并检查其响应。"
+          }
+        }
+      }
+    },
     "Read them on GitHub": {
       "localizations": {
         "zh-Hans": {
@@ -737,6 +1078,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新连接"
+          }
+        }
+      }
+    },
+    "Registering…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在注册…"
           }
         }
       }
@@ -761,6 +1113,39 @@
         }
       }
     },
+    "Repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复"
+          }
+        }
+      }
+    },
+    "Repair Again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次修复"
+          }
+        }
+      }
+    },
+    "Repairing Adrafinil…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在修复 Adrafinil…"
+          }
+        }
+      }
+    },
     "Reset": {
       "localizations": {
         "zh-Hans": {
@@ -777,6 +1162,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢复 Adrafinil——让 agent 重新保持 Mac 唤醒。"
+          }
+        }
+      }
+    },
+    "Retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
           }
         }
       }
@@ -861,6 +1257,17 @@
         }
       }
     },
+    "Sleeping normally": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正常睡眠中"
+          }
+        }
+      }
+    },
     "Some hooks need manual cleanup": {
       "localizations": {
         "zh-Hans": {
@@ -891,12 +1298,45 @@
         }
       }
     },
+    "The %@ command": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 命令"
+          }
+        }
+      }
+    },
+    "The controls you're looking at now — its window opens from the menu bar.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就是你眼前这些控件 — 窗口从菜单栏打开。"
+          }
+        }
+      }
+    },
     "Thermal cutout": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "温度过高自动停止"
+          }
+        }
+      }
+    },
+    "These apply when an agent is still working as you close the lid — a sound to confirm your Mac is staying awake, and a locked screen to keep it private.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当你合上盖子而 agent 仍在工作时生效 — 提示音确认 Mac 保持唤醒，锁定屏幕保护隐私。"
           }
         }
       }
@@ -927,6 +1367,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 Codex 中信任 Adrafinil"
+          }
+        }
+      }
+    },
+    "Turn Adrafinil on under “Allow in the Background” so it can keep your Mac awake while agents work. If it won't turn on, try Repair.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“允许在后台”下打开 Adrafinil，它才能在 agent 工作时保持 Mac 唤醒。打不开的话，请尝试修复。"
           }
         }
       }
@@ -1087,6 +1538,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作中…"
+          }
+        }
+      }
+    },
+    "Your Mac can sleep again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 已可正常睡眠"
+          }
+        }
+      }
+    },
+    "Your Mac was getting hot": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 太热了"
+          }
+        }
+      }
+    },
+    "Your Mac will stay awake": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 将保持唤醒"
           }
         }
       }
