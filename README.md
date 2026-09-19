@@ -10,7 +10,7 @@
 
 [![kagerou.glass](https://img.shields.io/badge/kagerou.glass-ff5fa6?style=for-the-badge&logo=safari&logoColor=white)](https://kagerou.glass/adrafinil/)
 [![@kageroumado](https://img.shields.io/badge/@kageroumado-76e6e0?style=for-the-badge&logo=x&logoColor=0d0a10)](https://x.com/kageroumado)
-[![macOS Tahoe](https://img.shields.io/badge/macOS-Tahoe_26%2B-0d0a10?style=for-the-badge&logo=apple&logoColor=white)](#requirements)
+[![macOS 26+](https://img.shields.io/badge/macOS-26%2B-0d0a10?style=for-the-badge&logo=apple&logoColor=white)](#requirements)
 
 <table>
   <tr>
@@ -71,13 +71,13 @@ moment that work finishes.
 
 ## Requirements
 
-- **macOS Tahoe 26.4.** That's what I build and test on; it likely runs on earlier 26.x, but I haven't tested it there. On macOS 15 Sequoia? [valentine](https://github.com/valentine) maintains a [backport fork](https://github.com/valentine/adrafinil).
+- **macOS 26+.** On macOS 15 Sequoia? [valentine](https://github.com/valentine) maintains a [backport fork](https://github.com/valentine/adrafinil).
 - **Xcode 26+** to build, with Swift 6 strict concurrency enabled.
 - Admin rights for the standard install (the privileged helper installs via `SMAppService`). A non-admin install path drops the CLI in `~/.local/bin` instead of `/usr/local/bin`.
 
 ## Download
 
-**[Download Adrafinil](https://github.com/kageroumado/adrafinil/releases/latest)** — a signed, notarized disk image. Open it, drag **Adrafinil** to Applications, and launch. The first launch asks for admin rights once to register the privileged helper. Requires macOS 26.4 or later.
+**[Download Adrafinil](https://github.com/kageroumado/adrafinil/releases/latest)** — a signed, notarized disk image. Open it, drag **Adrafinil** to Applications, and launch. The first launch asks for admin rights once to register the privileged helper. Requires macOS 26 or later.
 
 Or via Homebrew: `brew install --cask adrafinil` — the same DMG, straight from the official
 [Homebrew cask](https://formulae.brew.sh/cask/adrafinil).
