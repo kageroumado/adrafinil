@@ -10,6 +10,8 @@ struct MenuPopover: View {
     /// Host hardware, so idle copy avoids mentioning a lid on a desktop Mac. Defaults to the real
     /// device; previews/gallery inject a desktop to exercise the variant.
     var device: DeviceCapabilities = .current
+    /// Opens with the "Keep awake" duration picker showing, for the gallery and README captures.
+    var startsPickingDuration = false
 
     /// Whether the in-popover quit confirmation is showing. This replaces a modal `NSAlert`, which an
     /// `.accessory` (menu-bar) app can't reliably surface — the alert appears as an off-screen system
@@ -32,6 +34,11 @@ struct MenuPopover: View {
     /// Measured natural height of the assertion list, so its ScrollView (greedy by nature) can be
     /// pinned to hug the rows until `Theme.assertionListMaxHeight`, then scroll.
     @State private var agentListContentHeight: CGFloat = 0
+
+    private enum Layout {
+        /// The confirmation's red ✕ glyph, matching `FooterIconButton`'s.
+        static let quitGlyphSize: CGFloat = 12
+    }
 
     /// Preset hold durations, in minutes. Filtered to those within the user's cap before display.
     /// Longer holds are reachable via `∞` (the cap) or the custom stepper, so the row stays compact.
@@ -59,6 +66,14 @@ struct MenuPopover: View {
         // Recompute connected-agent hook health each time the popover opens (a few small file reads),
         // so a drifted agent surfaces here and not only in the Agents settings tab. Also refresh the
         // hold-duration cap so the picker reflects the user's current setting.
+        // Opened a turn after appearing, the way a click opens it: present while the window first
+        // becomes key, the picker spins SwiftUI's default key-view-loop setup indefinitely.
+        .task {
+            if startsPickingDuration {
+                try? await Task.sleep(for: .seconds(1))
+                pickingDuration = true
+            }
+        }
         .task {
             status.refreshAgentHealth()
             maxHoldHours = AdrafinilSettings.load().manualHoldMaxHours
@@ -69,7 +84,9 @@ struct MenuPopover: View {
     private func content(now: Date) -> some View {
         let live = liveStatus(now: now)
         let hero = heroState(live, now: now)
-        GlassEffectContainer(spacing: Theme.Space.md) {
+        // Zero blend distance: the footer's controls sit closer together than any nonzero
+        // spacing would allow before their glass starts pooling into one shape.
+        GlassEffectContainer(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 header
 
@@ -119,7 +136,7 @@ struct MenuPopover: View {
 
                 bottomBar(status.lastError == nil ? live : nil)
             }
-            .padding(Theme.Space.lg)
+            .popoverContainer()
         }
         // The quit confirmation grows out of the quit button as a warning overlay rather than swapping
         // the whole popover (which jumped its size). Pinned to the bottom and scaling from the ✕, so it
@@ -869,20 +886,19 @@ struct MenuPopover: View {
             // put and turns red.
             HStack(spacing: Theme.Space.sm) {
                 Spacer(minLength: 0)
-                GlassEffectContainer(spacing: Theme.Space.sm) {
-                    HStack(spacing: Theme.Space.sm) {
-                        Button { confirmingQuit = false } label: { utilityIcon("arrow.uturn.backward") }
-                            .buttonStyle(.glass)
-                            .help("Cancel")
-                        Button { NSApp.terminate(nil) } label: {
-                            utilityIcon("xmark").foregroundStyle(.white)
-                        }
-                        .buttonStyle(.glassProminent)
-                        .tint(.red)
-                        .help("Quit Adrafinil")
-                    }
-                    .controlSize(.large)
+                FooterIconButton("Cancel", systemImage: "arrow.uturn.backward") { confirmingQuit = false }
+                    .help("Cancel")
+                Button { NSApp.terminate(nil) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: Layout.quitGlyphSize, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: Theme.footerControlHeight, height: Theme.footerControlHeight)
+                        .contentShape(Circle())
+                        .glassEffect(.regular.tint(.red).interactive(), in: Circle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Quit Adrafinil")
+                .help("Quit Adrafinil")
             }
         }
         .padding(Theme.Space.lg)
@@ -900,20 +916,13 @@ struct MenuPopover: View {
         HStack(spacing: Theme.Space.sm) {
             if let s { metaLabels(s) }
             Spacer(minLength: 0)
-            GlassEffectContainer(spacing: Theme.Space.sm) {
-                HStack(spacing: Theme.Space.sm) {
-                    SettingsLink { utilityIcon("gearshape") }
-                        .help("Settings…")
-                    Button { confirmingQuit = true } label: {
-                        // `xmark` (quit the app), not `power` — a power glyph in a Mac context
-                        // reads as "shut down the Mac", the wrong mental model for closing the app.
-                        utilityIcon("xmark")
-                    }
-                    .help("Quit Adrafinil")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.large)
-            }
+            SettingsLink { Image(systemName: "gearshape").accessibilityLabel("Settings") }
+                .buttonStyle(.footerIcon)
+                .help("Settings…")
+            // `xmark` (quit the app), not `power` — a power glyph in a Mac context reads as
+            // "shut down the Mac", the wrong mental model for closing the app.
+            FooterIconButton("Quit Adrafinil", systemImage: "xmark") { confirmingQuit = true }
+                .help("Quit Adrafinil")
         }
     }
 
@@ -933,14 +942,6 @@ struct MenuPopover: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.leading, Theme.Space.xs)
-    }
-
-    /// A glyph for the bottom-bar utility buttons (Settings / Quit), pinned to a fixed square so
-    /// both `.glass` capsules come out the same size — otherwise each capsule hugs its glyph and
-    /// the taller `gearshape` makes its button visibly taller than `xmark`.
-    private func utilityIcon(_ name: String) -> some View {
-        Image(systemName: name)
-            .frame(width: 16, height: 16)
     }
 
     // MARK: - Derived state

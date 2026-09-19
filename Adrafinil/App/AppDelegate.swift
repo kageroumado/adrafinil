@@ -68,6 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Daemon-free UI gallery: launch with `-ADRAFINIL_GALLERY 1` to review every surface/state.
             if UserDefaults.standard.bool(forKey: "ADRAFINIL_GALLERY") {
                 presentGallery()
+            } else if let state = UserDefaults.standard.string(forKey: "ADRAFINIL_STAGE") {
+                ScreenshotStage.present(state)
             } else {
                 // Every DEBUG run opens the interactive control panel and skips the real first-run
                 // flow, so the UI can be exercised with mock scenarios. Flip "Use live daemon" in
