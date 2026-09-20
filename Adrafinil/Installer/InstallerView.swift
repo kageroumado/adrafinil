@@ -211,17 +211,17 @@ struct InstallerView: View {
             installItem(
                 icon: "menubar.dock.rectangle",
                 title: Text("A menu bar app"),
-                detail: "The controls you're looking at now — its window opens from the menu bar.",
+                detail: String(localized: "The controls you're looking at now — its window opens from the menu bar."),
             )
             installItem(
                 icon: "gearshape.2.fill",
                 title: Text("A background helper"),
-                detail: "Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart.",
+                detail: String(localized: "Keeps your Mac awake while agents work. Registered as a login service so it's ready after a restart."),
             )
             installItem(
                 icon: "terminal",
                 title: Text("The \(Text("adrafinil").monospaced()) command"),
-                detail: "Lets your agents tell Adrafinil when they start and stop working.",
+                detail: String(localized: "Lets your agents tell Adrafinil when they start and stop working."),
             )
         }
         .padding(Theme.Space.md)
@@ -248,9 +248,9 @@ struct InstallerView: View {
     }
 
     private var continueTitle: String {
-        if registering { return "Registering…" }
-        if needsApproval { return "Continue" }
-        return helperErrors.isEmpty ? "Continue" : "Retry"
+        if registering { return String(localized: "Registering…") }
+        if needsApproval { return String(localized: "Continue") }
+        return helperErrors.isEmpty ? String(localized: "Continue") : String(localized: "Retry")
     }
 
     /// Guidance shown when SMAppService registered the services but the user must approve them in
@@ -471,7 +471,7 @@ struct InstallerView: View {
     private var codexTrustStep: some View {
         CodexTrustView(
             readStatus: { agentHooks.codexTrustStatus() },
-            primaryTitle: "Continue",
+            primaryTitle: String(localized: "Continue"),
             onPrimary: { withAnimation(.smooth(duration: 0.4)) { step = .done } },
         )
         // The trust step can be the last thing a Codex user sees if they close the window here, so

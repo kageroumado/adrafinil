@@ -194,17 +194,33 @@ final class AwayNotifier {
         let active = s.stillActive.count
 
         var detail: [String] = []
-        if finished > 0 { detail.append("\(finished) \(finished == 1 ? "agent" : "agents") finished") }
-        if active > 0 { detail.append("\(active) still working") }
-        let tally = detail.isEmpty ? "No agents were running." : detail.joined(separator: " · ") + "."
+        if finished > 0 {
+            if finished == 1 {
+                detail.append(String(localized: "1 agent finished"))
+            } else {
+                detail.append(String(localized: "\(finished) agents finished"))
+            }
+        }
+        if active > 0 { detail.append(String(localized: "\(active) still working")) }
+        let tally = detail.isEmpty
+            ? String(localized: "No agents were running.")
+            : detail.joined(separator: " · ") + "."
 
         if s.thermalCutout {
-            let peak = s.peakTemperatureCelsius.map { " (it peaked at \(Int($0))°C)" } ?? ""
-            return ("Your Mac was getting hot", "Adrafinil let it sleep to cool down\(peak). \(tally)")
+            let peak = s.peakTemperatureCelsius.map {
+                String(localized: " (it peaked at \(Int($0))°C)")
+            } ?? ""
+            return (
+                String(localized: "Your Mac was getting hot"),
+                String(localized: "Adrafinil let it sleep to cool down\(peak). \(tally)")
+            )
         }
         if s.lowBatteryCutout {
-            return ("Battery was running low", "Adrafinil let your Mac sleep to save power. \(tally)")
+            return (
+                String(localized: "Battery was running low"),
+                String(localized: "Adrafinil let your Mac sleep to save power. \(tally)")
+            )
         }
-        return ("Adrafinil kept your Mac awake", tally)
+        return (String(localized: "Adrafinil kept your Mac awake"), tally)
     }
 }

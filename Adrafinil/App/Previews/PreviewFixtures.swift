@@ -183,7 +183,7 @@
 
         struct DaemonUnreachable: Error, LocalizedError {
             var errorDescription: String? {
-                "Daemon not reachable"
+                String(localized: "Daemon not reachable")
             }
         }
     }
