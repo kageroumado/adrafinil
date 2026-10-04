@@ -12,6 +12,8 @@
 [![@kageroumado](https://img.shields.io/badge/@kageroumado-76e6e0?style=for-the-badge&logo=x&logoColor=0d0a10)](https://x.com/kageroumado)
 [![macOS 26+](https://img.shields.io/badge/macOS-26%2B-0d0a10?style=for-the-badge&logo=apple&logoColor=white)](#requirements)
 
+<a href="https://kagerou.glass/get/adrafinil?from=readme"><img src=".github/download.svg" alt="Download Adrafinil for Mac" width="360" height="80"></a><br><sub>A signed, notarized disk image · free and open source (MIT)</sub>
+
 <table>
   <tr>
     <td align="center"><img src=".github/adrafinil-awake.png" alt="Awake — kept awake while an agent works, with Keep awake / Let it sleep controls" width="300"><br><sub><b>awake</b> ・ an agent is working</sub></td>
@@ -77,7 +79,7 @@ moment that work finishes.
 
 ## Download
 
-**[Download Adrafinil](https://github.com/kageroumado/adrafinil/releases/latest)** — a signed, notarized disk image. Open it, drag **Adrafinil** to Applications, and launch. The first launch asks for admin rights once to register the privileged helper. Requires macOS 26 or later.
+**[Download Adrafinil](https://kagerou.glass/get/adrafinil?from=readme)** — a signed, notarized disk image. Open it, drag **Adrafinil** to Applications, and launch. The first launch asks for admin rights once to register the privileged helper. Requires macOS 26 or later.
 
 Or via Homebrew: `brew install --cask adrafinil` — the same DMG, straight from the official
 [Homebrew cask](https://formulae.brew.sh/cask/adrafinil).
