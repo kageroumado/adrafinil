@@ -220,7 +220,7 @@ struct InstallerView: View {
             )
             installItem(
                 icon: "terminal",
-                title: Text("The \(Text("adrafinil").monospaced()) command"),
+                title: Text("The \(Text(verbatim: "adrafinil").monospaced()) command"),
                 detail: "Lets your agents tell Adrafinil when they start and stop working.",
             )
         }
@@ -229,7 +229,7 @@ struct InstallerView: View {
         .glassCard(cornerRadius: Theme.Radius.inner)
     }
 
-    private func installItem(icon: String, title: Text, detail: String) -> some View {
+    private func installItem(icon: String, title: Text, detail: LocalizedStringResource) -> some View {
         HStack(alignment: .top, spacing: Theme.Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 18))
@@ -248,9 +248,9 @@ struct InstallerView: View {
     }
 
     private var continueTitle: String {
-        if registering { return "Registering…" }
-        if needsApproval { return "Continue" }
-        return helperErrors.isEmpty ? "Continue" : "Retry"
+        if registering { return String(localized: "Registering…") }
+        if needsApproval { return String(localized: "Continue") }
+        return helperErrors.isEmpty ? String(localized: "Continue") : String(localized: "Retry")
     }
 
     /// Guidance shown when SMAppService registered the services but the user must approve them in
@@ -525,7 +525,7 @@ struct AgentRow: View {
     private var trailing: some View {
         switch phase {
         case nil:
-            Toggle("", isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
+            Toggle(kind.displayName, isOn: Binding(get: { isSelected }, set: { onToggle($0) }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -563,7 +563,7 @@ struct AgentRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: Theme.Space.md)
-            Toggle("", isOn: Binding(get: { isMCPSelected }, set: { onToggleMCP($0) }))
+            Toggle("Let it keep your Mac awake on its own", isOn: Binding(get: { isMCPSelected }, set: { onToggleMCP($0) }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)

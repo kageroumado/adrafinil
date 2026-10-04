@@ -54,13 +54,13 @@ final class AwayNotifier {
         let action: String
         switch reason {
         case .needsApproval:
-            body = "It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on."
+            body = String(localized: "It needs your approval to run in the background. Tap to open Login Items & Extensions, then turn Adrafinil on.")
             action = "loginItems"
         case .notRegistered:
-            body = "Its background service isn't set up. Tap to finish setting up Adrafinil."
+            body = String(localized: "Its background service isn't set up. Tap to finish setting up Adrafinil.")
             action = "setup"
         case .unreachable:
-            body = "Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it."
+            body = String(localized: "Its background service stopped responding and couldn't repair itself. Tap to open Login Items & Extensions, remove Adrafinil, then reopen it.")
             action = "loginItems"
         case .ok:
             return // not an outage — nothing to alert
@@ -69,7 +69,7 @@ final class AwayNotifier {
             guard await ensureAuthorized() else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = "Adrafinil isn't keeping your Mac awake"
+            content.title = String(localized: "Adrafinil isn't keeping your Mac awake")
             content.body = body
             content.userInfo = ["adrafinilAction": action]
             content.sound = .default
@@ -194,17 +194,25 @@ final class AwayNotifier {
         let active = s.stillActive.count
 
         var detail: [String] = []
-        if finished > 0 { detail.append("\(finished) \(finished == 1 ? "agent" : "agents") finished") }
-        if active > 0 { detail.append("\(active) still working") }
-        let tally = detail.isEmpty ? "No agents were running." : detail.joined(separator: " · ") + "."
+        if finished > 0 { detail.append(String(localized: "\(finished) agents finished")) }
+        if active > 0 { detail.append(String(localized: "\(active) still working")) }
+        let tally = detail.isEmpty
+            ? String(localized: "No agents were running.")
+            : String(localized: "\(detail.joined(separator: " · ")).", comment: "Ends the agent tally as a sentence")
 
         if s.thermalCutout {
-            let peak = s.peakTemperatureCelsius.map { " (it peaked at \(Int($0))°C)" } ?? ""
-            return ("Your Mac was getting hot", "Adrafinil let it sleep to cool down\(peak). \(tally)")
+            let title = String(localized: "Your Mac was getting hot")
+            guard let peak = s.peakTemperatureCelsius.map({ Int($0) }) else {
+                return (title, String(localized: "Adrafinil let it sleep to cool down. \(tally)"))
+            }
+            return (title, String(localized: "Adrafinil let it sleep to cool down (it peaked at \(peak)°C). \(tally)"))
         }
         if s.lowBatteryCutout {
-            return ("Battery was running low", "Adrafinil let your Mac sleep to save power. \(tally)")
+            return (
+                String(localized: "Battery was running low"),
+                String(localized: "Adrafinil let your Mac sleep to save power. \(tally)"),
+            )
         }
-        return ("Adrafinil kept your Mac awake", tally)
+        return (String(localized: "Adrafinil kept your Mac awake"), tally)
     }
 }

@@ -191,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ))
         hosting.sizingOptions = .standardBounds
         let window = NSWindow(contentViewController: hosting)
-        window.title = "What's New" // for the window menu / accessibility only
+        window.title = String(localized: "What's New") // for the window menu / accessibility only
         window.styleMask = [.titled, .closable]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -267,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Modern, chromeless look: keep the traffic lights but hide the title text and make the
         // titlebar transparent. Not full-size-content — that pushed the content under the titlebar
         // and left an odd gap on steps without a hero image.
-        window.title = "Adrafinil Setup" // for the window menu / accessibility only
+        window.title = String(localized: "Adrafinil Setup") // for the window menu / accessibility only
         window.styleMask = [.titled, .closable]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true

@@ -38,9 +38,9 @@ final class DaemonClient {
         case holdRefused(String)
         var errorDescription: String? {
             switch self {
-            case .noConnection: "Couldn't reach Adrafinil's background helper."
-            case .invalidResponse: "Adrafinil's background helper sent an unexpected response."
-            case .timedOut: "Adrafinil's background helper didn't respond in time."
+            case .noConnection: String(localized: "Couldn't reach Adrafinil's background helper.")
+            case .invalidResponse: String(localized: "Adrafinil's background helper sent an unexpected response.")
+            case .timedOut: String(localized: "Adrafinil's background helper didn't respond in time.")
             case let .holdRefused(reason): reason
             }
         }

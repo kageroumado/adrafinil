@@ -114,11 +114,11 @@ struct WhatsNewView: View {
     private var subtitle: String {
         switch context {
         case .justUpdated:
-            "Adrafinil updated itself at a quiet moment — here's what changed."
+            String(localized: "Adrafinil updated itself at a quiet moment — here's what changed.")
         case .updateAvailable(autoInstall: true):
-            "It will install itself when your Mac is idle and no agents are working."
+            String(localized: "It will install itself when your Mac is idle and no agents are working.")
         case .updateAvailable(autoInstall: false):
-            "A newer version of Adrafinil is ready when you are."
+            String(localized: "A newer version of Adrafinil is ready when you are.")
         }
     }
 
@@ -209,7 +209,7 @@ struct ReleaseNotesText: View {
                         .padding(.top, Theme.Space.xs)
                 case let .bullet(paragraphs):
                     HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
-                        Text("•").foregroundStyle(.secondary)
+                        Text(verbatim: "•").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: Theme.Space.xs) {
                             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, p in
                                 Text(inline(p))

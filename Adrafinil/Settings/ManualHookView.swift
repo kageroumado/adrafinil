@@ -15,11 +15,17 @@ struct ManualHookView: View {
     @State private var name = ManualHookSnippet.fallbackSlug
     @State private var mode: Mode = .hooks
 
-    private enum Mode: String, CaseIterable, Identifiable {
-        case hooks = "It has hooks / events"
-        case wrap = "It has no hooks — wrap the command"
-        var id: String {
-            rawValue
+    private enum Mode: CaseIterable, Identifiable {
+        case hooks
+        case wrap
+        var id: Self {
+            self
+        }
+        var title: LocalizedStringResource {
+            switch self {
+            case .hooks: "It has hooks / events"
+            case .wrap: "It has no hooks — wrap the command"
+            }
         }
     }
 
@@ -31,7 +37,7 @@ struct ManualHookView: View {
         Section {
             nameField
             Picker("Integration style", selection: $mode) {
-                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(Mode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -52,7 +58,7 @@ struct ManualHookView: View {
     private var nameField: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             LabeledContent("Agent name") {
-                TextField("my-agent", text: $name)
+                TextField(ManualHookSnippet.fallbackSlug, text: $name)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 220)
             }
@@ -68,7 +74,7 @@ struct ManualHookView: View {
 
     private var hookSnippets: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("Add these to your agent's start and stop hooks. Replace \(Text("$SESSION_ID").font(.system(.caption, design: .monospaced))) with your agent's session-id variable, so each turn's acquire and release share a key.")
+            Text("Add these to your agent's start and stop hooks. Replace \(Text(verbatim: "$SESSION_ID").font(.system(.caption, design: .monospaced))) with your agent's session-id variable, so each turn's acquire and release share a key.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -91,7 +97,7 @@ struct ManualHookView: View {
     // MARK: - Caveat
 
     private var caveat: some View {
-        Text("Custom agents aren't auto-detected or watched, so pair every acquire with a reliable release — the idle-release timeout and each hold's time limit are the only safety net if one is missed. Snippets assume the \(Text("adrafinil").font(.system(.caption, design: .monospaced))) command is on your PATH (\(Text(AdrafinilConstants.cliInstallPath).font(.system(.caption, design: .monospaced))), or \(Text("~/.local/bin/adrafinil").font(.system(.caption, design: .monospaced)))).")
+        Text("Custom agents aren't auto-detected or watched, so pair every acquire with a reliable release — the idle-release timeout and each hold's time limit are the only safety net if one is missed. Snippets assume the \(Text(verbatim: "adrafinil").font(.system(.caption, design: .monospaced))) command is on your PATH (\(Text(AdrafinilConstants.cliInstallPath).font(.system(.caption, design: .monospaced))), or \(Text(verbatim: "~/.local/bin/adrafinil").font(.system(.caption, design: .monospaced)))).")
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -102,7 +108,7 @@ struct ManualHookView: View {
 /// A quaternary inset (not `glassCard`) reads as a code block and sits right inside the grouped
 /// Form's own material rather than stacking glass on glass.
 private struct SnippetRow: View {
-    let label: String
+    let label: LocalizedStringResource
     let code: String
 
     var body: some View {

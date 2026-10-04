@@ -1,22 +1,24 @@
 import Foundation
 
+/// Locale-aware duration styles for the popover: `1h 30m` in English, `1小时30分钟` in Chinese.
+enum DurationFormat {
+    /// Hours and minutes in the narrowest form the locale offers; zero-valued units drop out.
+    static let narrow = Duration.UnitsFormatStyle(allowedUnits: [.hours, .minutes], width: .narrow)
+}
+
 extension TimeInterval {
-    /// Compact "Xm Ys" / "Ys" rendering of a duration, e.g. `90` → `"1m 30s"`, `42` → `"42s"`.
-    var compactDurationString: String {
+    /// How long an agent has been working: `1m 30s` / `42s`, past an hour `1h 5m`.
+    var elapsedString: String {
         let total = Int(self)
-        let minutes = total / 60
-        let seconds = total % 60
-        return minutes == 0 ? "\(seconds)s" : "\(minutes)m \(seconds)s"
+        let units: Set<Duration.UnitsFormatStyle.Unit> = total < 3_600 ? [.minutes, .seconds] : [.hours, .minutes]
+        return Duration.seconds(total).formatted(.units(allowed: units, width: .narrow))
     }
 
-    /// Coarse "time left" rendering for a hold countdown: `"1h 5m left"`, `"23m left"`, or
-    /// `"<1m left"` once under a minute. Minute granularity — a per-second tick would be noise.
+    /// Coarse time left on a countdown: `1h 59m`, `23m`, or `<1m` under a minute. Minute
+    /// granularity — a per-second tick would be noise.
     var remainingString: String {
-        let total = max(0, Int(rounded()))
-        let hours = total / 3_600
-        let minutes = (total % 3_600) / 60
-        if hours > 0 { return minutes > 0 ? "\(hours)h \(minutes)m left" : "\(hours)h left" }
-        if minutes > 0 { return "\(minutes)m left" }
-        return "<1m left"
+        let minutes = Int(self) / 60
+        guard minutes > 0 else { return String(localized: "<1m", comment: "Less than one minute left") }
+        return Duration.seconds(minutes * 60).formatted(DurationFormat.narrow)
     }
 }

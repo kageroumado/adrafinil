@@ -82,6 +82,10 @@ moment that work finishes.
 Or via Homebrew: `brew install --cask adrafinil` — the same DMG, straight from the official
 [Homebrew cask](https://formulae.brew.sh/cask/adrafinil).
 
+Installing from the terminal (`curl` + `cp`) instead? Strip the downloaded bundle's extended attributes with `xattr -cr /Applications/Adrafinil.app` before the first launch. A copy that keeps the `com.apple.provenance` attribute fails to register its background service, without showing an error. Dragging from the DMG in Finder needs no extra step.
+
+Adrafinil is available in English and Simplified Chinese, and follows your macOS language.
+
 Prefer to build it yourself? See [Building](#building).
 
 ## Building

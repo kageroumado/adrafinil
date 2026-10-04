@@ -188,20 +188,23 @@ struct MenuPopover: View {
     private func statusCard(_ s: DaemonStatus, state: HeroState, now _: Date) -> some View {
         let (tint, title, subtitle, dimmed): (Color, String, String, Bool) = switch state {
         case .awake:
-            (Theme.awake, "Keeping your Mac awake", awakeSubtitle(s), false)
+            (Theme.awake, String(localized: "Keeping your Mac awake"), awakeSubtitle(s), false)
         case .cutout:
-            (Theme.cutout, cutoutTitle(s), "Your Mac can sleep again", false)
+            (Theme.cutout, cutoutTitle(s), String(localized: "Your Mac can sleep again"), false)
         case .idle:
             (
                 .secondary,
-                "Sleeping normally",
+                String(localized: "Sleeping normally"),
                 device.hasLid
-                    ? "No agents active — close the lid and your Mac sleeps"
-                    : "No agents active — your Mac sleeps when idle",
+                    ? String(localized: "No agents active — close the lid and your Mac sleeps")
+                    : String(localized: "No agents active — your Mac sleeps when idle"),
                 true,
             )
         case .paused:
-            (.secondary, "Paused", "Agents can't keep your Mac awake until you resume", false)
+            (
+                .secondary, String(localized: "Paused"),
+                String(localized: "Agents can't keep your Mac awake until you resume"), false,
+            )
         }
         return heroCard(tint: tint, title: title, subtitle: subtitle, dimmed: dimmed) {
             if state == .cutout {
@@ -236,10 +239,10 @@ struct MenuPopover: View {
         let waiting = s.assertions.count(where: { $0.origin != .manual && $0.waitingFor != nil })
         let agents = s.assertions.count - holds - waiting
         var parts: [String] = []
-        if agents > 0 { parts.append("\(agents) \(agents == 1 ? "agent" : "agents") working") }
-        if waiting > 0 { parts.append("\(waiting) waiting on you") }
-        if holds > 0 { parts.append("\(holds) \(holds == 1 ? "hold" : "holds")") }
-        return parts.isEmpty ? "Your Mac will stay awake" : parts.joined(separator: " · ")
+        if agents > 0 { parts.append(String(localized: "\(agents) agents working")) }
+        if waiting > 0 { parts.append(String(localized: "\(waiting) waiting on you")) }
+        if holds > 0 { parts.append(String(localized: "\(holds) holds")) }
+        return parts.isEmpty ? String(localized: "Your Mac will stay awake") : parts.joined(separator: " · ")
     }
 
     private func heroCard(
@@ -345,11 +348,11 @@ struct MenuPopover: View {
     /// fix(es). `busy` swaps the primary action for an in-progress spinner. Tinted as a warning since
     /// the Mac is silently no longer being kept awake.
     private func serviceActionCard(
-        title: String,
-        message: String,
-        primaryTitle: String? = nil,
+        title: LocalizedStringResource,
+        message: LocalizedStringResource,
+        primaryTitle: LocalizedStringResource? = nil,
         primaryAction: (() -> Void)? = nil,
-        secondaryTitle: String? = nil,
+        secondaryTitle: LocalizedStringResource? = nil,
         secondaryAction: (() -> Void)? = nil,
         busy: Bool = false,
     ) -> some View {
@@ -374,7 +377,7 @@ struct MenuPopover: View {
             } else if primaryTitle != nil || secondaryTitle != nil {
                 HStack(spacing: Theme.Space.sm) {
                     if let secondaryTitle, let secondaryAction {
-                        Button(secondaryTitle, action: secondaryAction)
+                        Button(action: secondaryAction) { Text(secondaryTitle) }
                             .buttonStyle(.glass)
                             .controlSize(.large)
                             .frame(maxWidth: .infinity)
@@ -430,10 +433,11 @@ struct MenuPopover: View {
     private func agentDriftCard(_ agents: [AgentKind]) -> some View {
         let single = agents.count == 1
         let title = single
-            ? "\(agents[0].displayName) may not be tracked"
-            : "\(agents.count) agents may not be tracked"
-        let subject = single ? "Its" : "Their"
-        let verb = single ? "it works" : "they work"
+            ? String(localized: "\(agents[0].displayName) may not be tracked")
+            : String(localized: "\(agents.count) agents may not be tracked")
+        let detail = single
+            ? String(localized: "Its Adrafinil hook changed, so your Mac might not stay awake while it works. Open Settings to reconnect.")
+            : String(localized: "Their Adrafinil hooks changed, so your Mac might not stay awake while they work. Open Settings to reconnect.")
         return SettingsLink {
             HStack(spacing: Theme.Space.md) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -443,7 +447,7 @@ struct MenuPopover: View {
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(.body, design: .rounded).weight(.semibold))
-                    Text("\(subject) Adrafinil hook changed, so your Mac might not stay awake while \(verb). Open Settings to reconnect.")
+                    Text(detail)
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -586,7 +590,7 @@ struct MenuPopover: View {
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(warnings, id: \.self) { warning in
-                    Text(warning)
+                    Text(DaemonWarning.localized(warning))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -645,7 +649,7 @@ struct MenuPopover: View {
     @ViewBuilder
     private func keepAwakeButton(prominent: Bool) -> some View {
         let action = { withAnimation(.smooth(duration: 0.3)) { openPicker() } }
-        let help = "Keep your Mac awake for a set time"
+        let help: LocalizedStringKey = "Keep your Mac awake for a set time"
         if prominent {
             Button(action: action) {
                 Text("Keep awake").frame(maxWidth: .infinity).foregroundStyle(Theme.onAwake)
@@ -722,7 +726,7 @@ struct MenuPopover: View {
             .disabled(customMinutes <= minCustomMinutes)
 
             // Editable: type a duration like 1h 30m. ± steps it by 15 minutes.
-            TextField("", text: $customText)
+            TextField("Custom duration", text: $customText)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.center)
                 .font(.system(.callout, design: .rounded).weight(.semibold).monospacedDigit())
@@ -767,19 +771,22 @@ struct MenuPopover: View {
     }
 
     private func durationPillText(_ minutes: Int) -> AttributedString {
-        let isHours = minutes % 60 == 0
-        var number = AttributedString(isHours ? "\(minutes / 60)" : "\(minutes)")
-        number.font = .system(size: 14, weight: .semibold, design: .rounded)
-        var unit = AttributedString(isHours ? "h" : "m")
-        unit.font = .system(size: 9.5, weight: .semibold, design: .rounded)
-        return number + unit
+        var text: AttributedString = Duration.seconds(minutes * 60).formatted(DurationFormat.narrow.attributed)
+        text.font = Font.system(size: 14, weight: .semibold, design: .rounded)
+        let unitRanges = text.runs.compactMap { run -> Range<AttributedString.Index>? in
+            run.measurement == .unit ? run.range : nil
+        }
+        for range in unitRanges {
+            text[range].font = Font.system(size: 9.5, weight: .semibold, design: .rounded)
+        }
+        return text
     }
 
     /// A fixed-width, background-less icon control. `.secondary` for the quiet meta-actions
     /// (cancel · back · custom); `Theme.awake` for the orange play. Fixed width keeps the leading and
     /// trailing slots put across modes.
     private func pickerIcon(
-        _ system: String, tint: Color = .secondary, help: String, action: @escaping () -> Void,
+        _ system: String, tint: Color = .secondary, help: LocalizedStringKey, action: @escaping () -> Void,
     ) -> some View {
         Button(action: action) {
             Image(systemName: system)
@@ -886,7 +893,7 @@ struct MenuPopover: View {
             // put and turns red.
             HStack(spacing: Theme.Space.sm) {
                 Spacer(minLength: 0)
-                FooterIconButton("Cancel", systemImage: "arrow.uturn.backward") { confirmingQuit = false }
+                FooterIconButton(String(localized: "Cancel"), systemImage: "arrow.uturn.backward") { confirmingQuit = false }
                     .help("Cancel")
                 Button { NSApp.terminate(nil) } label: {
                     Image(systemName: "xmark")
@@ -921,7 +928,7 @@ struct MenuPopover: View {
                 .help("Settings…")
             // `xmark` (quit the app), not `power` — a power glyph in a Mac context reads as
             // "shut down the Mac", the wrong mental model for closing the app.
-            FooterIconButton("Quit Adrafinil", systemImage: "xmark") { confirmingQuit = true }
+            FooterIconButton(String(localized: "Quit Adrafinil"), systemImage: "xmark") { confirmingQuit = true }
                 .help("Quit Adrafinil")
         }
     }
@@ -934,9 +941,13 @@ struct MenuPopover: View {
                 Label("Lid closed", systemImage: "laptopcomputer.slash")
             }
             if let temp = s.cpuTemperatureCelsius {
-                if s.lidClosed { Text("·").foregroundStyle(.tertiary) }
-                Label("\(Int(temp))°C", systemImage: "thermometer.medium")
-                    .foregroundStyle(temp >= 80 ? Theme.cutout : .secondary)
+                if s.lidClosed { Text(verbatim: "·").foregroundStyle(.tertiary) }
+                Label {
+                    Text(verbatim: "\(Int(temp))°C")
+                } icon: {
+                    Image(systemName: "thermometer.medium")
+                }
+                .foregroundStyle(temp >= 80 ? Theme.cutout : .secondary)
             }
         }
         .font(.caption)
@@ -962,7 +973,7 @@ struct MenuPopover: View {
         s.lastEvent == .lowBatteryCutout ? "battery.25percent" : "exclamationmark.triangle.fill"
     }
     private func cutoutTitle(_ s: DaemonStatus) -> String {
-        s.lastEvent == .lowBatteryCutout ? "Low-battery cutout" : "Thermal cutout"
+        s.lastEvent == .lowBatteryCutout ? String(localized: "Low-battery cutout") : String(localized: "Thermal cutout")
     }
 }
 
@@ -993,7 +1004,8 @@ struct AssertionRow: View {
     }
 
     private var displayTool: String {
-        AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
+        if assertion.tool == AppStatusModel.guiHoldTool { return String(localized: "Kept awake by you") }
+        return AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 
     /// The owning agent has stopped mid-turn and is waiting for the user (see
@@ -1010,13 +1022,9 @@ struct AssertionRow: View {
     /// until the Mac may sleep" is the number that matters then.
     private var trailingText: String {
         if isHold || isWaitingOnUser, let exp = assertion.expiresAt {
-            let remaining = max(0, Int(exp.timeIntervalSince(now)))
-            let hours = remaining / 3_600, minutes = (remaining % 3_600) / 60
-            if hours > 0 { return "\(hours)h \(minutes)m" }
-            if minutes > 0 { return "\(minutes)m" }
-            return "<1m"
+            return exp.timeIntervalSince(now).remainingString
         }
-        return now.timeIntervalSince(assertion.acquiredAt).compactDurationString
+        return now.timeIntervalSince(assertion.acquiredAt).elapsedString
     }
 
     var body: some View {
@@ -1058,7 +1066,9 @@ struct AssertionRow: View {
     /// the wait is the row's current truth, the reason its history.
     private var waitingLine: String? {
         guard let label = assertion.waitingFor else { return nil }
-        return label == "input needed" ? "Waiting for your answer" : "Waiting for you — \(label)"
+        return label == "input needed"
+            ? String(localized: "Waiting for your answer")
+            : String(localized: "Waiting for you — \(label)")
     }
 
     /// One filled dot for every row — holds and agents alike. A single glyph keeps every mark on the

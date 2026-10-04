@@ -143,14 +143,14 @@ final class SilentUpdates {
     func updateNow() async {
         guard manualPhase != .working else { return }
         #if DEBUG
-            manualPhase = .failed("In-place updating is disabled in development builds.")
+            manualPhase = .failed(String(localized: "In-place updating is disabled in development builds."))
         #else
             manualPhase = .working
 
             // Installs the DMG the automatic path already holds, or downloads and verifies one
             // now — `false` means there was nothing newer or the download couldn't be prepared.
             guard await github.updateNow() else {
-                manualPhase = .failed("Couldn't download the update. Check your connection, or get it from the releases page.")
+                manualPhase = .failed(String(localized: "Couldn't download the update. Check your connection, or get it from the releases page."))
                 return
             }
 
@@ -158,7 +158,7 @@ final class SilentUpdates {
             // after the install call returns — wait it out before declaring failure.
             try? await Task.sleep(for: .seconds(4))
             refresh()
-            manualPhase = .failed("The update couldn't be installed. Try again, or get it from the releases page.")
+            manualPhase = .failed(String(localized: "The update couldn't be installed. Try again, or get it from the releases page."))
         #endif
     }
 

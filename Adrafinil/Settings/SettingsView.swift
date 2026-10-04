@@ -119,8 +119,9 @@ struct GeneralSettingsTab: View {
     /// then, and this is the one place that says so.
     @State private var notificationsDenied = false
 
+    /// System sounds keep their own names, which macOS shows untranslated.
     private let chimeOptions: [(id: String, label: String)] = [
-        ("default", "Adrafinil chime"),
+        ("default", String(localized: "Adrafinil chime")),
         ("Submarine", "Submarine"),
         ("Ping", "Ping"),
         ("Tink", "Tink"),
@@ -130,17 +131,17 @@ struct GeneralSettingsTab: View {
     /// Pre-sleep cue options: same system sounds, plus a per-cause "Off" and the cause's own
     /// synthesized cue as the default.
     private let sleepCueOptions: [(id: String, label: String)] = [
-        ("default", "Adrafinil cue"),
+        ("default", String(localized: "Adrafinil cue")),
         ("Submarine", "Submarine"),
         ("Ping", "Ping"),
         ("Tink", "Tink"),
         ("Glass", "Glass"),
-        ("off", "Off"),
+        ("off", String(localized: "Off")),
     ]
 
     /// One per-cause row of the "When sleep resumes" section: a sound picker plus a preview
     /// button, previewing on change like the lid-close chime row.
-    private func sleepCueRow(_ title: String, selection: Binding<String>, cue: ChimeSynth.Cue) -> some View {
+    private func sleepCueRow(_ title: LocalizedStringKey, selection: Binding<String>, cue: ChimeSynth.Cue) -> some View {
         LabeledContent(title) {
             HStack(spacing: Theme.Space.sm) {
                 Picker(title, selection: selection) {
@@ -347,17 +348,17 @@ struct GeneralSettingsTab: View {
     private var updatesFooter: String {
         if settings.autoInstallUpdates {
             if let pending = installer.pendingVersion {
-                return "Version \(pending) is downloaded and verified — it installs at a quiet moment, when your Mac is idle and no agents are being kept awake."
+                return String(localized: "Version \(pending) is downloaded and verified — it installs at a quiet moment, when your Mac is idle and no agents are being kept awake.")
             }
-            return "Adrafinil checks GitHub Releases once a day and verifies every download's code signature. Updates install themselves when your Mac is idle and no agents are being kept awake — or right away with Update Now."
+            return String(localized: "Adrafinil checks GitHub Releases once a day and verifies every download's code signature. Updates install themselves when your Mac is idle and no agents are being kept awake — or right away with Update Now.")
         }
-        return "Adrafinil checks GitHub Releases once a day and tells you here and in the menu when a new version is out. Nothing downloads or installs until you choose Update Now."
+        return String(localized: "Adrafinil checks GitHub Releases once a day and tells you here and in the menu when a new version is out. Nothing downloads or installs until you choose Update Now.")
     }
 
     private var checkButtonTitle: String {
-        if installer.isChecking { return "Checking for updates…" }
-        if installer.checkedUpToDate { return "You're up to date" }
-        return "Check for updates"
+        if installer.isChecking { return String(localized: "Checking for updates…") }
+        if installer.checkedUpToDate { return String(localized: "You're up to date") }
+        return String(localized: "Check for updates")
     }
 
     private func performUninstall() {
@@ -481,7 +482,7 @@ private struct AgentInstallRow: View {
                 .buttonStyle(.borderless)
                 .help("Show \(model.kind.displayName)'s settings file in Finder")
 
-                Toggle("", isOn: Binding(
+                Toggle(model.kind.displayName, isOn: Binding(
                     get: { isInstalled },
                     set: { newValue in
                         if newValue {
@@ -573,7 +574,7 @@ private struct AgentInstallRow: View {
 
             Spacer(minLength: Theme.Space.md)
 
-            Toggle("", isOn: Binding(
+            Toggle("Let it keep your Mac awake on its own", isOn: Binding(
                 get: { mcpInstalled },
                 set: { newValue in
                     if newValue {
@@ -598,13 +599,13 @@ private struct AgentInstallRow: View {
     private var stateChip: some View {
         switch model.installState {
         case .installed:
-            StateChip(text: "Connected", systemImage: "checkmark.circle.fill", tint: Theme.ok)
+            StateChip(text: String(localized: "Connected"), systemImage: "checkmark.circle.fill", tint: Theme.ok)
         case .notInstalled:
             EmptyView()
         case .modifiedExternally:
-            StateChip(text: "Needs reconnect", systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
+            StateChip(text: String(localized: "Needs reconnect"), systemImage: "exclamationmark.triangle.fill", tint: Theme.warn)
         case .configUnreadable:
-            StateChip(text: "Config unreadable", systemImage: "exclamationmark.octagon.fill", tint: Theme.warn)
+            StateChip(text: String(localized: "Config unreadable"), systemImage: "exclamationmark.octagon.fill", tint: Theme.warn)
         }
     }
 }
@@ -626,7 +627,7 @@ struct SafetySettingsTab: View {
                     HStack(spacing: Theme.Space.sm) {
                         Slider(value: $settings.thermalThresholdCelsius, in: 70 ... 95, step: 1)
                             .frame(maxWidth: 180)
-                        Text("\(Int(settings.thermalThresholdCelsius))°C")
+                        Text(verbatim: "\(Int(settings.thermalThresholdCelsius))°C")
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
                     }
@@ -648,7 +649,7 @@ struct SafetySettingsTab: View {
                                 set: { settings.lowBatteryThresholdPercent = Int($0) },
                             ), in: 5 ... 50, step: 1)
                                 .frame(maxWidth: 180)
-                            Text("\(settings.lowBatteryThresholdPercent)%")
+                            Text(Double(settings.lowBatteryThresholdPercent) / 100, format: .percent)
                                 .monospacedDigit()
                                 .frame(width: 44, alignment: .trailing)
                         }
@@ -681,7 +682,8 @@ struct SafetySettingsTab: View {
                 Stepper(value: $settings.agentWaitingGraceMinutes, in: 1 ... 60) {
                     LabeledContent(
                         "Grace period",
-                        value: "\(settings.agentWaitingGraceMinutes) min",
+                        value: Duration.seconds(settings.agentWaitingGraceMinutes * 60)
+                            .formatted(.units(allowed: [.minutes], width: .abbreviated)),
                     )
                 }
                 .disabled(settings.agentWaitingPolicy != .grace)
@@ -716,7 +718,8 @@ struct SafetySettingsTab: View {
                 Stepper(value: $settings.manualHoldMaxHours, in: 1 ... 12, step: 1) {
                     LabeledContent(
                         "Longest a hold can last",
-                        value: "\(Int(settings.manualHoldMaxHours)) \(Int(settings.manualHoldMaxHours) == 1 ? "hour" : "hours")",
+                        value: Duration.seconds(Int(settings.manualHoldMaxHours) * 3_600)
+                            .formatted(.units(allowed: [.hours], width: .wide)),
                     )
                 }
                 .disabled(!settings.agentHoldsEnabled)
@@ -762,7 +765,7 @@ struct AboutTab: View {
                 .frame(width: 96, height: 56)
 
             VStack(spacing: Theme.Space.xs) {
-                Text("Adrafinil").font(.system(.title, design: .rounded).weight(.semibold))
+                Text(verbatim: "Adrafinil").font(.system(.title, design: .rounded).weight(.semibold))
                 Text("Version \(appVersion)").font(.callout).foregroundStyle(.secondary)
             }
 
@@ -771,10 +774,9 @@ struct AboutTab: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 340)
 
-            Link(
-                "github.com/kageroumado/adrafinil",
-                destination: URL(string: "https://github.com/kageroumado/adrafinil")!,
-            )
+            Link(destination: URL(string: "https://github.com/kageroumado/adrafinil")!) {
+                Text(verbatim: "github.com/kageroumado/adrafinil")
+            }
             .font(.callout)
 
             Spacer()
