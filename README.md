@@ -73,7 +73,7 @@ moment that work finishes.
 
 ## Requirements
 
-- **macOS 26+.** On macOS 15 Sequoia? [valentine](https://github.com/valentine) maintains a [backport fork](https://github.com/valentine/adrafinil).
+- **macOS 26.4 or later**, tested on macOS 26 and 27. On macOS 15 Sequoia? [valentine](https://github.com/valentine) maintains a [backport fork](https://github.com/valentine/adrafinil).
 - **Xcode 26+** to build, with Swift 6 strict concurrency enabled.
 - Admin rights for the standard install (the privileged helper installs via `SMAppService`). A non-admin install path drops the CLI in `~/.local/bin` instead of `/usr/local/bin`.
 
