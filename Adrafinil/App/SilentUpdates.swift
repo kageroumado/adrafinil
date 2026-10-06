@@ -150,7 +150,14 @@ final class SilentUpdates {
             // Installs the DMG the automatic path already holds, or downloads and verifies one
             // now — `false` means there was nothing newer or the download couldn't be prepared.
             guard await github.updateNow() else {
-                manualPhase = .failed(String(localized: "Couldn't download the update. Check your connection, or get it from the releases page."))
+                // `availableVersion` is set only by a check that reached GitHub and found an
+                // installable DMG; without it there is nothing to download, whatever the network.
+                manualPhase = .failed(
+                    github.availableVersion == nil
+                        ? String(localized: "Couldn't find a download for this update. Get it from the releases page.")
+                        : String(localized: "Couldn't download the update. Check your connection, or get it from the releases page."),
+                )
+                refresh()
                 return
             }
 

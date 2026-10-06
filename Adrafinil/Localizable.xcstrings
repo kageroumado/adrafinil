@@ -847,6 +847,16 @@
         }
       }
     },
+    "Couldn't find a download for this update. Get it from the releases page." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "找不到此更新的下载文件。请从发布页面获取。"
+          }
+        }
+      }
+    },
     "Couldn't load the release notes." : {
       "localizations" : {
         "zh-Hans" : {
