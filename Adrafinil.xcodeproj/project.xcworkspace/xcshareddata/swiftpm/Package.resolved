@@ -1,0 +1,42 @@
+{
+  "originHash" : "0577cf64a5deabea81538b73e1ffb259e3f6ab4e26fa8ec0c3262db10dda851c",
+  "pins" : [
+    {
+      "identity" : "appupdater",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mxcl/AppUpdater",
+      "state" : {
+        "revision" : "a2b89896ebc6c5194b67d38a0481b13b3a311901",
+        "version" : "4.2.1"
+      }
+    },
+    {
+      "identity" : "propofol",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kageroumado/propofol.git",
+      "state" : {
+        "revision" : "eac9055ca7373fa94aa5b9b501f3a83b3dc1ef80",
+        "version" : "0.2.1"
+      }
+    },
+    {
+      "identity" : "tiptoe",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/artginzburg/Tiptoe",
+      "state" : {
+        "revision" : "a48f105192e28ac2b16ae01d9de16dbb5ffc39c3",
+        "version" : "1.1.0"
+      }
+    },
+    {
+      "identity" : "version",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mxcl/Version",
+      "state" : {
+        "revision" : "3043fcd2a50375db76d89ff206a612471833d1c2",
+        "version" : "2.2.1"
+      }
+    }
+  ],
+  "version" : 3
+}
