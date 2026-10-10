@@ -1,9 +1,9 @@
 import Foundation
 
 /// Installs (or removes) Adrafinil's opt-in background-shell hook: a `PreToolUse` hook matched to the
-/// `Bash` tool that runs `acquire --if-background`, placing a TTL-bounded hold whenever the agent
-/// launches a `run_in_background: true` command (see `BackgroundBashHold` for why this is the only
-/// signal such a command gives us).
+/// `Bash` and `Monitor` tools that runs `acquire --if-background`, placing a TTL-bounded hold whenever
+/// the agent launches a `run_in_background: true` command or a Monitor (see `BackgroundBashHold` for
+/// why this is the only signal either gives us).
 ///
 /// **Why this is a separate install path — the MCP sibling, not part of the core hook shape.** Like
 /// the MCP server registration, this is a distinct, default-off capability toggled on its own. Folding
@@ -21,13 +21,13 @@ import Foundation
 /// (`LiveAgentHooksProvider.install`).
 ///
 /// ```json
-/// { "hooks": { "PreToolUse": [ { "matcher": "Bash",
+/// { "hooks": { "PreToolUse": [ { "matcher": "Bash|Monitor",
 ///     "hooks": [ { "type": "command", "command": "adrafinil acquire … --if-background --ttl …", "_adrafinil": true } ] } ] } }
 /// ```
 struct BackgroundBashHookShape {
     let configPath: String
-    /// The `PreToolUse` matcher narrowing the hook to the shell tool (Claude Code matches it against
-    /// `tool_name`, so `"Bash"` fires only for the Bash tool).
+    /// The `PreToolUse` matcher narrowing the hook to the tools that start background work (Claude
+    /// Code matches it as a regex against `tool_name`, so `"Bash|Monitor"` fires for those two only).
     let matcher: String
     /// The `acquire … --if-background --ttl …` command the handler runs.
     let command: String
@@ -74,8 +74,10 @@ struct BackgroundBashHookShape {
         case let .object(dict):
             guard let hooks = dict["hooks"] as? [String: Any],
                   let arr = hooks[Self.event] as? [[String: Any]],
-                  let installed = Self.command(in: arr) else { return .notInstalled }
-            return installed == command ? .installed : .modifiedExternally
+                  let group = arr.first(where: { Self.entryReferencesAdrafinil($0) }),
+                  let installed = Self.command(in: [group]) else { return .notInstalled }
+            // The matcher counts too: an older build installed this hook for `Bash` alone.
+            return installed == command && group["matcher"] as? String == matcher ? .installed : .modifiedExternally
         }
     }
 

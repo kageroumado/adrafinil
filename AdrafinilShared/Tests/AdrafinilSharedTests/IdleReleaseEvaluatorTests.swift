@@ -277,6 +277,30 @@ struct IdleReleaseEvaluatorTests {
         #expect(reasons(out) == [.ttlExpired])
     }
 
+    // MARK: Background-task idle exemption
+
+    @Test
+    func `a background-task hold is exempt from CPU-idle release`() {
+        // A Monitor or backgrounded command: the agent sits idle at the prompt while the task runs,
+        // so its flat CPU must not end the hold — only the TTL may.
+        let e = IdleReleaseEvaluator()
+        let a = assertion(acquiredAt: t0, key: "claude-code:bg-abc123", pid: 100, ttl: 3_660)
+
+        _ = e.evaluate(assertions: [a], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        let out = e.evaluate(assertions: [a], now: t0.addingTimeInterval(600), config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })
+        #expect(out.isEmpty)
+    }
+
+    @Test
+    func `a background-task hold still expires on TTL and releases when its agent dies`() {
+        let e = IdleReleaseEvaluator()
+        let expired = assertion(acquiredAt: t0.addingTimeInterval(-400), key: "claude-code:bg-a", pid: 100, ttl: 360)
+        #expect(reasons(e.evaluate(assertions: [expired], now: t0, config: cfg(), pidAlive: { _ in true }, cpuTime: { _ in 1.0 })) == [.ttlExpired])
+
+        let orphaned = assertion(acquiredAt: t0, key: "claude-code:bg-b", pid: 100, ttl: 360)
+        #expect(reasons(e.evaluate(assertions: [orphaned], now: t0, config: cfg(), pidAlive: { _ in false }, cpuTime: { _ in 1.0 })) == [.deadProcess])
+    }
+
     // MARK: PID bookkeeping pruning
 
     @Test

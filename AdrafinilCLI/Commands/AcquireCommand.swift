@@ -69,14 +69,15 @@ enum AcquireCommand {
         var effectiveTTL = ttl
 
         if parser.flag("--if-background") {
-            // Opt-in background-shell hook (`PreToolUse`/Bash). A command the agent launched with
-            // `run_in_background` keeps running past the turn's `Stop` and fires no completion hook, so
-            // this `PreToolUse` is the only signal — and the hold must be TTL-bounded. Read the raw
-            // stdin payload and decide: a foreground command (or any non-background call) yields no
-            // plan, so place NO hold and exit 0 silently (this is the common case — every foreground
-            // Bash call — so it must never warn). A background command gets a per-invocation
-            // `<tool>:bg-<id>` hold with the owning agent PID attached (so the dead-PID net still reaps
-            // it if the whole agent dies) and a TTL the daemon clamps to `manualHoldMaxHours`.
+            // Opt-in background-shell hook (`PreToolUse`/Bash|Monitor). A command the agent launched
+            // with `run_in_background`, or a Monitor, keeps running past the turn's `Stop` and fires no
+            // completion hook, so this `PreToolUse` is the only signal — and the hold must be
+            // TTL-bounded. Read the raw stdin payload and decide: a foreground command (or any
+            // non-background call) yields no plan, so place NO hold and exit 0 silently (this is the
+            // common case — every foreground Bash call — so it must never warn). Background work gets a
+            // per-invocation `<tool>:bg-<id>` hold with the owning agent PID attached (so the dead-PID
+            // net still reaps it if the whole agent dies) and a TTL — a Monitor's sized to its own
+            // deadline — that the daemon clamps to `manualHoldMaxHours`.
             let payload = CLIStdin.payload() ?? Data()
             guard let plan = BackgroundBashHold.plan(
                 payload: payload,

@@ -107,8 +107,10 @@ public final class IdleReleaseEvaluator {
             }
             // CPU-rate idle check (user-tunable policy — only when enabled). Manual holds are exempt:
             // an explicit `adrafinil hold` for a background job has no user activity to measure and is
-            // governed by its TTL instead. Dead-process release (above) still applies to a pid-bound
-            // hold, so it releases the moment the watched job exits.
+            // governed by its TTL instead. So are background-task holds (a backgrounded command or a
+            // Monitor): the agent idles while they run, so its CPU says nothing about them — see
+            // `BackgroundBashHold`. Dead-process release (above) still applies to a pid-bound hold, so
+            // it releases the moment the watched job (or the owning agent) exits.
             //
             // Two readings make a rate (Δcpu / Δt). The first sighting of a PID only seeds the
             // baseline (and marks it active, so a freshly-seen process is never released on the same
@@ -117,7 +119,8 @@ public final class IdleReleaseEvaluator {
             // continuously idle (no active stamp) for `idleThresholdSeconds`. Rate, not absolute
             // change, because an idle `claude` TUI still burns ~1% CPU — an absolute-delta rule treats
             // that as "active" forever and never releases.
-            if config.enabled, a.origin != .manual, a.pid > 0, let cpu = cpuTime(a.pid) {
+            if config.enabled, a.origin != .manual, !BackgroundBashHold.isBackgroundKey(a.key), a.pid > 0,
+               let cpu = cpuTime(a.pid) {
                 // A baseline that predates this assertion is stale: polling stops whenever nothing
                 // is held, so a re-acquire on the same PID (a new turn after a quiet stretch, or a
                 // resumed session) would otherwise compute its first rate across the whole gap —
