@@ -19,6 +19,9 @@ import Foundation
 /// alongside `session_id`, from `thread_id()` vs the shared root `session_id()`). Both name the
 /// field identically, so a single `agent_id` read covers Claude Code and Codex.
 ///
+/// `PreToolUse` payloads also carry the tool call itself (`tool_name`, `tool_input`), which the
+/// background-task hook reads to tell a backgrounded Bash command or a Monitor from a foreground call.
+///
 /// This is the pure, testable core; `CLIStdin` reads the bytes off stdin and delegates here.
 public enum HookPayload {
     /// The parent-session field on every hook payload.
@@ -29,6 +32,23 @@ public enum HookPayload {
     public static let toolInputField = "tool_input"
     /// The Bash tool's flag that launches a command in the background.
     public static let runInBackgroundField = "run_in_background"
+    /// The name of the tool a `PreToolUse` payload is about.
+    public static let toolNameField = "tool_name"
+    /// Claude Code's Monitor tool: a background watch that streams a command's (or WebSocket's)
+    /// output back to the agent as events until it ends or its deadline passes.
+    public static let monitorToolName = "Monitor"
+    /// The Monitor tool's deadline, in milliseconds.
+    public static let timeoutMsField = "timeout_ms"
+    /// The Monitor tool's legacy no-deadline flag (runs until stopped or the session ends).
+    public static let persistentField = "persistent"
+
+    /// How long a Monitor call may run, read from its `PreToolUse` payload.
+    public enum MonitorDeadline: Equatable {
+        /// The monitor is killed after this many seconds (`timeout_ms`), if it hasn't ended first.
+        case seconds(TimeInterval)
+        /// `persistent: true` — no deadline of its own.
+        case persistent
+    }
 
     /// The parent `session_id` from a hook payload, or nil when the bytes aren't a JSON object with
     /// a non-empty string at that key.
@@ -57,6 +77,25 @@ public enum HookPayload {
               let toolInput = obj[toolInputField] as? [String: Any],
               let flag = toolInput[runInBackgroundField] as? Bool else { return false }
         return flag
+    }
+
+    /// The deadline of a `PreToolUse` Monitor call, or nil when the payload isn't one.
+    ///
+    /// Verified against Claude Code 2.1.296: a hook matched to `Monitor` receives
+    /// `tool_name: "Monitor"` and the model's raw `tool_input` — `timeout_ms` (default 300000, at most
+    /// 3600000) and, on builds that still offer it, `persistent`. An absent or non-numeric
+    /// `timeout_ms` reads as the tool's default, and an over-long one as its maximum, so the hold
+    /// never outlasts what Claude Code itself would allow.
+    public static func monitorDeadline(in data: Data) -> MonitorDeadline? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              obj[toolNameField] as? String == monitorToolName else { return nil }
+        let toolInput = obj[toolInputField] as? [String: Any] ?? [:]
+        if toolInput[persistentField] as? Bool == true { return .persistent }
+        let defaultMs: Double = 300_000
+        let maxMs: Double = 3_600_000
+        let ms = (toolInput[timeoutMsField] as? NSNumber)?.doubleValue ?? defaultMs
+        let clamped = ms.isFinite && ms > 0 ? min(ms, maxMs) : defaultMs
+        return .seconds(clamped / 1_000)
     }
 
     /// A non-empty string value at `field` in a top-level JSON object, or nil. An empty string reads

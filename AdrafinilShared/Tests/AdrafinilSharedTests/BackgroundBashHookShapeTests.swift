@@ -74,7 +74,7 @@ struct BackgroundBashHookShapeTests {
     // MARK: - Install
 
     @Test
-    func `install writes a PreToolUse Bash acquire --if-background hook`() throws {
+    func `install writes a PreToolUse Bash|Monitor acquire --if-background hook`() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         _ = try installer(home).installBackgroundHold(for: .claudeCode)
@@ -82,7 +82,7 @@ struct BackgroundBashHookShapeTests {
         let hooks = try #require(try readJSON(settingsPath(home))["hooks"] as? [String: Any])
         let groups = try #require(hooks["PreToolUse"] as? [[String: Any]])
         let group = try #require(groups.first)
-        #expect(group["matcher"] as? String == "Bash", "the hook must be narrowed to the Bash tool")
+        #expect(group["matcher"] as? String == "Bash|Monitor", "the hook must be narrowed to the Bash and Monitor tools")
         let command = try #require(try backgroundCommand(in: home))
         #expect(command == "/usr/local/bin/adrafinil acquire --tool claude-code --if-background --ttl \(Int(BackgroundBashHold.defaultTTLSeconds))")
     }
@@ -192,6 +192,29 @@ struct BackgroundBashHookShapeTests {
 
         _ = try inst.installBackgroundHold(for: .claudeCode)
         #expect(inst.backgroundHoldState(for: .claudeCode) == .installed)
+    }
+
+    @Test
+    func `state is modified when an older build's Bash-only matcher is installed`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let inst = installer(home)
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+        let command = try #require(try backgroundCommand(in: home))
+
+        // Same command, but matched to Bash alone — Monitors would never reach it. A reinstall
+        // (the once-per-build migration runs one) must widen it in place.
+        var dict = try readJSON(settingsPath(home))
+        dict["hooks"] = ["PreToolUse": [["matcher": "Bash", "hooks": [["type": "command", "command": command, "_adrafinil": true]]]]]
+        try JSONSerialization.data(withJSONObject: dict).write(to: URL(fileURLWithPath: settingsPath(home)))
+        #expect(inst.backgroundHoldState(for: .claudeCode) == .modifiedExternally)
+
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+        #expect(inst.backgroundHoldState(for: .claudeCode) == .installed)
+        let hooks = try #require(try readJSON(settingsPath(home))["hooks"] as? [String: Any])
+        let groups = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        #expect(groups.count == 1, "the stale group is repaired, not duplicated")
+        #expect(groups.first?["matcher"] as? String == "Bash|Monitor")
     }
 
     // MARK: - Coexistence with the Part-1 core hooks

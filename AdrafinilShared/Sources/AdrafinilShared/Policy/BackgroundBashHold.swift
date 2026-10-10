@@ -9,8 +9,10 @@ import Foundation
 /// Two consequences shape this design:
 ///
 ///   - **TTL-bounded, not idle-released.** With no end hook, the hold can only be released by a
-///     deadline. The daemon's CPU-idle net won't do it either: while the agent keeps serving other
-///     turns its process tree isn't idle, so the hold would linger indefinitely. Hence a TTL —
+///     deadline. The daemon's CPU-idle net can't stand in for one: it measures the *agent's* process
+///     tree, which says nothing about the task — busy with other turns it never looks idle, and
+///     parked at the prompt while a quiet task runs it looks idle at once — so background holds are
+///     exempt from it (`isBackgroundKey`). Hence a TTL —
 ///     `requestedTTL` (the installed hook passes `--ttl <ceiling>`), else `defaultTTLSeconds` — which
 ///     the daemon further clamps to the live `manualHoldMaxHours` (`ManualHold.clampExpiry`). The
 ///     installed command deliberately requests the ceiling so the *effective* TTL always tracks the
@@ -19,6 +21,11 @@ import Foundation
 ///   - **Per-invocation key.** Each background command holds independently (`bg-<uniqueID>` in the
 ///     session slot of `<tool>:<key>`), so two overlapping background tasks don't share — and thus
 ///     can't prematurely release — one another's hold.
+///
+/// **Monitors.** Claude Code's Monitor tool is the same shape of problem: it starts a watch that
+/// outlives the turn, wakes the agent with each event, and fires no hook when it ends. Unlike a
+/// background command it carries its own deadline (`timeout_ms`), so its hold is sized to that
+/// instead of the ceiling — a watch the agent forgot about can't keep the Mac up for hours.
 ///
 /// This type is the pure, testable decision; the `acquire --if-background` CLI command reads the
 /// stdin payload and the owning PID around it, and the daemon applies and caps the resulting hold.
@@ -49,18 +56,44 @@ public enum BackgroundBashHold {
         }
     }
 
+    /// Slack added to a Monitor's own deadline. A monitor that reaches its deadline wakes the agent,
+    /// which often re-arms it straight away; the margin keeps the Mac awake across that handoff
+    /// instead of letting the hold lapse in the seconds between the old watch and the new one.
+    public static let monitorGraceSeconds: TimeInterval = 60
+
+    /// Whether `key` is a background-task hold (`<tool>:bg-<id>`). Such holds are exempt from the
+    /// CPU-idle release: the agent that started the task is *expected* to sit idle while it runs —
+    /// a `tail -f`, or a Monitor polling every 30 s, barely registers — so only the TTL (and the
+    /// dead-process net) may end them. See `IdleReleaseEvaluator`.
+    public static func isBackgroundKey(_ key: String) -> Bool {
+        guard let colon = key.firstIndex(of: ":") else { return false }
+        return key[key.index(after: colon)...].hasPrefix(keyInfix)
+    }
+
     /// The decision for `acquire --if-background`, given the hook's `PreToolUse` stdin payload.
     ///
-    /// Returns `nil` when the tool call is not `run_in_background` — the common path (every foreground
-    /// Bash call, and every non-Bash `PreToolUse`), where the CLI must place no hold and exit 0.
-    /// Returns a `Plan` when it is: a per-invocation `bg-` key (from `uniqueID`; production passes a
-    /// fresh id, tests a fixed one) and the TTL (`requestedTTL`, else `defaultTTLSeconds`).
+    /// Returns `nil` when the tool call starts no background work — the common path (every foreground
+    /// Bash call, and every other tool's `PreToolUse`), where the CLI must place no hold and exit 0.
+    /// Returns a `Plan` for a `run_in_background` Bash command or a Monitor: a per-invocation `bg-` key
+    /// (from `uniqueID`; production passes a fresh id, tests a fixed one) and the TTL.
+    ///
+    /// A background command's TTL is `requestedTTL`, else `defaultTTLSeconds` — it has no deadline of
+    /// its own. A Monitor does: Claude Code kills it at `timeout_ms`, so the hold lasts that long plus
+    /// `monitorGraceSeconds`, capped by `requestedTTL`. A persistent Monitor has no deadline and is
+    /// treated like a background command.
     public static func plan(payload: Data, tool: String, requestedTTL: TimeInterval?, uniqueID: String) -> Plan? {
-        guard HookPayload.runInBackground(in: payload) else { return nil }
-        return Plan(
-            key: ManualHold.sessionKey(tool: tool, sessionID: keyInfix + uniqueID),
-            ttl: requestedTTL ?? defaultTTLSeconds,
-        )
+        let ceiling = requestedTTL ?? defaultTTLSeconds
+        let ttl: TimeInterval
+        switch HookPayload.monitorDeadline(in: payload) {
+        case let .seconds(seconds):
+            ttl = min(seconds + monitorGraceSeconds, ceiling)
+        case .persistent:
+            ttl = ceiling
+        case nil:
+            guard HookPayload.runInBackground(in: payload) else { return nil }
+            ttl = ceiling
+        }
+        return Plan(key: ManualHold.sessionKey(tool: tool, sessionID: keyInfix + uniqueID), ttl: ttl)
     }
 
     /// A fresh per-invocation id: 8 lowercase hex chars, matching `ManualHold.newKey`'s brevity.
