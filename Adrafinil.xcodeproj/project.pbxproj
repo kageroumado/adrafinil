@@ -839,8 +839,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/artginzburg/Tiptoe";
 			requirement = {
-				kind = exactVersion;
-				version = 1.1.0;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
 			};
 			traits = (
 				GitHubSupport,
