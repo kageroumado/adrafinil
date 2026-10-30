@@ -46,6 +46,11 @@ struct OpenCodeIntegration: AgentIntegration {
     /// Device-verified against opencode 1.2.17: plugins load from `~/.config/opencode/plugins/`
     /// (plural), `({ $ })` and `({ event })` destructuring work, and this exact plugin fired
     /// `acquire ses_… --tool opencode` on `session.created`.
+    ///
+    /// Under `opencode serve` one long-lived process hosts every session, so the process-exit
+    /// watcher never fires and per-session holds leak until the 24h backstop. In that mode the
+    /// plugin holds per turn instead: acquire when `session.status` goes busy, release when it
+    /// goes idle (or the session is deleted).
     private static func pluginTS(cliPath: String) -> String {
         // The path lands inside a JS template literal AND a shell double-quoted string, so
         // backslashes, backticks, `$` (template interpolation), and quotes all need escaping.
@@ -56,9 +61,26 @@ struct OpenCodeIntegration: AgentIntegration {
             .replacingOccurrences(of: "\"", with: "\\\"")
         return """
         export const Adrafinil = async ({ $ }) => {
+          const server = process.argv.includes("serve")
+          const held = new Set()
+          const release = async (id) => {
+            if (!held.delete(id)) return
+            await $`"\(escaped)" release ${id} --tool opencode`.quiet().nothrow()
+          }
           return {
             event: async ({ event }) => {
-              if (event.type === "session.created") await $`"\(escaped)" acquire ${event.properties.info.id} --tool opencode`
+              if (!server) {
+                if (event.type === "session.created") await $`"\(escaped)" acquire ${event.properties.info.id} --tool opencode`
+                return
+              }
+              if (event.type === "session.deleted") return release(event.properties.info.id)
+              if (event.type !== "session.status") return
+              const id = event.properties.sessionID
+              const status = event.properties.status.type
+              if (status === "idle") return release(id)
+              if (status !== "busy" || held.has(id)) return
+              held.add(id)
+              await $`"\(escaped)" acquire ${id} --tool opencode --ttl 14400`.quiet().nothrow()
             }
           }
         }
