@@ -613,6 +613,20 @@ extension HookInstallerTests {
     }
 
     @Test
+    func `install open code holds per turn under serve`() throws {
+        let home = try makeFakeHome(detectedDirs: [])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try OpenCodeIntegration().install(ctx, dryRun: false)
+
+        let ts = try String(contentsOfFile: home.path + "/.config/opencode/plugins/adrafinil.ts", encoding: .utf8)
+        #expect(ts.contains("process.argv.includes(\"serve\")"))
+        #expect(ts.contains("session.status"))
+        #expect(ts.contains("release ${id} --tool opencode"), "release must carry --tool or the key resolves to unknown:<id>")
+        #expect(ts.contains("session.deleted"))
+    }
+
+    @Test
     func `install hermes writes shell hook and allowlist`() throws {
         let home = try makeFakeHome(detectedDirs: [".hermes"])
         defer { try? FileManager.default.removeItem(at: home) }
