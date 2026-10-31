@@ -598,32 +598,53 @@ extension HookInstallerTests {
     }
 
     @Test
-    func `install open code uses info id and no idle release`() throws {
+    func `install open code holds per turn in every mode`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
         // OpenCode is binary-detected; install via the integration directly to bypass the PATH gate.
         let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         _ = try OpenCodeIntegration().install(ctx, dryRun: false)
 
-        let path = home.path + "/.config/opencode/plugins/adrafinil.ts"
-        let ts = try String(contentsOfFile: path, encoding: .utf8)
-        #expect(ts.contains("event.properties.info.id"), "must use the correct session-id accessor")
-        #expect(!ts.contains("session.idle"), "must not release on the per-turn session.idle event")
-        #expect(ts.contains("session.created"))
+        let ts = try String(contentsOfFile: home.path + "/.config/opencode/plugins/adrafinil.ts", encoding: .utf8)
+        #expect(!ts.contains("process.argv"), "the hold must be per turn in the TUI, serve, web and acp alike")
+        #expect(!ts.contains("session.created"), "a per-session acquire leaks under a long-lived server")
+        #expect(ts.contains("\"release\", id, \"--tool\", \"opencode\""), "release must carry --tool or the key resolves to unknown:<id>")
+        #expect(ts.contains("\"--ttl\", \"\(OpenCodeIntegration.holdTTLSeconds)\""))
+        #expect(ts.contains(#"execFile("\/usr\/local\/bin\/adrafinil""#), "the path is a JSON-encoded JS string")
     }
 
     @Test
-    func `install open code holds per turn under serve`() throws {
+    func `open code plugin loads under both plugin APIs`() throws {
         let home = try makeFakeHome(detectedDirs: [])
         defer { try? FileManager.default.removeItem(at: home) }
         let ctx = HookContext(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
         _ = try OpenCodeIntegration().install(ctx, dryRun: false)
 
         let ts = try String(contentsOfFile: home.path + "/.config/opencode/plugins/adrafinil.ts", encoding: .utf8)
-        #expect(ts.contains("process.argv.includes(\"serve\")"))
-        #expect(ts.contains("session.status"))
-        #expect(ts.contains("release ${id} --tool opencode"), "release must carry --tool or the key resolves to unknown:<id>")
-        #expect(ts.contains("session.deleted"))
+        // OpenCode 2.x rejects a module without a default `{ id, setup }`; 1.x reads `server` off it.
+        #expect(ts.contains("export default {"))
+        #expect(!ts.contains("export const"), "1.x would load a named export as a second plugin")
+        #expect(ts.contains("id: \"adrafinil\""))
+        #expect(ts.contains("server: async"))
+        #expect(ts.contains("setup: async (ctx)"))
+        // 1.x: session.status busy/idle with the id on `properties`.
+        #expect(ts.contains("event.type !== \"session.status\""))
+        #expect(ts.contains("event.properties.sessionID"))
+        // 2.x: execution events with the id on `data`.
+        #expect(ts.contains("\"session.execution.started\""))
+        #expect(ts.contains("\"session.execution.interrupted\""))
+        #expect(ts.contains("event.data.sessionID"))
+    }
+
+    @Test
+    func `open code plugin escapes the cli path as a js string`() throws {
+        let home = try makeFakeHome(detectedDirs: [])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ctx = HookContext(cliPath: "/Apps/We\"ird $dir/adrafinil", homeRoot: home.path)
+        _ = try OpenCodeIntegration().install(ctx, dryRun: false)
+
+        let ts = try String(contentsOfFile: home.path + "/.config/opencode/plugins/adrafinil.ts", encoding: .utf8)
+        #expect(ts.contains(#"execFile("\/Apps\/We\"ird $dir\/adrafinil""#))
     }
 
     @Test

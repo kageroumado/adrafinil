@@ -78,7 +78,7 @@ struct PiIntegration: AgentIntegration {
         import { execFileSync } from "node:child_process"
         
         function run(args) {
-          try { execFileSync(\(swiftStringLiteral: cliPath), args, { stdio: "ignore" }) } catch (_) {}
+          try { execFileSync(\(jsStringLiteral: cliPath), args, { stdio: "ignore" }) } catch (_) {}
         }
         
         export default function (pi) {
@@ -89,19 +89,5 @@ struct PiIntegration: AgentIntegration {
           pi.on("session_shutdown", async (_event, ctx) => run(["release", id(ctx), "--tool", "pi"]))
         }
         """
-    }
-}
-
-private extension DefaultStringInterpolation {
-    /// Emits `item` as a double-quoted JS string literal with proper escaping (JSON string
-    /// encoding is a subset of JS), so quotes or backslashes in the bundle path can't break the
-    /// generated extension.
-    mutating func appendInterpolation(swiftStringLiteral item: String) {
-        if let data = try? JSONSerialization.data(withJSONObject: item, options: .fragmentsAllowed),
-           let literal = String(data: data, encoding: .utf8) {
-            appendInterpolation(literal)
-        } else {
-            appendInterpolation("\"\(item)\"")
-        }
     }
 }
