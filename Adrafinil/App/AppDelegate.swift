@@ -207,6 +207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Set when a quit is reissued from the run loop (``applicationShouldTerminate(_:)``).
+    private var isQuittingFromRunLoop = false
+
     func windowWillClose(_ notification: Notification) {
         if notification.object as? NSWindow === menuWindow {
             menuWindow = nil
@@ -225,6 +228,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// while its app is open" holds. Centralizing here means every quit path (the popover's power
     /// button, ⌘Q from a window, logout) stops the daemon, not just the button.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        // `.terminateLater` waits for the task below, whose jobs run on the main queue. A terminate
+        // issued from inside a main-queue job (AppUpdater's swap, any `Task` that quits) holds that
+        // queue for as long as AppKit's nested loop runs, so the reply never comes and the process
+        // lives on, mapping a bundle the swap has already deleted. Such a quit is reissued from the
+        // run loop, where the main queue drains. A quit Apple event (logout, restart) is answered
+        // in place: cancelling it would cancel the logout.
+        if !isQuittingFromRunLoop, NSAppleEventManager.shared().currentAppleEvent == nil {
+            isQuittingFromRunLoop = true
+            RunLoop.main.perform(inModes: [.default, .modalPanel]) { NSApp.terminate(nil) }
+            return .terminateCancel
+        }
         // Defer the actual exit until the daemon has been paused; quit anyway if it's unreachable
         // or unresponsive — `setPaused` is bounded by DaemonClient's call timeout, and the extra
         // race below keeps even a pathological hang from blocking logout/shutdown, where the
@@ -247,10 +261,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Force-quit any other running copy of this app, leaving only this instance. Force (not
     /// graceful) so a wedged stray that's ignoring events still goes away.
+    ///
+    /// The parent is spared: an in-place update starts the new build as a child probe, checks it
+    /// launches, then ends it and quits itself. Killing the parent there would cut the update off
+    /// mid-way and leave the probe, started outside LaunchServices, as the running app.
     private func terminateOtherInstances() {
         let me = NSRunningApplication.current
+        let parent = getppid()
         for app in NSWorkspace.shared.runningApplications
-            where app.bundleIdentifier == me.bundleIdentifier && app.processIdentifier != me.processIdentifier {
+            where app.bundleIdentifier == me.bundleIdentifier
+            && app.processIdentifier != me.processIdentifier
+            && app.processIdentifier != parent {
             app.forceTerminate()
         }
     }
