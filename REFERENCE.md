@@ -33,6 +33,21 @@ drive it explicitly over MCP/CLI, and can be flipped on manually when you need i
 
 Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
 
+### Claude Code profiles (`CLAUDE_CONFIG_DIR`)
+
+A Claude Code profile run with its own `CLAUDE_CONFIG_DIR` (say an alias for a second account) reads
+its settings from that directory, not `~/.claude`. Install the hooks there, plus the MCP server with
+`--mcp`:
+
+```sh
+adrafinil install-hooks --config-dir ~/.claude-work --mcp
+adrafinil uninstall-hooks --config-dir ~/.claude-work --mcp
+```
+
+The hooks report the profile's directory on each `acquire`, so waiting detection also reads that
+profile's `sessions/` — no extra setup. Only directories inside your home folder are accepted, up to
+eight profiles at a time.
+
 ### Add your own agent
 
 Adrafinil ships integrations for the common agents, but the CLI works for **any** tool — the daemon

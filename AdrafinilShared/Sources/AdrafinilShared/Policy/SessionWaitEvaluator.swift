@@ -77,7 +77,7 @@ public struct SessionWaitEvaluator: Sendable {
         for assertion in assertions {
             guard let sessionID = Self.sessionID(ofKey: assertion.key), assertion.origin == .hook else { continue }
             guard let status = ClaudeSessionStatus.best(forSession: sessionID, in: statuses, pidAlive: pidAlive) else {
-                // No live status (file gone, custom config dir, pid dead): stand down from
+                // No live status (file gone, config dir not learned yet, pid dead): stand down from
                 // anything this evaluator did and leave the hold to the normal nets.
                 if let entry = parked.removeValue(forKey: assertion.key) {
                     actions.append(.restore(key: assertion.key, expiry: entry.originalExpiry))

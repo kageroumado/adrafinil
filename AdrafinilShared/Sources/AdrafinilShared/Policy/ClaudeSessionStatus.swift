@@ -14,7 +14,8 @@ import Foundation
 /// The format is Claude Code internals (it backs `claude ps` and teammates; stable since March
 /// 2026, fields only accreted), so parsing is strictly defensive: anything unrecognized reads as
 /// "no status", and every consumer must degrade to Adrafinil's existing nets when it does.
-/// Sessions started with a non-default `CLAUDE_CONFIG_DIR` write elsewhere and simply aren't seen.
+/// Sessions started with a non-default `CLAUDE_CONFIG_DIR` write under that directory instead; the
+/// daemon learns it from the session's hooks and reads it too (see `ClaudeSessionDirectories`).
 ///
 /// The `<pid>.<hash>.key` files in the same directory are messaging-socket auth material — the
 /// filename filter here must never match them, and nothing may read them.
@@ -42,8 +43,9 @@ public struct ClaudeSessionStatus: Sendable, Equatable {
         self.statusUpdatedAt = statusUpdatedAt
     }
 
-    /// The default status directory. Claude Code writes under its config home; the daemon has no
-    /// view of a user's shell environment, so a custom `CLAUDE_CONFIG_DIR` is out of scope.
+    /// The default status directory. Claude Code writes under its config home; profiles with a
+    /// custom `CLAUDE_CONFIG_DIR` are added alongside it by `ClaudeSessionDirectories`, which learns
+    /// them from hooks (the daemon itself has no view of a user's shell environment).
     public static var defaultDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/sessions", isDirectory: true)
