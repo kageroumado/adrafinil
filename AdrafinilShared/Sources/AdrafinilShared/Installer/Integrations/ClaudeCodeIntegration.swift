@@ -2,6 +2,12 @@ import Foundation
 
 /// Claude Code: `~/.claude/settings.json`, `UserPromptSubmit` → acquire, `Stop` → release.
 ///
+/// **Custom config directory.** A profile run with `CLAUDE_CONFIG_DIR` (e.g. an alias pointing a
+/// second account at `~/.claude-work`) reads its settings from that directory instead, so the same
+/// hooks are written there when `HookContext.claudeConfigDir` is set (`install-hooks --config-dir`).
+/// The commands are identical — `--tool claude-code` either way — so holds from every profile are
+/// plain Claude Code holds.
+///
 /// **Activity-scoped, not session-scoped.** An earlier version wired `SessionStart`/`SessionEnd`,
 /// which held a sleep block for the *entire* session — including all the time it sat idle at the
 /// prompt waiting for input. Claude Code instead brackets each working turn: `UserPromptSubmit`
@@ -59,10 +65,10 @@ struct ClaudeCodeIntegration: AgentIntegration {
     let agent = AgentKind.claudeCode
 
     func isDetected(_ ctx: HookContext) -> Bool {
-        FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.claude")
+        FileManager.default.fileExists(atPath: ctx.claudeConfigRoot)
     }
     func primaryConfigPath(_ ctx: HookContext) -> String {
-        "\(ctx.homeRoot)/.claude/settings.json"
+        "\(ctx.claudeConfigRoot)/settings.json"
     }
 
     func install(_ ctx: HookContext, dryRun: Bool) throws -> HookInstaller.InstallResult {
@@ -79,7 +85,7 @@ struct ClaudeCodeIntegration: AgentIntegration {
 
     private func shape(_ ctx: HookContext) -> NestedJSONHookShape {
         NestedJSONHookShape(
-            configPath: "\(ctx.homeRoot)/.claude/settings.json",
+            configPath: "\(ctx.claudeConfigRoot)/settings.json",
             startEvent: "UserPromptSubmit",
             endEvent: "Stop",
             acquireCommand: ctx.hookCommand("acquire", tool: agent.rawValue, sessionVar: "$CLAUDE_CODE_SESSION_ID"),
@@ -105,10 +111,11 @@ struct ClaudeCodeIntegration: AgentIntegration {
     }
 
     /// MCP lives in the global `~/.claude.json` (`mcpServers`, user scope) — verified against a real
-    /// install: existing entries are `{"type":"stdio","command":…,"args":[…]}`.
+    /// install: existing entries are `{"type":"stdio","command":…,"args":[…]}`. A custom config dir
+    /// keeps that file inside itself (see `HookContext.claudeGlobalConfigPath`).
     func mcpShape(_ ctx: HookContext) -> MCPServerShape? {
         MCPServerShape(
-            configPath: "\(ctx.homeRoot)/.claude.json",
+            configPath: ctx.claudeGlobalConfigPath,
             serverName: HookContext.mcpServerName,
             entry: ctx.mcpEntry(tool: agent.rawValue),
         )
@@ -123,7 +130,7 @@ struct ClaudeCodeIntegration: AgentIntegration {
     /// the live `manualHoldMaxHours`, and a Monitor's hold is further sized to its own deadline.
     func backgroundBashShape(_ ctx: HookContext) -> BackgroundBashHookShape? {
         BackgroundBashHookShape(
-            configPath: "\(ctx.homeRoot)/.claude/settings.json",
+            configPath: "\(ctx.claudeConfigRoot)/settings.json",
             matcher: "Bash|Monitor",
             command: ctx.backgroundAcquireCommand(
                 tool: agent.rawValue,
