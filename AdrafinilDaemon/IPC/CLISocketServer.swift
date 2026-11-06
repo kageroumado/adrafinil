@@ -142,7 +142,12 @@ final class CLISocketServer {
                 ttl: CLIRequestValidator.clampedTTL(req.ttlSeconds),
                 holdsDisplay: req.display ?? false,
             )
+            // A Claude Code hook reports a non-default `CLAUDE_CONFIG_DIR`, so the waiting-detection
+            // monitor also reads that profile's `sessions/`. Validated (home-relative, capped) by
+            // `ClaudeSessionDirectories`; registered whatever the acquire's outcome.
+            let claudeConfigDir = tool == AgentKind.claudeCode.rawValue ? req.claudeConfigDir : nil
             let result: (outcome: Daemon.AcquireResult, snapshot: [Assertion]) = runOnMain { @MainActor in
+                daemonRef.sessionStatusMonitor.registerClaudeConfigDir(claudeConfigDir)
                 let outcome = await daemonRef.handleAcquire(assertion)
                 return await (outcome, daemonRef.registry.snapshot())
             }

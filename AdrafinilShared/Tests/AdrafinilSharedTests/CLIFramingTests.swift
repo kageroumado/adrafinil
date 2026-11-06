@@ -25,6 +25,22 @@ struct CLIFramingTests {
         #expect(decoded.ttlSeconds == req.ttlSeconds)
     }
 
+    /// Issue #37: the optional `claudeConfigDir` round-trips under its own wire key, and a frame
+    /// without it (an older CLI) still decodes.
+    @Test
+    func `roundtrip request with claude config dir`() throws {
+        let req = CLIRequest(op: .acquire, key: "claude-code:abc", tool: "claude-code", reason: nil, pid: 1, processName: nil, ttlSeconds: nil, claudeConfigDir: "/Users/me/.claude-work")
+        let frame = try CLIFraming.encode(req)
+        #expect(try decode(CLIRequest.self, from: frame).claudeConfigDir == "/Users/me/.claude-work")
+        let json = try #require(try JSONSerialization.jsonObject(with: frame.dropFirst(4)) as? [String: Any])
+        #expect(json["claudeConfigDir"] as? String == "/Users/me/.claude-work")
+
+        let legacy = Data(#"{"op":"acquire","key":"claude-code:abc","tool":"claude-code"}"#.utf8)
+        #expect(try JSONDecoder().decode(CLIRequest.self, from: legacy).claudeConfigDir == nil)
+        let plain = CLIRequest(op: .acquire, key: "k", tool: "t", reason: nil, pid: nil, processName: nil, ttlSeconds: nil)
+        #expect(try decode(CLIRequest.self, from: CLIFraming.encode(plain)).claudeConfigDir == nil)
+    }
+
     @Test
     func `roundtrip response`() throws {
         let resp = CLIResponse(ok: true, error: nil, blocking: true, assertionCount: 3, statusJSON: Data("{}".utf8))

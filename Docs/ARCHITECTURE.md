@@ -247,13 +247,13 @@ The battery sibling of the thermal cutout: because `disablesleep` blocks the glo
 adrafinil acquire <session-key> [--tool <name>] [--reason <text>] [--ttl <seconds>]
 adrafinil release <session-key>
 adrafinil status [--json]
-adrafinil install-hooks [--tool <name>] [--dry-run]
-adrafinil uninstall-hooks [--tool <name>]
+adrafinil install-hooks [--tool <name>] [--config-dir <dir>] [--mcp] [--dry-run]
+adrafinil uninstall-hooks [--tool <name>] [--config-dir <dir>] [--mcp]
 adrafinil daemon-status
 adrafinil version
 ```
 
-`acquire`/`release` connect to the daemon socket and exit (<50ms target). If the daemon isn't running, the CLI warns and exits 0 — it never fails the agent. `--ttl` is a hard deadline after which the daemon auto-releases. `release` is idempotent; unknown keys warn and exit 0. `install-hooks`/`uninstall-hooks` mirror the GUI installer (so the CLI alone suffices for headless setups); `--dry-run` prints diffs without writing.
+`acquire`/`release` connect to the daemon socket and exit (<50ms target). If the daemon isn't running, the CLI warns and exits 0 — it never fails the agent. `--ttl` is a hard deadline after which the daemon auto-releases. `release` is idempotent; unknown keys warn and exit 0. `install-hooks`/`uninstall-hooks` mirror the GUI installer (so the CLI alone suffices for headless setups); `--dry-run` prints diffs without writing. `--config-dir` targets a Claude Code profile run with a custom `CLAUDE_CONFIG_DIR` (hooks into `<dir>/settings.json`, MCP into `<dir>/.claude.json`); `--mcp` also registers/removes the `adrafinil mcp` server for agents with verified MCP support. A Claude Code `acquire` sends the `CLAUDE_CONFIG_DIR` it ran under (`claudeConfigDir` on the wire), and the daemon adds that profile's `sessions/` to the waiting-detection reads — validated as inside the home folder, capped at 8, in memory only (re-learned on the next acquire after a daemon restart).
 
 **Wire protocol**: length-prefixed JSON over a Unix socket at `~/Library/Application Support/Adrafinil/cli.sock`.
 

@@ -140,6 +140,11 @@ enum AcquireCommand {
         }
 
         let wantsDisplay = parser.flag("--display")
+        // A Claude Code profile run with `CLAUDE_CONFIG_DIR` writes its session status files under
+        // that dir; the hook inherits the variable, so report it and the daemon watches it too. An
+        // env read only — the daemon validates and caps it.
+        let envConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        let claudeConfigDir = tool == AgentKind.claudeCode.rawValue && envConfigDir?.isEmpty == false ? envConfigDir : nil
         let req = CLIRequest(
             op: .acquire,
             key: fullKey,
@@ -149,6 +154,7 @@ enum AcquireCommand {
             processName: tool,
             ttlSeconds: effectiveTTL,
             display: wantsDisplay ? true : nil,
+            claudeConfigDir: claudeConfigDir,
         )
 
         do {
