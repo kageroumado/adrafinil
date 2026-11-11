@@ -47,39 +47,184 @@ public enum CodexHookTrust {
         return .partiallyTrusted
     }
 
-    /// Whether `config.toml` records a non-empty `trusted_hash` for a `[hooks.state."…"]` table whose
-    /// key names our `hooks.json` path and the given snake_case event label. Tolerant of key ordering
-    /// and toml_edit's standard table-header formatting (`[projects."…"]`-style quoted dotted keys).
+    /// Whether `config.toml` records a non-empty `trusted_hash` under `hooks.state."<path>:<event>:…"`
+    /// for our `hooks.json` path and the given snake_case event label.
+    ///
+    /// Keys are compared by value, so every TOML spelling of the same key matches: bare or quoted
+    /// segments (`hooks`, `"hooks"`, `'hooks'`), whitespace around dots, and a key split between a
+    /// table header and a dotted key (`[hooks.state]` followed by `"<path>:…".trusted_hash = …`).
     static func hasTrustedHash(in toml: String, hooksPath: String, eventLabel: String) -> Bool {
-        let lines = toml.components(separatedBy: .newlines)
-        var index = 0
-        while index < lines.count {
-            defer { index += 1 }
-            guard isHooksStateHeader(lines[index], hooksPath: hooksPath, eventLabel: eventLabel) else { continue }
-            // Scan the table body up to the next header for a non-empty trusted_hash.
-            var body = index + 1
-            while body < lines.count {
-                let line = lines[body].trimmingCharacters(in: .whitespaces)
-                if line.hasPrefix("[") { break }
-                if let value = trustedHashValue(in: line), !value.isEmpty { return true }
-                body += 1
+        let handlerPrefix = "\(hooksPath):\(eventLabel):"
+        // The key path of the current `[table]`; nil inside an `[[array table]]` or after a malformed
+        // header, where no key can belong to `hooks.state`.
+        var table: [String]? = []
+        var lines = toml.components(separatedBy: .newlines)[...]
+        while let line = lines.popFirst() {
+            var cursor = TOMLLineCursor(line)
+            cursor.skipWhitespace()
+            if cursor.peek == "[" {
+                table = cursor.tableHeader()
+                continue
             }
+            guard let key = cursor.keyBeforeEquals() else { continue }
+            cursor.skipWhitespace()
+            if let delimiter = cursor.unclosedMultilineStringDelimiter() {
+                // Skip the string's body so its lines are never read as headers or keys.
+                while let next = lines.popFirst(), !next.contains(delimiter) {}
+                continue
+            }
+            guard let table else { continue }
+            let path = table + key
+            guard path.count == 4, path[0] == "hooks", path[1] == "state",
+                  path[2].hasPrefix(handlerPrefix), path[3] == "trusted_hash" else { continue }
+            if let value = cursor.string(), !value.isEmpty { return true }
         }
         return false
     }
+}
 
-    private static func isHooksStateHeader(_ rawLine: String, hooksPath: String, eventLabel: String) -> Bool {
-        let line = rawLine.trimmingCharacters(in: .whitespaces)
-        guard line.hasPrefix("[hooks.state."), line.hasSuffix("]") else { return false }
-        // The whole `<path>:<event>:<group>:<handler>` key is one quoted segment, so both the path and
-        // the `:<event>:` delimiter appear verbatim inside the header.
-        return line.contains(hooksPath) && line.contains(":\(eventLabel):")
+/// Reads the TOML key and string grammar from a single line: dotted keys built from bare, basic
+/// (`"…"`) and literal (`'…'`) segments, and single-line string values.
+private struct TOMLLineCursor {
+    private let scalars: [Unicode.Scalar]
+    private var position = 0
+
+    init(_ line: String) {
+        scalars = Array(line.unicodeScalars)
     }
 
-    private static func trustedHashValue(in line: String) -> String? {
-        guard line.hasPrefix("trusted_hash"), let eq = line.firstIndex(of: "=") else { return nil }
-        return line[line.index(after: eq)...]
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: "\"", with: "")
+    var peek: Unicode.Scalar? {
+        position < scalars.count ? scalars[position] : nil
+    }
+
+    mutating func skipWhitespace() {
+        while let scalar = peek, scalar == " " || scalar == "\t" {
+            position += 1
+        }
+    }
+
+    /// The key path of a `[table]` header line, or nil for an `[[array table]]` or a malformed header.
+    mutating func tableHeader() -> [String]? {
+        guard consume("["), peek != "[" else { return nil }
+        guard let key = dottedKey(), consume("]"), atLineEnd() else { return nil }
+        return key
+    }
+
+    /// The key path of a `key = value` line, leaving the cursor just past the `=`.
+    mutating func keyBeforeEquals() -> [String]? {
+        guard let key = dottedKey(), consume("=") else { return nil }
+        return key
+    }
+
+    /// The closing delimiter of a multi-line string that opens here and continues past this line.
+    func unclosedMultilineStringDelimiter() -> String? {
+        let rest = String(String.UnicodeScalarView(scalars[position...]))
+        for delimiter in ["\"\"\"", "'''"] where rest.hasPrefix(delimiter) {
+            return rest.dropFirst(3).contains(delimiter) ? nil : delimiter
+        }
+        return nil
+    }
+
+    /// A single-line basic or literal string value.
+    mutating func string() -> String? {
+        switch peek {
+        case "\"": basicString()
+        case "'": literalString()
+        default: nil
+        }
+    }
+
+    /// A dotted key, consuming the whitespace around each dot and after the last segment.
+    private mutating func dottedKey() -> [String]? {
+        var segments: [String] = []
+        repeat {
+            skipWhitespace()
+            guard let segment = simpleKey() else { return nil }
+            segments.append(segment)
+            skipWhitespace()
+        } while consume(".")
+        return segments
+    }
+
+    private mutating func simpleKey() -> String? {
+        if peek == "\"" || peek == "'" { return string() }
+        let start = position
+        while let scalar = peek, Self.isBareKeyScalar(scalar) {
+            position += 1
+        }
+        guard position > start else { return nil }
+        return String(String.UnicodeScalarView(scalars[start ..< position]))
+    }
+
+    private mutating func literalString() -> String? {
+        guard consume("'") else { return nil }
+        let start = position
+        while let scalar = peek, scalar != "'" {
+            position += 1
+        }
+        let value = String(String.UnicodeScalarView(scalars[start ..< position]))
+        return consume("'") ? value : nil
+    }
+
+    private mutating func basicString() -> String? {
+        guard consume("\"") else { return nil }
+        var value = String.UnicodeScalarView()
+        while let scalar = peek {
+            position += 1
+            switch scalar {
+            case "\"":
+                return String(value)
+            case "\\":
+                guard let escaped = escape() else { return nil }
+                value.append(escaped)
+            default:
+                value.append(scalar)
+            }
+        }
+        return nil
+    }
+
+    private mutating func escape() -> Unicode.Scalar? {
+        guard let scalar = peek else { return nil }
+        position += 1
+        switch scalar {
+        case "b": return "\u{08}"
+        case "t": return "\t"
+        case "n": return "\n"
+        case "f": return "\u{0C}"
+        case "r": return "\r"
+        case "e": return "\u{1B}"
+        case "\"": return "\""
+        case "\\": return "\\"
+        case "x": return hexScalar(digits: 2)
+        case "u": return hexScalar(digits: 4)
+        case "U": return hexScalar(digits: 8)
+        default: return nil
+        }
+    }
+
+    private mutating func hexScalar(digits: Int) -> Unicode.Scalar? {
+        guard position + digits <= scalars.count else { return nil }
+        let hex = String(String.UnicodeScalarView(scalars[position ..< position + digits]))
+        position += digits
+        return UInt32(hex, radix: 16).flatMap(Unicode.Scalar.init)
+    }
+
+    private mutating func consume(_ scalar: Unicode.Scalar) -> Bool {
+        guard peek == scalar else { return false }
+        position += 1
+        return true
+    }
+
+    private mutating func atLineEnd() -> Bool {
+        skipWhitespace()
+        return peek == nil || peek == "#"
+    }
+
+    private static func isBareKeyScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar {
+        case "A" ... "Z", "a" ... "z", "0" ... "9", "_", "-": true
+        default: false
+        }
     }
 }

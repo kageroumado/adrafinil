@@ -121,4 +121,131 @@ struct CodexHookTrustTests {
         try toml.write(to: home.appendingPathComponent(".codex/config.toml"), atomically: true, encoding: .utf8)
         #expect(CodexHookTrust.status(homeRoot: home.path) == .trusted)
     }
+
+    /// Status for a config.toml whose body is built from our hooks.json path.
+    private func status(configTOML build: (String) -> String) throws -> CodexHookTrust.Status {
+        let home = try makeHome(configTOML: nil)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let toml = build("\(home.path)/.codex/hooks.json")
+        try toml.write(to: home.appendingPathComponent(".codex/config.toml"), atomically: true, encoding: .utf8)
+        return CodexHookTrust.status(homeRoot: home.path)
+    }
+
+    @Test
+    func `fully quoted table headers count`() throws {
+        let status = try status { path in
+            """
+            ["hooks"."state"."\(path):user_prompt_submit:1:0"]
+            trusted_hash = "sha256:abc"
+            
+            ['hooks'.'state'.'\(path):stop:1:0']
+            trusted_hash = "sha256:def"
+            """
+        }
+        #expect(status == .trusted)
+    }
+
+    @Test
+    func `mixed quoting in table headers counts`() throws {
+        let status = try status { path in
+            """
+            [hooks."state"."\(path):user_prompt_submit:0:0"]
+            trusted_hash = "sha256:abc"
+            
+            ["hooks".state.'\(path):stop:0:0']
+            trusted_hash = "sha256:def"
+            """
+        }
+        #expect(status == .trusted)
+    }
+
+    @Test
+    func `whitespace around dots in table headers counts`() throws {
+        let status = try status { path in
+            """
+            [ hooks . state . "\(path):user_prompt_submit:0:0" ]
+            trusted_hash = "sha256:abc"
+            
+            [hooks\t.\t"state" . "\(path):stop:0:0"]  # approved via /hooks
+            trusted_hash = "sha256:def"
+            """
+        }
+        #expect(status == .trusted)
+    }
+
+    @Test
+    func `quoted trusted hash keys count`() throws {
+        let status = try status { path in
+            """
+            [hooks.state."\(path):user_prompt_submit:0:0"]
+            "trusted_hash" = "sha256:abc"
+            
+            [hooks.state."\(path):stop:0:0"]
+            'trusted_hash'='sha256:def'
+            """
+        }
+        #expect(status == .trusted)
+    }
+
+    @Test
+    func `trust written as dotted keys under a parent table counts`() throws {
+        let status = try status { path in
+            """
+            [hooks.state]
+            "\(path):user_prompt_submit:0:0".trusted_hash = "sha256:abc"
+            
+            [hooks]
+            state."\(path):stop:0:0"."trusted_hash" = "sha256:def"
+            """
+        }
+        #expect(status == .trusted)
+    }
+
+    @Test
+    func `trusted hash under a non matching table does not count`() throws {
+        let status = try status { path in
+            """
+            ["hooks"."other"."\(path):user_prompt_submit:0:0"]
+            trusted_hash = "sha256:abc"
+            
+            [hooks.state."\(path):stop:0:0".nested]
+            trusted_hash = "sha256:def"
+            
+            [[hooks.state."\(path):stop:0:0"]]
+            trusted_hash = "sha256:ghi"
+            
+            [projects."\(path):user_prompt_submit:0:0"]
+            trusted_hash = "sha256:jkl"
+            """
+        }
+        #expect(status == .untrusted)
+    }
+
+    @Test
+    func `a header inside a multi line string is not read as a table`() throws {
+        let status = try status { path in
+            """
+            notes = \"\"\"
+            [hooks.state."\(path):user_prompt_submit:0:0"]
+            trusted_hash = "sha256:abc"
+            \"\"\"
+            """
+        }
+        #expect(status == .untrusted)
+    }
+
+    @Test
+    func `escapes in basic string keys are decoded before matching`() throws {
+        let status = try status { path in
+            let escaped = path.replacingOccurrences(of: "/", with: "\\u002F")
+            return """
+            ["hooks"."state"."\(escaped):user_prompt_submit:0:0"]
+            trusted_hash = "sha256:abc"
+            
+            [hooks.state."\(path):stop:0:0"]
+            trusted_hash = "sha256:def"
+            """
+        }
+        #expect(status == .trusted)
+    }
 }
