@@ -3,7 +3,8 @@ import Darwin
 import Foundation
 import OSLog
 
-/// Watches Claude Code's session status files (`~/.claude/sessions/<pid>.json`) so a session that
+/// Watches Claude Code's session status files (`~/.claude/sessions/<pid>.json`, plus the `sessions/`
+/// of any custom `CLAUDE_CONFIG_DIR` profile learned from hooks) so a session that
 /// has stopped mid-turn to wait for the user — a question, a plan approval, a permission prompt —
 /// is handled by the user's `AgentWaitingPolicy` instead of standing until the CPU-idle sweep
 /// (issue #20). See `ClaudeSessionStatus` for the file, `SessionWaitEvaluator` for the decisions;
@@ -25,8 +26,19 @@ final class SessionStatusMonitor {
     /// Receives each sweep's decisions, in order. The daemon executes them against the registry.
     var onActions: (([SessionWaitEvaluator.Action]) async -> Void)?
 
-    /// The directory to read. Injected for tests; the real daemon uses the default.
-    var sessionsDirectory: URL = ClaudeSessionStatus.defaultDirectory
+    /// The directories to read: `~/.claude/sessions` plus learned profile directories. The daemon
+    /// registers a profile when a Claude Code hook's `acquire` reports its `CLAUDE_CONFIG_DIR`.
+    /// Not persisted — after a daemon restart a profile is re-learned on its next acquire.
+    private(set) var directories = ClaudeSessionDirectories()
+
+    /// Registers a `CLAUDE_CONFIG_DIR` reported by a Claude Code hook. Invalid paths (outside the
+    /// home dir, no `sessions/`, the default dir) are ignored; the set is capped.
+    func registerClaudeConfigDir(_ raw: String?) {
+        guard let raw else { return }
+        if directories.register(raw), let path = directories.learned.last {
+            log.notice("watching Claude Code profile sessions under '\(path, privacy: .public)'")
+        }
+    }
 
     private var evaluator = SessionWaitEvaluator()
     private var timer: Timer?
@@ -95,14 +107,16 @@ final class SessionStatusMonitor {
         await onActions?(actions)
     }
 
-    /// Every parseable status file in the sessions directory. A missing directory (Claude Code
-    /// absent or never run) reads as no sessions, which disables the whole policy gracefully.
+    /// Every parseable status file across the sessions directories. A missing directory (Claude
+    /// Code absent or never run) reads as no sessions, which disables the whole policy gracefully.
     private func readStatuses() -> [ClaudeSessionStatus] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessionsDirectory.path)) ?? []
-        return names.compactMap { name in
-            guard ClaudeSessionStatus.isStatusFilename(name),
-                  let data = try? Data(contentsOf: sessionsDirectory.appendingPathComponent(name)) else { return nil }
-            return ClaudeSessionStatus.parse(data)
+        directories.sessionsDirectories.flatMap { directory -> [ClaudeSessionStatus] in
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            return names.compactMap { name in
+                guard ClaudeSessionStatus.isStatusFilename(name),
+                      let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
+                return ClaudeSessionStatus.parse(data)
+            }
         }
     }
 }

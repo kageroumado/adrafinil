@@ -6,6 +6,29 @@ import Foundation
 struct HookContext {
     let cliPath: String
     let homeRoot: String
+    /// A non-default Claude Code config directory (a profile run with `CLAUDE_CONFIG_DIR`), or nil
+    /// for the default `~/.claude`. Only `ClaudeCodeIntegration` reads it.
+    var claudeConfigDir: String?
+
+    init(cliPath: String, homeRoot: String, claudeConfigDir: String? = nil) {
+        self.cliPath = cliPath
+        self.homeRoot = homeRoot
+        self.claudeConfigDir = claudeConfigDir
+    }
+
+    /// The Claude Code config directory hooks are written into: the custom one when set, else
+    /// `~/.claude`.
+    var claudeConfigRoot: String {
+        claudeConfigDir ?? "\(homeRoot)/.claude"
+    }
+
+    /// Claude Code's global state file (user-scope `mcpServers`). The default profile keeps it
+    /// beside the config dir as `~/.claude.json`; with `CLAUDE_CONFIG_DIR` set, Claude Code keeps
+    /// it *inside* that dir (`$CLAUDE_CONFIG_DIR/.claude.json`).
+    var claudeGlobalConfigPath: String {
+        if let claudeConfigDir { return "\(claudeConfigDir)/.claude.json" }
+        return "\(homeRoot)/.claude.json"
+    }
 
     /// The CLI path, shell-quoted unless it is plain enough to need none. POSIX single quotes
     /// neutralize every shell metacharacter (spaces, `$`, quotes, backticks) — the path lives

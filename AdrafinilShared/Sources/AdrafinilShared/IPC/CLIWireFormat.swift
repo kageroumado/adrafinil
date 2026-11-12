@@ -30,6 +30,10 @@ public struct CLIRequest: Codable, Sendable {
     /// Optional so an old CLI's frames (no field) and an old daemon (ignores it) both stay valid;
     /// the response's `displayApplied` echo is what makes that skew visible.
     public let display: Bool?
+    /// The `CLAUDE_CONFIG_DIR` a Claude Code hook ran under, when it isn't the default — sent on
+    /// `acquire` so the daemon can also watch that profile's `sessions/` status files (see
+    /// `ClaudeSessionDirectories`). Optional for the same skew reasons as `display`.
+    public let claudeConfigDir: String?
 
     /// Wire keys match the documented protocol: `ttlSeconds` serializes as `ttl`.
     enum CodingKeys: String, CodingKey {
@@ -41,9 +45,10 @@ public struct CLIRequest: Codable, Sendable {
         case processName
         case ttlSeconds = "ttl"
         case display
+        case claudeConfigDir
     }
 
-    public init(op: Op, key: String?, tool: String?, reason: String?, pid: pid_t?, processName: String?, ttlSeconds: TimeInterval?, display: Bool? = nil) {
+    public init(op: Op, key: String?, tool: String?, reason: String?, pid: pid_t?, processName: String?, ttlSeconds: TimeInterval?, display: Bool? = nil, claudeConfigDir: String? = nil) {
         self.op = op
         self.key = key
         self.tool = tool
@@ -52,6 +57,7 @@ public struct CLIRequest: Codable, Sendable {
         self.processName = processName
         self.ttlSeconds = ttlSeconds
         self.display = display
+        self.claudeConfigDir = claudeConfigDir
     }
 }
 

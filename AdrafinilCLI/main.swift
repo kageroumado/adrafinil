@@ -55,8 +55,8 @@ enum CLIUsage {
           adrafinil release <hold-id | session-key> | --all
           adrafinil acquire <session-key> --tool <name> [--reason <text>] [--ttl <seconds>] [--display]
           adrafinil status [--json]
-          adrafinil install-hooks [--tool <name>] [--dry-run]
-          adrafinil uninstall-hooks [--tool <name>] [--dry-run]
+          adrafinil install-hooks [--tool <name>] [--config-dir <dir>] [--mcp] [--dry-run]
+          adrafinil uninstall-hooks [--tool <name>] [--config-dir <dir>] [--mcp] [--dry-run]
           adrafinil daemon-status
           adrafinil mcp
           adrafinil version
@@ -79,6 +79,8 @@ enum CLIUsage {
         prefixed `<tool>:<session>`, a `sniffed:` key, or a `hold:` id. Releasing a key that
         matches nothing warns and exits 1 at a TTY (hooks always exit 0).
         `mcp` runs a Model Context Protocol server exposing holds as agent-callable tools.
+        `install-hooks --config-dir <dir>` targets a Claude Code profile run with its own
+        CLAUDE_CONFIG_DIR; `--mcp` also registers (or removes) the MCP server.
         """)
     }
 }

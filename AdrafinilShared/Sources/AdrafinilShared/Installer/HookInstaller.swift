@@ -46,13 +46,35 @@ public struct HookInstaller {
     /// Filesystem root for `~` expansion. Production uses `NSHomeDirectory()`; tests inject a temp dir.
     public let homeRoot: String
 
-    public init(cliPath: String, homeRoot: String = NSHomeDirectory()) {
+    /// A non-default Claude Code config directory (`CLAUDE_CONFIG_DIR`) to install Claude Code's
+    /// hooks and MCP server into, or nil for `~/.claude`. Other agents ignore it.
+    public let claudeConfigDir: String?
+
+    public init(cliPath: String, homeRoot: String = NSHomeDirectory(), claudeConfigDir: String? = nil) {
         self.cliPath = cliPath
         self.homeRoot = homeRoot
+        self.claudeConfigDir = Self.normalizedClaudeConfigDir(claudeConfigDir, homeRoot: homeRoot)
     }
 
     private var context: HookContext {
-        HookContext(cliPath: cliPath, homeRoot: homeRoot)
+        HookContext(cliPath: cliPath, homeRoot: homeRoot, claudeConfigDir: claudeConfigDir)
+    }
+
+    /// Expands `~`, makes the path absolute, and drops `.`/`..` and trailing slashes. Returns nil
+    /// for an empty path or one that names the default `~/.claude` — so the default profile always
+    /// takes the default code path (its MCP entry lives in `~/.claude.json`, not inside the dir).
+    public static func normalizedClaudeConfigDir(_ raw: String?, homeRoot: String = NSHomeDirectory(), currentDirectory: String = FileManager.default.currentDirectoryPath) -> String? {
+        guard var path = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
+        if path == "~" {
+            path = homeRoot
+        } else if path.hasPrefix("~/") {
+            path = homeRoot + path.dropFirst()
+        } else if !path.hasPrefix("/") {
+            path = currentDirectory + "/" + path
+        }
+        let standardized = URL(fileURLWithPath: path).standardized.path
+        let defaultDir = URL(fileURLWithPath: homeRoot + "/.claude").standardized.path
+        return standardized == defaultDir ? nil : standardized
     }
 
     public func install(for agent: AgentKind, dryRun: Bool) throws -> InstallResult {
