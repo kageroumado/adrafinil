@@ -21,6 +21,8 @@ import Foundation
 ///
 /// `PreToolUse` payloads also carry the tool call itself (`tool_name`, `tool_input`), which the
 /// background-task hook reads to tell a backgrounded Bash command or a Monitor from a foreground call.
+/// `PostToolUse` payloads carry the same `tool_use_id` as their `PreToolUse`, plus the tool's
+/// `tool_response` — whose `backgroundTaskId` names the shell a backgrounded Bash command started.
 ///
 /// This is the pure, testable core; `CLIStdin` reads the bytes off stdin and delegates here.
 public enum HookPayload {
@@ -41,6 +43,12 @@ public enum HookPayload {
     public static let timeoutMsField = "timeout_ms"
     /// The Monitor tool's legacy no-deadline flag (runs until stopped or the session ends).
     public static let persistentField = "persistent"
+    /// The id Claude Code gives one tool call. Identical on its `PreToolUse` and `PostToolUse`.
+    public static let toolUseIDField = "tool_use_id"
+    /// The nested result of a tool call on a `PostToolUse` payload.
+    public static let toolResponseField = "tool_response"
+    /// The id of a Bash command launched with `run_in_background`, in its `tool_response`.
+    public static let backgroundTaskIDField = "backgroundTaskId"
 
     /// How long a Monitor call may run, read from its `PreToolUse` payload.
     public enum MonitorDeadline: Equatable {
@@ -96,6 +104,24 @@ public enum HookPayload {
         let ms = (toolInput[timeoutMsField] as? NSNumber)?.doubleValue ?? defaultMs
         let clamped = ms.isFinite && ms > 0 ? min(ms, maxMs) : defaultMs
         return .seconds(clamped / 1_000)
+    }
+
+    /// The `tool_use_id` a `PreToolUse`/`PostToolUse` payload carries, or nil when absent or empty.
+    public static func toolUseID(in data: Data) -> String? {
+        string(forField: toolUseIDField, in: data)
+    }
+
+    /// The `(tool_use_id, backgroundTaskId)` of a `PostToolUse` Bash call that started a background
+    /// shell, or nil. Nil for foreground calls, so the hook can exit without touching the daemon.
+    public static func backgroundBashTask(in data: Data) -> (toolUseID: String, taskID: String)? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              obj[toolNameField] as? String == "Bash",
+              let toolInput = obj[toolInputField] as? [String: Any],
+              toolInput[runInBackgroundField] as? Bool == true,
+              let toolResponse = obj[toolResponseField] as? [String: Any],
+              let taskID = toolResponse[backgroundTaskIDField] as? String, !taskID.isEmpty,
+              let useID = toolUseID(in: data) else { return nil }
+        return (useID, taskID)
     }
 
     /// A non-empty string value at `field` in a top-level JSON object, or nil. An empty string reads

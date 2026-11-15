@@ -257,6 +257,19 @@ public enum ProcessResolver {
         return total
     }
 
+    /// The vnode paths of a process's stdout and stderr (`proc_pidfdinfo`), which identify a background
+    /// task's shell by its output file. Non-vnode fds (pipes) and unreadable ones are skipped.
+    public static func stdioPaths(of pid: pid_t) -> [String] {
+        [STDOUT_FILENO, STDERR_FILENO].compactMap { fd in
+            var info = vnode_fdinfowithpath()
+            let size = Int32(MemoryLayout<vnode_fdinfowithpath>.stride)
+            guard proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { return nil }
+            return withUnsafePointer(to: info.pvip.vip_path) { ptr in
+                ptr.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            }
+        }
+    }
+
     /// Parent PID via `sysctl(KERN_PROC_PID)`. Returns `-1` on failure.
     public static func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()

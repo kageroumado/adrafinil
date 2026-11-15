@@ -113,4 +113,49 @@ struct HookPayloadTests {
         #expect(HookPayload.runInBackground(in: data("not json")) == false)
         #expect(HookPayload.runInBackground(in: Data()) == false)
     }
+
+    // MARK: - tool_use_id and the background task of a PostToolUse
+
+    /// A Post payload for a `run_in_background` Bash call, as Claude Code 2.1.325 sends it.
+    private let backgroundPost = #"{"hook_event_name":"PostToolUse","session_id":"sess-1","tool_name":"Bash","tool_use_id":"toolu_01GKh9jeNrf3xd9ZNikP2xsr","tool_input":{"command":"npm run build","run_in_background":true},"tool_response":{"stdout":"","stderr":"","backgroundTaskId":"bbtqgkha5"}}"#
+
+    @Test
+    func `toolUseID reads the tool_use_id field`() {
+        #expect(HookPayload.toolUseID(in: data(backgroundPost)) == "toolu_01GKh9jeNrf3xd9ZNikP2xsr")
+        #expect(HookPayload.toolUseID(in: data(#"{"tool_use_id":""}"#)) == nil)
+        #expect(HookPayload.toolUseID(in: data(#"{"session_id":"s"}"#)) == nil)
+    }
+
+    @Test
+    func `backgroundBashTask reads the tool_use_id and backgroundTaskId of a background Bash call`() throws {
+        let task = try #require(HookPayload.backgroundBashTask(in: data(backgroundPost)))
+        #expect(task.toolUseID == "toolu_01GKh9jeNrf3xd9ZNikP2xsr")
+        #expect(task.taskID == "bbtqgkha5")
+    }
+
+    @Test
+    func `backgroundBashTask is nil for a foreground Bash call`() {
+        let payload = backgroundPost.replacingOccurrences(of: #""run_in_background":true"#, with: #""run_in_background":false"#)
+        #expect(HookPayload.backgroundBashTask(in: data(payload)) == nil)
+    }
+
+    @Test
+    func `backgroundBashTask is nil without a backgroundTaskId`() {
+        let missing = backgroundPost.replacingOccurrences(of: #","backgroundTaskId":"bbtqgkha5""#, with: "")
+        #expect(HookPayload.backgroundBashTask(in: data(missing)) == nil)
+        let empty = backgroundPost.replacingOccurrences(of: "bbtqgkha5", with: "")
+        #expect(HookPayload.backgroundBashTask(in: data(empty)) == nil)
+    }
+
+    @Test
+    func `backgroundBashTask is nil for a Monitor call`() {
+        let monitor = backgroundPost.replacingOccurrences(of: #""tool_name":"Bash""#, with: #""tool_name":"Monitor""#)
+        #expect(HookPayload.backgroundBashTask(in: data(monitor)) == nil)
+    }
+
+    @Test
+    func `backgroundBashTask is nil without a tool_use_id`() {
+        let noID = backgroundPost.replacingOccurrences(of: #""tool_use_id":"toolu_01GKh9jeNrf3xd9ZNikP2xsr","#, with: "")
+        #expect(HookPayload.backgroundBashTask(in: data(noID)) == nil)
+    }
 }

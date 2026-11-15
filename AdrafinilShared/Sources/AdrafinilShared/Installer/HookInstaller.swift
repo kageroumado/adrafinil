@@ -153,7 +153,7 @@ public struct HookInstaller {
         AgentIntegrations.integration(for: agent).backgroundBashShape(context) != nil
     }
 
-    /// Installs the background-shell `PreToolUse`(Bash) hook for `agent`. Throws
+    /// Installs the background-shell `PreToolUse`(Bash) and `PostToolUse`(Bash) hooks for `agent`. Throws
     /// `SkipReason.unsupportedHere` for an agent without a background-shell signal.
     @discardableResult
     public func installBackgroundHold(for agent: AgentKind, dryRun: Bool = false) throws -> InstallResult {
