@@ -92,4 +92,16 @@ struct CallerVerifierDecisionTests {
             ownTeam: nil, callerTeam: team, identifier: "glass.kagerou.adrafinil.daemon",
         ))
     }
+
+    @Test
+    func `the team requirement anchors to Apple and pins the team`() {
+        #expect(CallerVerifier.teamRequirementText(team)
+            == "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"")
+    }
+
+    @Test
+    func `a team string that is not a plain Team ID builds no requirement`() {
+        #expect(CallerVerifier.teamRequirementText("") == nil)
+        #expect(CallerVerifier.teamRequirementText("X\" or anchor apple generic or identifier \"") == nil)
+    }
 }

@@ -5,8 +5,9 @@ import Security
 ///
 /// Both the privileged helper (which must only accept the daemon) and the daemon's
 /// app-facing listener use this to reject connections from binaries we did not sign.
-/// The audit token is the canonical identifier for an XPC peer; we pull the signing
-/// identifier from it via the `SecCode` APIs and require our reverse-DNS prefix.
+/// The audit token is the canonical identifier for an XPC peer; the peer's running code is
+/// validated against a team-anchored requirement, and its signing identifier must then name
+/// an Adrafinil component.
 public enum CallerVerifier {
     /// Reverse-DNS prefix the app bundle signs with. Command-line tool targets (the daemon and
     /// helper) instead sign with their product name as the code identifier — `AdrafinilDaemon` /
@@ -26,12 +27,38 @@ public enum CallerVerifier {
     /// Only when this process itself has no team (an ad-hoc local dev build) does authorization
     /// fall back to the component-identifier check alone.
     public static func isAuthorized(_ connection: NSXPCConnection) -> Bool {
-        guard let caller = signingInfo(for: connection) else { return false }
-        return isAuthorizedDecision(
-            ownTeam: ownTeamIdentifier(),
-            callerTeam: caller.team,
-            identifier: caller.identifier,
-        )
+        guard let code = peerCode(for: connection) else { return false }
+        return isAuthorized(peer: code, ownTeam: ownTeamIdentifier())
+    }
+
+    /// Authorizes the running code `peer`.
+    ///
+    /// `SecCodeCheckValidity` comes first and is what ties the answer to the process: it proves
+    /// the code executing in the peer is the validly signed code its signature describes. The
+    /// file at a process's path is NOT that proof — a process can start from an ad-hoc binary and
+    /// then have a signed Adrafinil binary moved onto its path, and signing information read from
+    /// the file alone would credit it with that binary's team and identifier.
+    static func isAuthorized(peer: SecCode, ownTeam: String?) -> Bool {
+        var requirement: SecRequirement?
+        if let ownTeam {
+            guard let text = teamRequirementText(ownTeam),
+                  SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess
+            else { return false }
+        }
+        guard SecCodeCheckValidity(peer, [], requirement) == errSecSuccess,
+              let stat = staticCode(for: peer),
+              let caller = signingInfo(of: stat) else { return false }
+        return isAuthorizedDecision(ownTeam: ownTeam, callerTeam: caller.team, identifier: caller.identifier)
+    }
+
+    /// The requirement a peer's running code must satisfy when this process has a team: an
+    /// Apple-issued certificate chain whose leaf belongs to that team. Developer ID and Apple
+    /// Development certificates both carry the Team ID in `subject.OU`. Returns nil for a team
+    /// string that is not a plain Team ID, so nothing unexpected is spliced into the requirement.
+    static func teamRequirementText(_ team: String) -> String? {
+        guard !team.isEmpty, team.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.alphanumerics.contains($0) })
+        else { return nil }
+        return "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
     }
 
     /// The pure authorization decision, separated from the Security-framework plumbing so it is
@@ -61,7 +88,7 @@ public enum CallerVerifier {
         let team: String?
     }
 
-    private static func signingInfo(for connection: NSXPCConnection) -> SigningInfo? {
+    private static func peerCode(for connection: NSXPCConnection) -> SecCode? {
         // Fail closed: if the peer's audit token can't be read, we can't identify the caller, so
         // there is no safe way to authorize it. A zeroed token would resolve via
         // `SecCodeCopyGuestWithAttributes` to an unintended guest (pid 0 / self), so it must never
@@ -70,10 +97,8 @@ public enum CallerVerifier {
         let tokenData = Data(bytes: &token, count: MemoryLayout.size(ofValue: token))
         let attrs = [kSecGuestAttributeAudit: tokenData] as CFDictionary
         var codeRef: SecCode?
-        guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &codeRef) == errSecSuccess,
-              let code = codeRef,
-              let stat = staticCode(for: code) else { return nil }
-        return signingInfo(of: stat)
+        guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &codeRef) == errSecSuccess else { return nil }
+        return codeRef
     }
 
     /// Team Identifier of the *current* process, used as the reference for the caller's team.
