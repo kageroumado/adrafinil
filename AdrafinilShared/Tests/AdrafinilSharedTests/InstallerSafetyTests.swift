@@ -375,4 +375,46 @@ struct InstallerSafetyTests {
         #expect(ts.contains(#"\"hi\""#), "quotes in the path must be escaped in the generated literal")
         #expect(!ts.contains(#"execFileSync("/Apps/say "hi""#), "an unescaped quote would break the literal")
     }
+
+    @Test
+    func `shell wrapper runs nothing a hostile cli path embeds`() throws {
+        let home = try makeFakeHome(detectedDirs: [])
+        defer { try? FileManager.default.removeItem(at: home) }
+        // A bundle location that is valid as a path and hostile as shell text.
+        let appDir = home.appendingPathComponent("A $(touch \(home.path)/pwned) `touch \(home.path)/pwned2` \"q\" it's")
+        try FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
+        let cli = appDir.appendingPathComponent("adrafinil")
+        try "#!/bin/sh\ntouch \"\(home.path)/ran\"\n".write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+
+        // `true` stands in for the wrapped tool, so the script runs end to end.
+        _ = try ShellWrapper(toolName: "true", cliPath: cli.path, homeRoot: home.path).install(dryRun: false)
+
+        let script = Process()
+        script.executableURL = URL(fileURLWithPath: "/bin/bash")
+        script.arguments = [home.path + "/.local/bin/true-adrafinil"]
+        try script.run()
+        script.waitUntilExit()
+
+        let fm = FileManager.default
+        #expect(script.terminationStatus == 0)
+        #expect(fm.fileExists(atPath: home.path + "/ran"), "the real CLI at the hostile path must still be invoked")
+        #expect(!fm.fileExists(atPath: home.path + "/pwned"), "a $(…) in the path must not run")
+        #expect(!fm.fileExists(atPath: home.path + "/pwned2"), "a backtick command in the path must not run")
+    }
+
+    @Test
+    func `hermes hook survives quotes and backslashes in the cli path`() throws {
+        let home = try makeFakeHome(detectedDirs: [".hermes"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ctx = HookContext(cliPath: #"/Apps/say "hi" it's\here/adrafinil"#, homeRoot: home.path)
+        let hermes = HermesIntegration()
+        _ = try hermes.install(ctx, dryRun: false)
+
+        let cfg = try String(contentsOfFile: home.path + "/.hermes/config.yaml", encoding: .utf8)
+        // Inside the YAML double-quoted scalar: the shell word is single-quoted, and the path's
+        // own double quotes and backslash are YAML-escaped.
+        #expect(cfg.contains(#"- command: "'/Apps/say \"hi\" it'\\''s\\here/adrafinil' acquire --tool hermes""#))
+        #expect(hermes.installState(ctx) == .installed)
+    }
 }

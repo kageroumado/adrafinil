@@ -138,7 +138,7 @@ final class CLISocketServer {
                 tool: tool,
                 reason: CLIRequestValidator.clampedReason(req.reason),
                 pid: req.pid ?? -1,
-                processName: req.processName ?? tool,
+                processName: CLIRequestValidator.clampedLabel(req.processName) ?? tool,
                 ttl: CLIRequestValidator.clampedTTL(req.ttlSeconds),
                 holdsDisplay: req.display ?? false,
             )
@@ -167,7 +167,13 @@ final class CLISocketServer {
 
         case .hold:
             let result = runOnMain { @MainActor in
-                await daemonRef.handleHold(reason: req.reason, requestedTTL: req.ttlSeconds, pid: req.pid, tool: req.tool, display: req.display ?? false)
+                await daemonRef.handleHold(
+                    reason: CLIRequestValidator.clampedReason(req.reason),
+                    requestedTTL: req.ttlSeconds,
+                    pid: req.pid,
+                    tool: CLIRequestValidator.clampedLabel(req.tool),
+                    display: req.display ?? false,
+                )
             }
             switch result {
             case let .placed(key, ttl, count):

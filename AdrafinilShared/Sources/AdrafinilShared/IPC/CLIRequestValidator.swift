@@ -39,6 +39,13 @@ public enum CLIRequestValidator {
         return reason.count > maxReasonLength ? String(reason.prefix(maxReasonLength)) : reason
     }
 
+    /// Tool and process names are short display labels — truncate rather than reject. Covers the
+    /// fields `acquireRejection` leaves alone: a hold's tool and an acquire's process name.
+    public static func clampedLabel(_ label: String?) -> String? {
+        guard let label else { return nil }
+        return label.count > maxToolLength ? String(label.prefix(maxToolLength)) : label
+    }
+
     /// TTLs are hard deadlines chosen by the caller. Non-finite or non-positive values are
     /// dropped (the idle sweep still governs the assertion — and an infinity would make
     /// JSONEncoder throw when the assertion is persisted); anything beyond the daemon's 24-hour

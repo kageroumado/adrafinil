@@ -45,11 +45,18 @@ struct HermesIntegration: AgentIntegration {
     }
 
     /// The post-YAML command string — also the exact string stored in the allowlist. The CLI path
-    /// is shell-quoted so Hermes's `shlex.split` keeps a spaced path as a single arg; the session id
-    /// comes from the hook's stdin `session_id`, so no positional key is needed.
+    /// is shell-quoted so Hermes's `shlex.split` keeps it as a single arg whatever it contains; the
+    /// session id comes from the hook's stdin `session_id`, so no positional key is needed.
     private func command(_ op: String, cliPath: String) -> String {
-        let cli = cliPath.contains("'") ? "\"\(cliPath)\"" : "'\(cliPath)'"
-        return "\(cli) \(op) --tool hermes"
+        "\(ShellQuoting.singleQuoted(cliPath)) \(op) --tool hermes"
+    }
+
+    /// `command` as it appears between the double quotes of a YAML scalar, where a backslash or a
+    /// double quote in the path must be escaped to survive parsing.
+    private func yamlCommand(_ op: String, cliPath: String) -> String {
+        command(op, cliPath: cliPath)
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     /// The `hooks:` block we manage, bracketed by comment markers for clean removal. Acquire is wired
@@ -60,11 +67,11 @@ struct HermesIntegration: AgentIntegration {
         hooks:
         \(Self.markerStart)
           on_session_start:
-            - command: "\(command("acquire", cliPath: cliPath))"
+            - command: "\(yamlCommand("acquire", cliPath: cliPath))"
           pre_gateway_dispatch:
-            - command: "\(command("acquire", cliPath: cliPath))"
+            - command: "\(yamlCommand("acquire", cliPath: cliPath))"
           on_session_end:
-            - command: "\(command("release", cliPath: cliPath))"
+            - command: "\(yamlCommand("release", cliPath: cliPath))"
         \(Self.markerEnd)
         """
     }
@@ -77,7 +84,7 @@ struct HermesIntegration: AgentIntegration {
         var wroteHooks = false
 
         let intact = existing.contains(Self.markerStart)
-            && Self.activeLines(of: existing).contains { $0.contains(command("acquire", cliPath: ctx.cliPath)) }
+            && Self.activeLines(of: existing).contains { $0.contains(yamlCommand("acquire", cliPath: ctx.cliPath)) }
 
         if intact {
             summary = "already installed"
@@ -138,8 +145,8 @@ struct HermesIntegration: AgentIntegration {
     func installState(_ ctx: HookContext) -> HookInstallState {
         guard let text = try? String(contentsOfFile: configPath(ctx), encoding: .utf8) else { return .notInstalled }
         let active = Self.activeLines(of: text)
-        let hasAcquire = active.contains { $0.contains(command("acquire", cliPath: ctx.cliPath)) }
-        let hasRelease = active.contains { $0.contains(command("release", cliPath: ctx.cliPath)) }
+        let hasAcquire = active.contains { $0.contains(yamlCommand("acquire", cliPath: ctx.cliPath)) }
+        let hasRelease = active.contains { $0.contains(yamlCommand("release", cliPath: ctx.cliPath)) }
         if !hasAcquire, !hasRelease {
             // Our marker block, or any adrafinil hook command (e.g. with a stale CLI path after
             // the app moved), means our wiring is present-but-broken — never `.notInstalled`,

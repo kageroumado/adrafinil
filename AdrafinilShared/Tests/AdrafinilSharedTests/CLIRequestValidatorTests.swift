@@ -61,4 +61,12 @@ struct CLIRequestValidatorTests {
         let long = String(repeating: "r", count: CLIRequestValidator.maxReasonLength + 100)
         #expect(CLIRequestValidator.clampedReason(long)?.count == CLIRequestValidator.maxReasonLength)
     }
+
+    @Test
+    func `labels are truncated not rejected`() {
+        #expect(CLIRequestValidator.clampedLabel(nil) == nil)
+        #expect(CLIRequestValidator.clampedLabel("claude-code") == "claude-code")
+        let long = String(repeating: "t", count: CLIRequestValidator.maxToolLength + 100)
+        #expect(CLIRequestValidator.clampedLabel(long)?.count == CLIRequestValidator.maxToolLength)
+    }
 }

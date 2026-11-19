@@ -29,7 +29,7 @@ struct ShellWrapper {
     }
 
     private var quotedCLI: String {
-        cliPath.contains(" ") ? "\"\(cliPath)\"" : cliPath
+        ShellQuoting.word(cliPath)
     }
     private var marker: String {
         "# adrafinil-\(toolName)"
@@ -38,7 +38,7 @@ struct ShellWrapper {
         "# end-adrafinil-\(toolName)"
     }
     private var aliasLine: String {
-        "alias \(toolName)='\(wrapperScriptPath)'"
+        "alias \(toolName)=\(ShellQuoting.singleQuoted(wrapperScriptPath))"
     }
     private var rcBlock: String {
         "\(marker)\n\(aliasLine)\n\(endMarker)"

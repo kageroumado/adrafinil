@@ -34,10 +34,7 @@ struct HookContext {
     /// neutralize every shell metacharacter (spaces, `$`, quotes, backticks) — the path lives
     /// inside the `.app` bundle, wherever the user put or renamed it.
     var quotedCLI: String {
-        if cliPath.range(of: "^[A-Za-z0-9_/.-]+$", options: .regularExpression) != nil {
-            return cliPath
-        }
-        return "'" + cliPath.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        ShellQuoting.word(cliPath)
     }
 
     /// Builds an `acquire`/`release` hook command. When `sessionVar` is nil the positional session
@@ -84,6 +81,25 @@ struct HookContext {
     /// bundle path with spaces is fine as a single argv element.
     func mcpEntry(tool: String) -> [String: Any] {
         ["type": "stdio", "command": cliPath, "args": ["mcp", "--tool", tool]]
+    }
+}
+
+/// Quoting for text spliced into generated shell commands and scripts. Every such value is a
+/// filesystem path the user chose (the app bundle's location, the home directory), so it may hold
+/// any character a path can.
+enum ShellQuoting {
+    /// `text` as one POSIX shell word. Single quotes neutralize every metacharacter (spaces, `$`,
+    /// double quotes, backticks); an embedded single quote is closed, escaped and reopened.
+    static func singleQuoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// `text` as one shell word, left bare when it is plain enough to need no quoting.
+    static func word(_ text: String) -> String {
+        if text.range(of: "^[A-Za-z0-9_/.-]+$", options: .regularExpression) != nil {
+            return text
+        }
+        return singleQuoted(text)
     }
 }
 
