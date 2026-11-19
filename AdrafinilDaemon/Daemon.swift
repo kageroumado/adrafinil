@@ -402,6 +402,7 @@ final class Daemon {
                     await playSleepCueIfNeeded()
                 }
                 await helperClient.setBlocked(blocking)
+                relaunchIfUpdatedAndHelperUnreachable()
                 if !blocking {
                     sleepAfterCutoutIfNeeded()
                 }
@@ -476,6 +477,20 @@ final class Daemon {
             return
         }
         log.notice("Daemon binary replaced by an update — exiting so launchd relaunches the new daemon")
+        exit(0)
+    }
+
+    /// Adopts an updated binary at once, held assertions or not, when the helper can't be driven.
+    /// The helper validates the running code of whoever connects against the file at its path, so
+    /// a daemon whose binary an update replaced is refused by a helper started after that update.
+    /// Waiting for idle would leave the Mac unprotected for as long as agents keep working; the
+    /// assertions are in `state.json` and the relaunched daemon restores and re-applies them.
+    private func relaunchIfUpdatedAndHelperUnreachable() {
+        guard helperClient.lastApplyFailed, executableStaleness.hasBeenReplaced() else { return }
+        // Same reason as above: the latch isn't persisted, and a fired cutout has released
+        // everything, so there is no block to restore until it clears.
+        guard !cutoutLatch.isLatched else { return }
+        log.notice("Daemon binary replaced by an update and the helper is unreachable — exiting so launchd relaunches the new daemon")
         exit(0)
     }
 
@@ -888,5 +903,6 @@ final class Daemon {
     private func syncHelperToRegistry() async {
         let blocking = await registry.isBlocking
         await helperClient.setBlocked(blocking)
+        relaunchIfUpdatedAndHelperUnreachable()
     }
 }
