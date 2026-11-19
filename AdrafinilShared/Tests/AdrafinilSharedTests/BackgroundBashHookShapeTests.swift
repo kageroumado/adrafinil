@@ -217,6 +217,104 @@ struct BackgroundBashHookShapeTests {
         #expect(groups.first?["matcher"] as? String == "Bash|Monitor")
     }
 
+    /// The Adrafinil handler's command under `event`, or nil when the event carries none.
+    private func command(under event: String, in home: URL) throws -> String? {
+        let hooks = try #require(try readJSON(settingsPath(home))["hooks"] as? [String: Any])
+        for group in hooks[event] as? [[String: Any]] ?? [] {
+            if let inner = group["hooks"] as? [[String: Any]],
+               let ours = inner.first(where: { ($0["_adrafinil"] as? Bool) == true }) {
+                return ours["command"] as? String
+            }
+        }
+        return nil
+    }
+
+    private let bindCommand = "/usr/local/bin/adrafinil acquire --tool claude-code --bind-background --ttl \(Int(BackgroundBashHold.defaultTTLSeconds))"
+
+    @Test
+    func `install also wires a PostToolUse Bash bind hook`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        _ = try installer(home).installBackgroundHold(for: .claudeCode)
+
+        let hooks = try #require(try readJSON(settingsPath(home))["hooks"] as? [String: Any])
+        let groups = try #require(hooks["PostToolUse"] as? [[String: Any]])
+        #expect(groups.count == 1)
+        #expect(groups.first?["matcher"] as? String == "Bash", "the bind follows the Bash call only")
+        #expect(try command(under: "PostToolUse", in: home) == bindCommand)
+    }
+
+    @Test
+    func `a PreToolUse-only install reads as modified and a reinstall completes it`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let inst = installer(home)
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+
+        // What an older build left behind: the PreToolUse group, no PostToolUse bind.
+        var dict = try readJSON(settingsPath(home))
+        var hooks = try #require(dict["hooks"] as? [String: Any])
+        hooks["PostToolUse"] = nil
+        dict["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: dict).write(to: URL(fileURLWithPath: settingsPath(home)))
+        #expect(inst.backgroundHoldState(for: .claudeCode) == .modifiedExternally, "a half-installed shape must be migrated")
+
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+        #expect(inst.backgroundHoldState(for: .claudeCode) == .installed)
+        #expect(try command(under: "PostToolUse", in: home) == bindCommand)
+        #expect(try command(under: "PreToolUse", in: home) != nil)
+    }
+
+    @Test
+    func `a PostToolUse-only install reads as modified`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let inst = installer(home)
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+
+        var dict = try readJSON(settingsPath(home))
+        var hooks = try #require(dict["hooks"] as? [String: Any])
+        hooks["PreToolUse"] = nil
+        dict["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: dict).write(to: URL(fileURLWithPath: settingsPath(home)))
+        #expect(inst.backgroundHoldState(for: .claudeCode) == .modifiedExternally)
+    }
+
+    @Test
+    func `install is idempotent across both events`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let inst = installer(home)
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+
+        let hooks = try #require(try readJSON(settingsPath(home))["hooks"] as? [String: Any])
+        #expect((hooks["PreToolUse"] as? [[String: Any]])?.count == 1)
+        #expect((hooks["PostToolUse"] as? [[String: Any]])?.count == 1)
+    }
+
+    @Test
+    func `uninstall removes both hooks and keeps the user's PostToolUse hooks`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let existing: [String: Any] = [
+            "hooks": ["PostToolUse": [["matcher": "Bash", "hooks": [["type": "command", "command": "my-logger"]]]]],
+        ]
+        try FileManager.default.createDirectory(atPath: home.path + "/.claude", withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: existing).write(to: URL(fileURLWithPath: settingsPath(home)))
+
+        let inst = installer(home)
+        _ = try inst.installBackgroundHold(for: .claudeCode)
+        _ = try inst.uninstallBackgroundHold(for: .claudeCode)
+
+        #expect(try command(under: "PreToolUse", in: home) == nil)
+        #expect(try command(under: "PostToolUse", in: home) == nil, "our bind must be gone")
+        let groups = try #require(try (readJSON(settingsPath(home))["hooks"] as? [String: Any])?["PostToolUse"] as? [[String: Any]])
+        #expect(groups.count == 1)
+        #expect(groups.first.flatMap { ($0["hooks"] as? [[String: Any]])?.first?["command"] as? String } == "my-logger")
+        #expect(inst.backgroundHoldState(for: .claudeCode) == .notInstalled)
+    }
+
     // MARK: - Coexistence with the Part-1 core hooks
 
     @Test

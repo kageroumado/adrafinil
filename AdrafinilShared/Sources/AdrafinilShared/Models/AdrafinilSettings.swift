@@ -72,11 +72,9 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     /// down to this — a forgetful agent can never pin the Mac awake indefinitely.
     public var manualHoldMaxHours: Double = 4
 
-    /// Opt-in: keep the Mac awake while a shell command an agent launched with `run_in_background`
-    /// keeps running. Such a command outlives the turn's `Stop` and fires *no* completion hook, so
-    /// the only signal is the `PreToolUse` that starts it — the resulting hold has no symmetric
-    /// release and is therefore TTL-bounded (capped by `manualHoldMaxHours`), which is why it's a
-    /// separately-installed, default-OFF opt-in. Claude Code only for now (see `BackgroundBashHold`).
+    /// Opt-in: keep the Mac awake while a `run_in_background` shell command runs. The hold is placed on
+    /// `PreToolUse` and bound to the command's shell on `PostToolUse`, so it ends when the shell exits;
+    /// its TTL, capped by `manualHoldMaxHours`, is only the fallback. Claude Code only (see `BackgroundBashHold`).
     public var keepAwakeForBackgroundBash: Bool = false
 
     public var launchAtLogin: Bool = true

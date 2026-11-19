@@ -61,11 +61,17 @@ struct HookContext {
 
     /// Builds the background-shell acquire command for a `PreToolUse`(Bash) hook:
     /// `acquire --tool <tool> --if-background --ttl <n>`. It fires when the agent launches a
-    /// `run_in_background` shell command — the one signal for a background task that outlives the
-    /// turn's `Stop` (which fires no completion hook), so the resulting hold is TTL-bounded. The
-    /// `--ttl` precedes no positional, so `--if-background` parses as a bare flag (see `ArgParser`).
+    /// `run_in_background` shell command, which outlives the turn's `Stop` and fires no completion
+    /// hook, so it places the hold that `backgroundBindCommand` then binds to the shell. The `--ttl`
+    /// precedes no positional, so `--if-background` parses as a bare flag (see `ArgParser`).
     func backgroundAcquireCommand(tool: String, ttlSeconds: Int) -> String {
         quotedCLI + " acquire --tool " + tool + " --if-background --ttl " + String(ttlSeconds)
+    }
+
+    /// The `PostToolUse`(Bash) bind command: `acquire --tool <tool> --bind-background --ttl <n>`. The
+    /// `--ttl` is the fallback when the bind finds neither the shell nor its output file.
+    func backgroundBindCommand(tool: String, ttlSeconds: Int) -> String {
+        quotedCLI + " acquire --tool " + tool + " --bind-background --ttl " + String(ttlSeconds)
     }
 
     /// The name Adrafinil registers its MCP server under in each agent's config. Constant across
@@ -112,8 +118,9 @@ protocol AgentIntegration {
     /// hold sleep past its turn. Only agents whose MCP config format we've verified return a shape.
     func mcpShape(_ ctx: HookContext) -> MCPServerShape?
 
-    /// How to install Adrafinil's opt-in background-shell hook (a `PreToolUse`/Bash `acquire
-    /// --if-background`), or nil if the agent exposes no clean `run_in_background` signal. Like MCP,
+    /// How to install Adrafinil's opt-in background-shell hooks (a `PreToolUse`/Bash `acquire
+    /// --if-background` and a `PostToolUse`/Bash `acquire --bind-background`), or nil if the agent
+    /// exposes no clean `run_in_background` signal. Like MCP,
     /// this is a *separately-toggled* capability, installed independently of the core acquire/release
     /// wiring so flipping it never rewrites the whole hook set (and, for Codex, never re-triggers the
     /// `/hooks` trust approval). Only Claude Code qualifies today (see `BackgroundBashHold`).

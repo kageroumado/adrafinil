@@ -1,34 +1,24 @@
 import Foundation
 
-/// Policy for the opt-in *background-shell* keep-awake (issue #7 Part 2). Part 1 covers agents and
-/// sub-agents whose work brackets a hook pair; the remaining gap is a shell command an agent launches
-/// with `run_in_background: true` (Claude Code's Bash tool). Such a command keeps running after the
-/// turn's `Stop`, and **neither the parent nor any sub-agent fires a completion hook for it** — so
-/// there is no symmetric release, only the `PreToolUse` that starts it.
+/// Policy for the opt-in *background-shell* keep-awake (issue #7 Part 2). A `run_in_background` Bash
+/// command or a Monitor outlives the turn's `Stop` and fires no completion hook, so its hold is placed
+/// on `PreToolUse` and bound to the task's shell on `PostToolUse` (`startedTask`, `binding`). The hold
+/// then ends when that shell exits; the TTL is only the fallback when the shell can't be found.
 ///
-/// Two consequences shape this design:
+/// Consequences:
 ///
-///   - **TTL-bounded, not idle-released.** With no end hook, the hold can only be released by a
-///     deadline. The daemon's CPU-idle net can't stand in for one: it measures the *agent's* process
-///     tree, which says nothing about the task — busy with other turns it never looks idle, and
-///     parked at the prompt while a quiet task runs it looks idle at once — so background holds are
-///     exempt from it (`isBackgroundKey`). Hence a TTL —
-///     `requestedTTL` (the installed hook passes `--ttl <ceiling>`), else `defaultTTLSeconds` — which
-///     the daemon further clamps to the live `manualHoldMaxHours` (`ManualHold.clampExpiry`). The
-///     installed command deliberately requests the ceiling so the *effective* TTL always tracks the
-///     user's configured max-hold, rather than a value baked in at install time that drifts when they
-///     change the cap.
-///   - **Per-invocation key.** Each background command holds independently (`bg-<uniqueID>` in the
-///     session slot of `<tool>:<key>`), so two overlapping background tasks don't share — and thus
-///     can't prematurely release — one another's hold.
+///   - **Not idle-released.** The CPU-idle net measures the *agent's* process tree, which says nothing
+///     about the task, so background holds are exempt (`isBackgroundKey`). The dead-process net and the
+///     TTL end them. The TTL is `requestedTTL` (the hook passes the 24h ceiling) else
+///     `defaultTTLSeconds`, which the daemon clamps to the live `manualHoldMaxHours`.
+///   - **Per-call key.** The `bg-<id>` derives from `tool_use_id`, identical on `PreToolUse` and
+///     `PostToolUse`, so overlapping tasks never share one hold.
 ///
-/// **Monitors.** Claude Code's Monitor tool is the same shape of problem: it starts a watch that
-/// outlives the turn, wakes the agent with each event, and fires no hook when it ends. Unlike a
-/// background command it carries its own deadline (`timeout_ms`), so its hold is sized to that
-/// instead of the ceiling — a watch the agent forgot about can't keep the Mac up for hours.
+/// **Monitors.** A Monitor carries its own deadline (`timeout_ms`), so its hold is sized to that
+/// instead. Its output goes over a unix socket, so it is never bound to a shell.
 ///
-/// This type is the pure, testable decision; the `acquire --if-background` CLI command reads the
-/// stdin payload and the owning PID around it, and the daemon applies and caps the resulting hold.
+/// This type is the pure decision; the `acquire --if-background` and `--bind-background` CLI commands
+/// read the stdin payload and the process tree around it.
 ///
 /// **Claude Code only.** Codex has no equivalent clean pre-tool boolean: its shell tool uses an
 /// `exec_command`/`write_stdin` PTY model with a `yield_time_ms` background yield, not a single
@@ -36,7 +26,7 @@ import Foundation
 /// Codex background-shell keep-awake is a follow-up; the shape is installed only for Claude Code.
 public enum BackgroundBashHold {
     /// The marker that namespaces a background-shell hold within the session slot of its key, so it
-    /// reads as `<tool>:bg-<uniqueID>` and never collides with a real per-turn `<tool>:<session_id>`.
+    /// reads as `<tool>:bg-<id>` and never collides with a real per-turn `<tool>:<session_id>`.
     public static let keyInfix = "bg-"
 
     /// TTL requested when the hook command carries no explicit `--ttl`. Set to the CLI's 24h absolute
@@ -45,7 +35,7 @@ public enum BackgroundBashHold {
 
     /// A hold to place, or the absence of one.
     public struct Plan: Equatable {
-        /// The registry key, `<tool>:bg-<uniqueID>` — unique per invocation.
+        /// The registry key, `<tool>:bg-<id>` — unique per tool call.
         public let key: String
         /// The requested TTL in seconds; the daemon clamps it down to `manualHoldMaxHours`.
         public let ttl: TimeInterval
@@ -54,6 +44,49 @@ public enum BackgroundBashHold {
             self.key = key
             self.ttl = ttl
         }
+    }
+
+    /// A background shell a `PostToolUse` Bash call started, and the hold its `PreToolUse` placed.
+    public struct BackgroundTask: Equatable {
+        /// The hold's key — the same one `plan` derived on the `PreToolUse`.
+        public let key: String
+        /// The parent session, which names the task's output directory.
+        public let sessionID: String
+        /// The `backgroundTaskId` from the Bash result, which names the task's output file.
+        public let taskID: String
+        /// The TTL to re-assert with the bind, matching what `plan` requested.
+        public let ttl: TimeInterval
+
+        public init(key: String, sessionID: String, taskID: String, ttl: TimeInterval) {
+            self.key = key
+            self.sessionID = sessionID
+            self.taskID = taskID
+            self.ttl = ttl
+        }
+    }
+
+    /// The outcome of searching the agent's process tree for a task's shell.
+    public struct ShellSearch: Equatable {
+        /// The topmost process holding the task's output file, or nil when none does.
+        public let pid: pid_t?
+        /// Whether the caller itself is a descendant of the agent in this snapshot. The hook always
+        /// runs under the agent, so false means the snapshot is unreliable and a nil `pid` proves nothing.
+        public let snapshotIncludesCaller: Bool
+
+        public init(pid: pid_t?, snapshotIncludesCaller: Bool) {
+            self.pid = pid
+            self.snapshotIncludesCaller = snapshotIncludesCaller
+        }
+    }
+
+    /// What the `PostToolUse` bind does with a background task's hold.
+    public enum TaskBinding: Equatable {
+        /// The shell is alive: point the hold at its PID so the dead-process net ends it on exit.
+        case bind(pid_t)
+        /// The task already finished (its output file exists, its shell does not): end the hold now.
+        case release
+        /// Neither is visible: leave the hold to its TTL.
+        case none
     }
 
     /// Slack added to a Monitor's own deadline. A monitor that reaches its deadline wakes the agent,
@@ -74,8 +107,9 @@ public enum BackgroundBashHold {
     ///
     /// Returns `nil` when the tool call starts no background work — the common path (every foreground
     /// Bash call, and every other tool's `PreToolUse`), where the CLI must place no hold and exit 0.
-    /// Returns a `Plan` for a `run_in_background` Bash command or a Monitor: a per-invocation `bg-` key
-    /// (from `uniqueID`; production passes a fresh id, tests a fixed one) and the TTL.
+    /// Returns a `Plan` for a `run_in_background` Bash command or a Monitor: a `bg-` key and the TTL.
+    /// The key derives from the payload's `tool_use_id`, so the `PostToolUse` bind finds it again;
+    /// `uniqueID` is used only when the payload carries none.
     ///
     /// A background command's TTL is `requestedTTL`, else `defaultTTLSeconds` — it has no deadline of
     /// its own. A Monitor does: Claude Code kills it at `timeout_ms`, so the hold lasts that long plus
@@ -93,11 +127,117 @@ public enum BackgroundBashHold {
             guard HookPayload.runInBackground(in: payload) else { return nil }
             ttl = ceiling
         }
-        return Plan(key: ManualHold.sessionKey(tool: tool, sessionID: keyInfix + uniqueID), ttl: ttl)
+        let id = HookPayload.toolUseID(in: payload).map(bindingID(toolUseID:)) ?? uniqueID
+        return Plan(key: key(tool: tool, id: id), ttl: ttl)
     }
 
-    /// A fresh per-invocation id: 8 lowercase hex chars, matching `ManualHold.newKey`'s brevity.
+    /// The background task a `PostToolUse` Bash payload started, or nil when it started none — every
+    /// foreground call, and every other tool. The key is derived exactly as `plan` derives it on the
+    /// `PreToolUse`, so the bind addresses the hold that call placed.
+    public static func startedTask(payload: Data, tool: String, requestedTTL: TimeInterval?) -> BackgroundTask? {
+        guard let started = HookPayload.backgroundBashTask(in: payload),
+              let sessionID = HookPayload.sessionID(in: payload) else { return nil }
+        return BackgroundTask(
+            key: key(tool: tool, id: bindingID(toolUseID: started.toolUseID)),
+            sessionID: sessionID,
+            taskID: started.taskID,
+            ttl: requestedTTL ?? defaultTTLSeconds,
+        )
+    }
+
+    /// The `bg-` id for a tool call: 8 lowercase hex digits of the 32-bit FNV-1a hash of its
+    /// `tool_use_id`. A hash rather than `freshID()` because the `PreToolUse` and `PostToolUse` run in
+    /// separate processes and must agree on it; FNV-1a is fixed by its definition, so it does.
+    public static func bindingID(toolUseID: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in toolUseID.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        let hex = String(hash, radix: 16)
+        return String(repeating: "0", count: 8 - hex.count) + hex
+    }
+
+    /// A fresh per-invocation id: 8 lowercase hex chars, matching `ManualHold.newKey`'s brevity. Used
+    /// only when a hook payload carries no `tool_use_id`.
     public static func freshID() -> String {
         UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8).lowercased()
+    }
+
+    /// The registry key of a background hold with id `id`: `<tool>:bg-<id>`.
+    public static func key(tool: String, id: String) -> String {
+        ManualHold.sessionKey(tool: tool, sessionID: keyInfix + id)
+    }
+
+    /// The path suffix of a background task's output file, below Claude Code's per-cwd directory:
+    /// `<session>/tasks/<taskID>.output`. Matched by suffix because the fd paths carry a prefix that
+    /// varies with the temp root (`/private/tmp` for `/tmp`).
+    public static func taskOutputSuffix(sessionID: String, taskID: String) -> String {
+        "/\(sessionID)/tasks/\(taskID).output"
+    }
+
+    /// The directory Claude Code writes its task output under: `$CLAUDE_CODE_TMPDIR`, else `/tmp`.
+    public static func taskTempRoot(environment: [String: String]) -> String {
+        let override = environment["CLAUDE_CODE_TMPDIR"] ?? ""
+        return override.isEmpty ? "/tmp" : override
+    }
+
+    /// Searches `root`'s descendants for the task's shell: the topmost process holding the output file
+    /// on stdout or stderr, since commands the shell runs inherit those fds. Breadth-first, so the first
+    /// match is the shallowest. Also reports whether `caller` appears in the same snapshot.
+    ///
+    /// - Parameters:
+    ///   - caller: the calling process; the hook always runs under the agent, so it must be found.
+    ///   - children: the parent-to-children map (`ProcessResolver.childMap()`).
+    ///   - openPaths: the stdio vnode paths of a process (`ProcessResolver.stdioPaths(of:)`).
+    public static func taskShellSearch(
+        root: pid_t,
+        caller: pid_t,
+        suffix: String,
+        children: [pid_t: [pid_t]],
+        openPaths: (pid_t) -> [String],
+    ) -> ShellSearch {
+        var queue = children[root] ?? []
+        var seen: Set<pid_t> = [root]
+        var shell: pid_t?
+        var next = 0
+        while next < queue.count {
+            let pid = queue[next]
+            next += 1
+            guard seen.insert(pid).inserted else { continue }
+            if shell == nil, openPaths(pid).contains(where: { $0.hasSuffix(suffix) }) {
+                shell = pid
+            }
+            queue.append(contentsOf: children[pid] ?? [])
+        }
+        return ShellSearch(pid: shell, snapshotIncludesCaller: seen.contains(caller))
+    }
+
+    /// Whether the task's output file exists under any per-cwd directory,
+    /// `<tempRoot>/claude-<uid>/<cwd-slug>/<session>/tasks/<task>.output`. The file outlives its shell,
+    /// so its presence with no live shell signals a finished task.
+    ///
+    /// - Parameters:
+    ///   - listDirectories: the entry names directly under a path (the per-cwd slugs).
+    ///   - fileExists: whether a file exists at a full path.
+    public static func taskOutputExists(
+        sessionID: String,
+        taskID: String,
+        tempRoot: String,
+        uid: uid_t,
+        listDirectories: (String) -> [String],
+        fileExists: (String) -> Bool,
+    ) -> Bool {
+        let base = "\(tempRoot)/claude-\(uid)"
+        let suffix = taskOutputSuffix(sessionID: sessionID, taskID: taskID)
+        return listDirectories(base).contains { fileExists(base + "/" + $0 + suffix) }
+    }
+
+    /// The `PostToolUse` decision. Release needs proof the snapshot is real: a failed or empty process
+    /// tree finds no shell too, and must fall back to the TTL instead of ending a live task.
+    public static func binding(search: ShellSearch, outputExists: Bool) -> TaskBinding {
+        if let pid = search.pid { return .bind(pid) }
+        guard search.snapshotIncludesCaller, outputExists else { return .none }
+        return .release
     }
 }

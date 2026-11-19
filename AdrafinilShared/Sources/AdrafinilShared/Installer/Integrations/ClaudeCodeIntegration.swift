@@ -121,21 +121,18 @@ struct ClaudeCodeIntegration: AgentIntegration {
         )
     }
 
-    /// The opt-in background-shell hook: a `PreToolUse`/`Bash|Monitor` `acquire --if-background`, in the
-    /// same `~/.claude/settings.json` as the core hooks but installed/removed independently of them.
-    /// Claude Code's Bash tool exposes a clean `run_in_background` boolean in the `PreToolUse`
-    /// `tool_input` (verified against 2.1.201), and the Monitor tool its `timeout_ms` deadline
-    /// (2.1.296). The `matcher` is a regex over `tool_name`, so `"Bash|Monitor"` fires for those two
-    /// tools only. The command requests the 24h ceiling as its `--ttl`; the daemon clamps it down to
-    /// the live `manualHoldMaxHours`, and a Monitor's hold is further sized to its own deadline.
+    /// The opt-in background-shell hooks: a `PreToolUse` acquire that places the hold and a `PostToolUse`
+    /// bind that moves it onto the command's shell, both in `settings.json` but installed independently
+    /// of the core hooks. The matchers are regexes over `tool_name`; the 24h-ceiling `--ttl` is clamped
+    /// by the daemon to `manualHoldMaxHours`.
     func backgroundBashShape(_ ctx: HookContext) -> BackgroundBashHookShape? {
-        BackgroundBashHookShape(
+        let ttl = Int(BackgroundBashHold.defaultTTLSeconds)
+        return BackgroundBashHookShape(
             configPath: "\(ctx.claudeConfigRoot)/settings.json",
-            matcher: "Bash|Monitor",
-            command: ctx.backgroundAcquireCommand(
-                tool: agent.rawValue,
-                ttlSeconds: Int(BackgroundBashHold.defaultTTLSeconds),
-            ),
+            wirings: [
+                .init(event: "PreToolUse", matcher: "Bash|Monitor", command: ctx.backgroundAcquireCommand(tool: agent.rawValue, ttlSeconds: ttl)),
+                .init(event: "PostToolUse", matcher: "Bash", command: ctx.backgroundBindCommand(tool: agent.rawValue, ttlSeconds: ttl)),
+            ],
         )
     }
 }

@@ -47,6 +47,62 @@ enum AcquireCommand {
         return -1
     }
 
+    /// The `PostToolUse`(Bash) hook behind `--bind-background`: re-points a background command's hold
+    /// from the agent PID to its shell, so the dead-process net ends it when the shell exits. Other
+    /// calls return after the stdin parse, before any process-tree or daemon work.
+    static func bindBackground(tool: String, requestedTTL: TimeInterval?) -> Never {
+        let payload = CLIStdin.payload() ?? Data()
+        guard let task = BackgroundBashHold.startedTask(payload: payload, tool: tool, requestedTTL: requestedTTL) else {
+            exit(0)
+        }
+        let suffix = BackgroundBashHold.taskOutputSuffix(sessionID: task.sessionID, taskID: task.taskID)
+        let agentPID = ProcessResolver.owningAgentPID(binaryNames: AgentKind.allBinaryNames)
+        // Without the agent there is no tree to search, so "no shell" can't be read as "finished".
+        guard agentPID > 0 else {
+            cliLog.notice("bind \(task.key, privacy: .public) — no agent process matched; leaving the hold to its TTL")
+            exit(0)
+        }
+        let search = BackgroundBashHold.taskShellSearch(
+            root: agentPID,
+            caller: getpid(),
+            suffix: suffix,
+            children: ProcessResolver.childMap(),
+            openPaths: ProcessResolver.stdioPaths(of:),
+        )
+        let outputExists = search.pid == nil && BackgroundBashHold.taskOutputExists(
+            sessionID: task.sessionID,
+            taskID: task.taskID,
+            tempRoot: BackgroundBashHold.taskTempRoot(environment: ProcessInfo.processInfo.environment),
+            uid: getuid(),
+            listDirectories: { (try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? [] },
+            fileExists: { FileManager.default.fileExists(atPath: $0) },
+        )
+
+        switch BackgroundBashHold.binding(search: search, outputExists: outputExists) {
+        case let .bind(pid):
+            cliLog.notice("bind \(task.key, privacy: .public) to shell pid=\(pid, privacy: .public)")
+            sendBackground(CLIRequest(op: .acquire, key: task.key, tool: tool, reason: nil, pid: pid, processName: tool, ttlSeconds: task.ttl))
+        case .release:
+            cliLog.notice("bind \(task.key, privacy: .public) — task already finished, releasing")
+            sendBackground(CLIRequest(op: .release, key: task.key, tool: tool, reason: nil, pid: nil, processName: nil, ttlSeconds: nil))
+        case .none:
+            cliLog.notice("bind \(task.key, privacy: .public) — no shell or output file found; leaving the hold to its TTL")
+        }
+        exit(0)
+    }
+
+    /// Sends a background-hold request, failing soft like every hook path: a warning on stderr, exit 0.
+    private static func sendBackground(_ req: CLIRequest) {
+        do {
+            let resp = try DaemonSocketClient.send(req)
+            if !resp.ok {
+                FileHandle.standardError.write(Data("adrafinil: \(req.op) refused: \(resp.error ?? "?")\n".utf8))
+            }
+        } catch {
+            FileHandle.standardError.write(Data("adrafinil: background hold update failed (\(error.localizedDescription)) — ignored\n".utf8))
+        }
+    }
+
     static func run(args: [String]) throws {
         let parser = ArgParser(args: args)
         let tool = parser.option("--tool") ?? ManualHold.unknownTool
@@ -55,6 +111,9 @@ enum AcquireCommand {
         let ttl = ttlRaw.flatMap { Double($0) }.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         if ttlRaw != nil, ttl == nil {
             FileHandle.standardError.write(Data("adrafinil: ignoring invalid --ttl '\(ttlRaw!)'\n".utf8))
+        }
+        if parser.flag("--bind-background") {
+            bindBackground(tool: tool, requestedTTL: ttl)
         }
         let pidRaw = parser.option("--pid")
         let hookPID = pidRaw.flatMap { pid_t($0) }.flatMap { $0 > 0 ? $0 : nil }
@@ -69,15 +128,9 @@ enum AcquireCommand {
         var effectiveTTL = ttl
 
         if parser.flag("--if-background") {
-            // Opt-in background-shell hook (`PreToolUse`/Bash|Monitor). A command the agent launched
-            // with `run_in_background`, or a Monitor, keeps running past the turn's `Stop` and fires no
-            // completion hook, so this `PreToolUse` is the only signal — and the hold must be
-            // TTL-bounded. Read the raw stdin payload and decide: a foreground command (or any
-            // non-background call) yields no plan, so place NO hold and exit 0 silently (this is the
-            // common case — every foreground Bash call — so it must never warn). Background work gets a
-            // per-invocation `<tool>:bg-<id>` hold with the owning agent PID attached (so the dead-PID
-            // net still reaps it if the whole agent dies) and a TTL — a Monitor's sized to its own
-            // deadline — that the daemon clamps to `manualHoldMaxHours`.
+            // Opt-in background-shell hook (`PreToolUse`/Bash|Monitor). Places the `bg-` hold that the
+            // `PostToolUse` bind then moves onto the shell. A foreground call places NO hold and exits 0
+            // silently — it is the common case, so it must never warn.
             let payload = CLIStdin.payload() ?? Data()
             guard let plan = BackgroundBashHold.plan(
                 payload: payload,
