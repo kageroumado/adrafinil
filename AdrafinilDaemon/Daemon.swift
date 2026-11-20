@@ -77,6 +77,11 @@ final class Daemon {
     /// not be re-acquired by the sniff sweep while their process lives.
     private var sniffSuppressedPids: Set<pid_t> = []
 
+    /// The user released the power-adapter hold themselves (force sleep, or releasing its row). It
+    /// stays off until they re-engage — the charger is unplugged, the lid opens, Adrafinil is resumed,
+    /// or the setting is switched on again — so the user ending it isn't undone by the next charge tick.
+    private var powerAdapterHoldSuppressed = false
+
     // "While you were away" tracking.
     private var lidClosedAt: Date?
     private var heldAtClose: [(key: String, tool: String, displayName: String, acquiredAt: Date)] = []
@@ -160,6 +165,8 @@ final class Daemon {
             // immediately.
             await persistState()
             await broadcastStatus()
+            powerAdapterHoldSuppressed = false
+            await reconcilePowerAdapterHold()
         }
     }
 
@@ -279,6 +286,12 @@ final class Daemon {
         // An explicit release is the agent's own "I'm done" (Stop hook, MCP release) — the
         // happy-path cue if this is the release that lets the Mac sleep.
         lastReleaseCause = .workComplete
+        // No agent releases the power-adapter hold: this is the user ending it from the menu or
+        // the CLI, and it must stay ended rather than come back on the next power event.
+        if PowerAdapterHold.isKey(key) {
+            lastReleaseCause = .userAction
+            powerAdapterHoldSuppressed = true
+        }
         let existed = await registry.release(key: key)
         // A released sniffed assertion must stay released: the sweep re-acquires any matched
         // process it isn't already holding, so without this a user's explicit release (or an
@@ -301,6 +314,7 @@ final class Daemon {
 
     func handleForceReleaseAll() async {
         lastReleaseCause = .userAction
+        powerAdapterHoldSuppressed = true
         await registry.removeAll()
         await persistAndSync(event: .released)
         // Push the unblock to the helper synchronously (rather than only via the edge-triggered
@@ -360,7 +374,13 @@ final class Daemon {
     }
 
     func reloadSettings() {
+        let wasKeepingAwakeOnPowerAdapter = settings.keepAwakeOnPowerAdapter
         settings = AdrafinilSettings.load()
+        // Switching the setting on is the user asking for the hold now, whatever they ended before.
+        if settings.keepAwakeOnPowerAdapter, !wasKeepingAwakeOnPowerAdapter {
+            powerAdapterHoldSuppressed = false
+        }
+        Task { @MainActor in await self.reconcilePowerAdapterHold() }
         idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
         sessionStatusMonitor.policy = settings.agentWaitingPolicy
@@ -408,7 +428,7 @@ final class Daemon {
                 }
                 // Going idle is the safe moment to adopt a binary an update swapped in while we
                 // were holding.
-                relaunchIfUpdatedWhenIdle()
+                await relaunchIfUpdatedWhenIdle()
             }
         }
     }
@@ -461,9 +481,14 @@ final class Daemon {
     /// holding would briefly disconnect the helper, and there's no reason to take that blip when the
     /// blocking→idle edge and every app reconnect re-check this. A no-op unless the on-disk binary
     /// actually changed, so it never fires in normal operation.
-    func relaunchIfUpdatedWhenIdle() {
+    ///
+    /// The power-adapter hold alone doesn't count as holding: it has no work to interrupt, and the
+    /// relaunched daemon restores it from `state.json` straight away (the helper's 60 s dead-man
+    /// grace covers the gap). Counting it would defer every update for as long as the Mac stays
+    /// plugged in.
+    func relaunchIfUpdatedWhenIdle() async {
         guard executableStaleness.hasBeenReplaced() else { return }
-        guard !isBlocking else {
+        guard await !PowerAdapterHold.holdsAgentWork(registry.snapshot()) else {
             log.notice("Daemon binary replaced by an update — deferring relaunch until idle")
             return
         }
@@ -596,6 +621,9 @@ final class Daemon {
                     }
                 } else if !self.lidMonitor.isLidClosed {
                     await self.finishAwayTracking()
+                    // The user is back: a power-adapter hold they ended earlier may return.
+                    self.powerAdapterHoldSuppressed = false
+                    await self.reconcilePowerAdapterHold()
                 }
                 // Push the lid-state change (and any freshly-pending away summary) to the app.
                 await self.broadcastStatus()
@@ -711,10 +739,17 @@ final class Daemon {
     private func wireBatteryMonitor() {
         batteryMonitor.thresholdPercent = settings.lowBatteryThresholdPercent
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
-        batteryMonitor.onReading = { [weak self] _, _ in
+        batteryMonitor.onReading = { [weak self] _, onBattery in
             // IOKit power-source events keep firing while idle (plug/unplug, charge), so this is
             // the battery latch's recovery path: plugging in clears it immediately.
-            MainActor.assumeIsolated { self?.reevaluateCutoutLatch() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.reevaluateCutoutLatch()
+                // Unplugging is the re-engage point for a hold the user ended: plugging back in
+                // places it again.
+                if onBattery { self.powerAdapterHoldSuppressed = false }
+                Task { @MainActor in await self.reconcilePowerAdapterHold() }
+            }
         }
         batteryMonitor.onCutout = { [weak self] in
             guard let self else { return }
@@ -747,9 +782,14 @@ final class Daemon {
             log.notice("Cutout latch cleared: \(cleared.map(\.rawValue).joined(separator: ","), privacy: .public)")
             updateLatchRecheckTimer()
             Task { @MainActor in await self.broadcastStatus() }
-            // A relaunch deferred because the latch was held can now proceed (if still idle) — the
-            // cutout that was protecting state has receded, so it's safe to adopt an updated binary.
-            relaunchIfUpdatedWhenIdle()
+            Task { @MainActor in
+                // The hazard receded, so the power-adapter hold the cutout dropped can come back.
+                await self.reconcilePowerAdapterHold()
+                // A relaunch deferred because the latch was held can now proceed (if still idle) —
+                // the cutout that was protecting state has receded, so it's safe to adopt an
+                // updated binary.
+                await self.relaunchIfUpdatedWhenIdle()
+            }
         }
     }
 
@@ -839,7 +879,9 @@ final class Daemon {
 
     private func beginAwayTracking(snapshot: [Assertion]) {
         lidClosedAt = Date()
-        heldAtClose = snapshot.map {
+        // The recap is about agents' work: the power-adapter hold isn't any, and counting it would
+        // pop a summary on every lid-open while plugged in.
+        heldAtClose = snapshot.filter { !PowerAdapterHold.isKey($0.key) }.map {
             ($0.key, $0.tool, AgentKind(rawValue: $0.tool)?.displayName ?? $0.tool, $0.acquiredAt)
         }
         awayReleasedAt = [:]
@@ -892,6 +934,37 @@ final class Daemon {
         // Helper sync is edge-triggered via the registry's blockingStateChanges stream —
         // no redundant XPC round-trip on every acquire/release here.
         await broadcastStatus()
+        // When the last agent lets go while the power-adapter hold stays, the registry never goes
+        // idle, so no blocking edge re-checks for a pending update: check on the release itself.
+        if event != .acquired { await relaunchIfUpdatedWhenIdle() }
+    }
+
+    /// Places or releases the opt-in power-adapter hold to match the setting, the power source,
+    /// pause, the cutout latch and the user's own release (see `PowerAdapterHold`). Idempotent, and
+    /// called whenever one of those inputs changes.
+    private func reconcilePowerAdapterHold() async {
+        let held = await registry.snapshot().contains { PowerAdapterHold.isKey($0.key) }
+        let action = PowerAdapterHold.decide(
+            enabled: settings.keepAwakeOnPowerAdapter,
+            onBattery: batteryMonitor.lastPercent == nil ? nil : batteryMonitor.lastOnBattery,
+            paused: isPaused,
+            latched: cutoutLatch.isLatched,
+            suppressed: powerAdapterHoldSuppressed,
+            held: held,
+        )
+        switch action {
+        case .place:
+            log.notice("On power adapter — keeping the Mac awake")
+            await handleAcquire(PowerAdapterHold.assertion())
+        case .release:
+            log.notice("Power-adapter hold released")
+            lastReleaseCause = .workComplete
+            if await registry.release(key: PowerAdapterHold.key) {
+                await persistAndSync(event: .released)
+            }
+        case .none:
+            break
+        }
     }
 
     private func persistState() async {

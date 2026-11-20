@@ -1009,6 +1009,7 @@ struct AssertionRow: View {
 
     private var displayTool: String {
         if assertion.tool == AppStatusModel.guiHoldTool { return String(localized: "Kept awake by you") }
+        if PowerAdapterHold.isKey(assertion.key) { return String(localized: "Plugged in") }
         return AgentKind(rawValue: assertion.tool)?.displayName ?? assertion.tool
     }
 

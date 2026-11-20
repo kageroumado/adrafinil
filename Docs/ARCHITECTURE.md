@@ -230,6 +230,26 @@ Lid-state changes are observed via IORegistry notifications on `AppleClamshellSt
 
 The battery sibling of the thermal cutout: because `disablesleep` blocks the global sleep flag, a kept-awake lid-closed Mac on battery would otherwise drain to a hard shutdown. While **on battery** AND lid closed AND ≥1 assertion is held, the daemon polls the internal battery (`IOPSCopyPowerSourcesInfo`; threshold 20% default, configurable 5–50%). On crossing it releases **all** assertions, logs a `lowBatteryCutout` event, allows sleep, and records a cutout entry — so normal low-power sleep takes over with charge to spare. On AC there's no drain risk, so it never fires. The decision lives in `LowBatteryCutoutEvaluator` (unit-tested).
 
+### 4.7 Power-adapter hold (opt-in)
+
+With `keepAwakeOnPowerAdapter` on, the daemon keeps one hold of its own (`power:adapter`, a
+reserved key namespace external acquires can't use) while the internal battery reports the power
+adapter, so a lid-closed MacBook on AC stays awake with no agent working. The low-battery monitor's
+IOKit power-source notification is its trigger, so it costs no extra wakeups. The decision lives in
+`PowerAdapterHold.decide` (unit-tested):
+
+- placed when the setting is on, the last reading says AC, and nothing blocks it (paused, a latched
+  cutout, or a release by the user);
+- released the moment the reading says battery, or the setting goes off;
+- a user release (its ✕, or `release --all`) suppresses it until the user re-engages: the charger
+  is unplugged, the lid opens, Adrafinil is resumed, or the setting is switched on again;
+- the thermal cutout drops it like any hold, and its latch keeps it off until the Mac cools.
+
+It has no pid and no TTL, so `IdleReleaseEvaluator` skips it entirely (no CPU-idle, dead-process
+or 24 h backstop release). It is not agent work: the update gates (`relaunchIfUpdatedWhenIdle` and
+the app's silent-update check) treat it as idle, and the relaunched daemon restores it from
+`state.json`. Desktops (no battery reading) never hold.
+
 ---
 
 ## 5. UX
