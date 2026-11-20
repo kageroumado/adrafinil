@@ -936,7 +936,8 @@ final class Daemon {
         await broadcastStatus()
         // When the last agent lets go while the power-adapter hold stays, the registry never goes
         // idle, so no blocking edge re-checks for a pending update: check on the release itself.
-        if event != .acquired { await relaunchIfUpdatedWhenIdle() }
+        // An emptied registry stays on the blocking-edge path, which clears the helper first.
+        if event != .acquired, await !registry.snapshot().isEmpty { await relaunchIfUpdatedWhenIdle() }
     }
 
     /// Places or releases the opt-in power-adapter hold to match the setting, the power source,
@@ -958,7 +959,7 @@ final class Daemon {
             await handleAcquire(PowerAdapterHold.assertion())
         case .release:
             log.notice("Power-adapter hold released")
-            lastReleaseCause = .workComplete
+            lastReleaseCause = .userAction
             if await registry.release(key: PowerAdapterHold.key) {
                 await persistAndSync(event: .released)
             }

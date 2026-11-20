@@ -79,8 +79,9 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
 
     /// Opt-in: keep the Mac awake, lid closed included, for as long as it runs on its power adapter,
     /// whether or not an agent is working; on battery it sleeps normally. The thermal cutout still
-    /// ends it, and pausing or releasing it from the menu turns it off until the charger is re-plugged or the
-    /// lid opens. See `PowerAdapterHold`.
+    /// ends it. Pausing turns it off until resume; releasing its menu row turns it off until the
+    /// charger is unplugged, the lid opens, the user resumes, or the setting is switched back on.
+    /// See `PowerAdapterHold`.
     public var keepAwakeOnPowerAdapter: Bool = false
 
     public var launchAtLogin: Bool = true
