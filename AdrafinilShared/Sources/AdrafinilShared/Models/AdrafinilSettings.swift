@@ -77,6 +77,13 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     /// its TTL, capped by `manualHoldMaxHours`, is only the fallback. Claude Code only (see `BackgroundBashHold`).
     public var keepAwakeForBackgroundBash: Bool = false
 
+    /// Opt-in: keep the Mac awake, lid closed included, for as long as it runs on its power adapter,
+    /// whether or not an agent is working; on battery it sleeps normally. The thermal cutout still
+    /// ends it. Pausing turns it off until resume; releasing its menu row turns it off until the
+    /// charger is unplugged, the lid opens, the user resumes, or the setting is switched back on.
+    /// See `PowerAdapterHold`.
+    public var keepAwakeOnPowerAdapter: Bool = false
+
     public var launchAtLogin: Bool = true
     public var showInMenuBar: Bool = true
 
@@ -111,6 +118,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case agentHoldsEnabled
         case manualHoldMaxHours
         case keepAwakeForBackgroundBash
+        case keepAwakeOnPowerAdapter
         case launchAtLogin
         case showInMenuBar
         case autoInstallUpdates
@@ -161,6 +169,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.agentHoldsEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .agentHoldsEnabled)) ?? d.agentHoldsEnabled
         self.manualHoldMaxHours = (try? c.decodeIfPresent(Double.self, forKey: .manualHoldMaxHours)) ?? d.manualHoldMaxHours
         self.keepAwakeForBackgroundBash = (try? c.decodeIfPresent(Bool.self, forKey: .keepAwakeForBackgroundBash)) ?? d.keepAwakeForBackgroundBash
+        self.keepAwakeOnPowerAdapter = (try? c.decodeIfPresent(Bool.self, forKey: .keepAwakeOnPowerAdapter)) ?? d.keepAwakeOnPowerAdapter
         self.launchAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .launchAtLogin)) ?? d.launchAtLogin
         self.showInMenuBar = (try? c.decodeIfPresent(Bool.self, forKey: .showInMenuBar)) ?? d.showInMenuBar
         self.autoInstallUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .autoInstallUpdates)) ?? d.autoInstallUpdates

@@ -251,9 +251,13 @@ final class SilentUpdates {
     ///
     /// An unreachable daemon answers "no". The app cannot tell whether anything is being kept awake,
     /// and an update is never so urgent that it is worth guessing.
+    ///
+    /// The power-adapter hold alone doesn't count: no agent is working under it, the daemon restores
+    /// it from its state file across the restart, and counting it would hold every update back for as
+    /// long as the Mac stays plugged in.
     private static func nothingIsBeingKeptAwake() async -> Bool {
         guard let status = try? await DaemonClient.shared.fetchStatus() else { return false }
-        return !status.isBlocking && status.assertions.isEmpty
+        return !PowerAdapterHold.holdsAgentWork(status.assertions)
     }
 
     #if DEBUG

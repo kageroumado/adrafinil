@@ -49,6 +49,24 @@ struct IdleReleaseEvaluatorTests {
         #expect(out.isEmpty)
     }
 
+    @Test
+    func `the power-adapter hold is never released by age, process or idleness`() {
+        let e = IdleReleaseEvaluator()
+        // Older than the backstop, with no process — every rule that releases a leaked hold would fire
+        // for an ordinary assertion in this shape (see the two tests above).
+        let power = Assertion(
+            key: PowerAdapterHold.key,
+            tool: PowerAdapterHold.tool,
+            pid: -1,
+            processName: PowerAdapterHold.tool,
+            acquiredAt: t0.addingTimeInterval(-48 * 3_600),
+            origin: .manual,
+        )
+        let leaked = assertion(acquiredAt: t0.addingTimeInterval(-48 * 3_600), key: "leaked", pid: -1)
+        let out = e.evaluate(assertions: [power, leaked], now: t0, config: .init(), pidAlive: { _ in false }, cpuTime: { _ in 0 })
+        #expect(keys(out) == ["leaked"])
+    }
+
     // MARK: Dead process
 
     @Test

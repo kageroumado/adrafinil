@@ -248,6 +248,18 @@ struct GeneralSettingsTab: View {
                 }
             }
 
+            // Plugged-in keep-awake is a portable's question: a desktop has no lid to close and no
+            // battery to tell it the adapter is in.
+            if device.hasLid, device.hasBattery {
+                Section {
+                    Toggle("Keep your Mac awake while it's plugged in", isOn: $settings.keepAwakeOnPowerAdapter)
+                } header: {
+                    Text("On the power adapter")
+                } footer: {
+                    Text("Your Mac stays awake on its power adapter, lid closed included, even when no agent is working — so it stays reachable for remote sessions. It sleeps normally the moment you unplug it. The thermal cutout still applies. “Let it sleep” turns it off until you resume; releasing “Plugged in” in the menu turns it off until you unplug or open the lid. Off by default.")
+                }
+            }
+
             if device.isDesktop {
                 Section {
                     Label("This looks like a desktop Mac", systemImage: "desktopcomputer")

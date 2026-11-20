@@ -14,7 +14,7 @@ public enum CLIRequestValidator {
 
     /// Namespaces the daemon mints itself. An external `acquire` planting a key here would
     /// confuse hold/sniff bookkeeping (e.g. `ManualHold.isHoldKey` checks, per-row release UI).
-    public static let reservedKeyPrefixes = [ManualHold.keyPrefix, sniffedKeyPrefix]
+    public static let reservedKeyPrefixes = [ManualHold.keyPrefix, sniffedKeyPrefix, PowerAdapterHold.keyPrefix]
 
     /// Why an `acquire` was rejected, with the message sent back over the wire.
     public static func acquireRejection(key: String, tool: String) -> String? {
