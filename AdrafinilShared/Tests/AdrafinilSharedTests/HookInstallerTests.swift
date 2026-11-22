@@ -38,10 +38,12 @@ struct HookInstallerTests {
 
     @Test
     func `detects all tier 1 when all present`() throws {
-        let home = try makeFakeHome(detectedDirs: [".claude", ".codex", ".cursor", ".gemini", ".config/devin"])
+        let home = try makeFakeHome(detectedDirs: [".claude", ".codex", ".cursor", ".gemini", ".gemini/antigravity-cli", ".config/devin"])
         defer { try? FileManager.default.removeItem(at: home) }
+        // Seed a Gemini CLI file alongside Antigravity's subdir so both share ~/.gemini cleanly.
+        try writeJSON([:], to: home.path + "/.gemini/settings.json")
         let detected = Set(HookInstaller.detectedAgents(homeRoot: home.path))
-        #expect(detected.isSuperset(of: [.claudeCode, .codex, .cursor, .geminiCLI, .devin]))
+        #expect(detected.isSuperset(of: [.claudeCode, .codex, .cursor, .geminiCLI, .devin, .antigravity]))
     }
 
     @Test
@@ -52,6 +54,29 @@ struct HookInstallerTests {
         let detected = HookInstaller.detectedAgents(homeRoot: home.path)
 
         #expect(detected.contains(.devin))
+    }
+
+    @Test(arguments: [".gemini/antigravity-cli", ".gemini/antigravity", ".gemini/antigravity-ide"])
+    func `antigravity is detected by each surface directory without false-detecting gemini cli`(dir: String) throws {
+        let home = try makeFakeHome(detectedDirs: [dir, ".gemini/config"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let detected = HookInstaller.detectedAgents(homeRoot: home.path)
+
+        #expect(detected.contains(.antigravity))
+        #expect(!detected.contains(.geminiCLI), "an Antigravity-only ~/.gemini dir must not false-detect Gemini CLI")
+    }
+
+    @Test
+    func `gemini cli is still detected when ~/.gemini holds its own files alongside antigravity`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli", ".gemini/config"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        try writeJSON([:], to: home.path + "/.gemini/settings.json")
+
+        let detected = HookInstaller.detectedAgents(homeRoot: home.path)
+
+        #expect(detected.contains(.antigravity))
+        #expect(detected.contains(.geminiCLI))
     }
 
     // MARK: - Uninstall

@@ -87,7 +87,7 @@ adrafinil acquire <session-key> --tool <tool> [--reason <text>] [--ttl <seconds>
 adrafinil release <session-key>                                                     # on session end
 ```
 
-The daemon refcounts by session key. **Session id resolution**: the CLI prefers the `session_id` field from the JSON the hook receives on stdin (read by `CLIStdin`), and falls back to a positional arg from a shell env-var expansion. Every Claude-Code-style hook delivers the stdin JSON, so stdin is the reliable, agent-agnostic source — avoiding per-agent env-var naming pitfalls (Claude is `CLAUDE_CODE_SESSION_ID`, not `CLAUDE_SESSION_ID`; Codex exposes `CODEX_THREAD_ID` and documents only the stdin field).
+The daemon refcounts by session key. **Session id resolution**: the CLI prefers the `session_id` (or Antigravity's camelCase `conversationId`) field from the JSON the hook receives on stdin (read by `CLIStdin`), and falls back to a positional arg from a shell env-var expansion. Every Claude-Code-style hook delivers the stdin JSON, so stdin is the reliable, agent-agnostic source — avoiding per-agent env-var naming pitfalls (Claude is `CLAUDE_CODE_SESSION_ID`, not `CLAUDE_SESSION_ID`; Codex exposes `CODEX_THREAD_ID` and documents only the stdin field).
 
 Integrations live in `AdrafinilShared/.../Installer/Integrations/`, one file per agent, each conforming to `AgentIntegration` and delegating to a shared building block (`NestedJSONHookShape`, `FlatJSONHookShape`, `ShellWrapper`, or `FilePlugin`). Adding an agent is a single new file plus one line in the `AgentIntegrations` registry.
 
@@ -102,8 +102,9 @@ These support shell-command hooks with a session-start and (mostly) a session-en
 | Cursor | `~/.cursor/hooks.json` | `beforeSubmitPrompt` (`--ttl 3600`) | `stop` |
 | Gemini CLI | `~/.gemini/settings.json` | `SessionStart` | `SessionEnd` |
 | Devin | `~/.config/devin/config.json` | `UserPromptSubmit` | `Stop` + `SessionEnd` |
+| Antigravity | `~/.gemini/config/hooks.json` | `PreInvocation` | `Stop` |
 
-Claude Code, Codex, Gemini CLI, and Devin share a nested JSON shape (`{"hooks": {event: [{"hooks": [{type, command}]}]}}`); Cursor uses a flatter shape (`{"command": …}` entries directly). Only Claude Code also exposes a real session-id env var; the others deliver the id only on stdin.
+Claude Code, Codex, Gemini CLI, and Devin share a nested JSON shape (`{"hooks": {event: [{"hooks": [{type, command}]}]}}`); Cursor uses a flatter shape (`{"command": …}` entries directly); Antigravity maps top-level named hooks (`{"adrafinil": {"PreInvocation": [{"type": "command", "command": …}], "Stop": […]}}`) and sends camelCase `conversationId` on stdin. Only Claude Code also exposes a real session-id env var; the others deliver the id only on stdin.
 
 **Claude Code holds are activity-scoped** (others are still session-scoped). It acquires on
 `UserPromptSubmit` (a turn begins) and releases on `Stop` (the agent finishes responding,
@@ -122,7 +123,7 @@ released instead of lingering as a phantom until the CPU-idle sweep. Its compani
 `SessionStart`[matcher `clear`] → acquire covers the post-clear plan run, whose first message
 bypasses `UserPromptSubmit`; other `SessionStart` sources stay unhooked (they land at an idle
 prompt, where holding would re-introduce the whole-session hold this integration moved away from).
-**Codex, Cursor, and Devin are turn-scoped too** (verified events: Codex `UserPromptSubmit`/`Stop`,
+**Codex, Cursor, Devin, and Antigravity are turn-scoped too** (verified events: Codex `UserPromptSubmit`/`Stop`,
 issue #2; Cursor `beforeSubmitPrompt`/`stop`, issue #15; Devin `UserPromptSubmit`/`Stop` plus a
 release-only `SessionEnd` for a session that ends without a `Stop`, verified against Devin CLI
 3000.11.3 — like Claude Code, an interrupted Devin turn fires no `Stop` (verified), so the CPU-idle
@@ -130,7 +131,11 @@ sweep releases it; the same wiring covers Devin Desktop's "Devin Local" agent to
 `devin acp` reads the same user config, and since one long-lived `devin acp` serves every chat,
 turn holds attach to that shared process: `Stop` releases them, and a chat-UI cancel (which fires
 no `Stop`) is caught by the CPU-idle sweep once the process idles between turns; verified on
-Desktop 3.10.48, so unlike Cursor no TTL is needed). Cursor's acquire additionally carries a
+Desktop 3.10.48, so unlike Cursor no TTL is needed; Antigravity `PreInvocation`/`Stop` under a
+top-level `"adrafinil"` named hook in `~/.gemini/config/hooks.json`, verified against Antigravity
+CLI 1.5.14 — hooks run under the `antigravity` binary, `SIGINT` fires no `Stop` and is caught by
+process-exit / CPU-idle release, and an idle CLI sits at ~0% CPU so no TTL is needed; the same
+`~/.gemini/config/hooks.json` and `mcp_config.json` are shared by Antigravity CLI, App, and IDE). Cursor's acquire additionally carries a
 `--ttl`: its holds attach to the single long-lived Cursor app process, which neither the process-exit
 watcher nor the CPU-idle sweep can catch (the app's own UI keeps the tree busy), so the TTL —
 refreshed each prompt — is the stale-hold backstop. Gemini's per-turn event names aren't

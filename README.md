@@ -17,7 +17,7 @@ Adrafinil keeps a Mac awake through a closed lid while a coding agent works, the
 <details>
 <summary>Full feature list</summary>
 
-- Hooks for Claude Code, Codex, Cursor, Gemini CLI, Devin, Aider, Hermes, OpenCode, Cline, and Pi.
+- Hooks for Claude Code, Codex, Cursor, Gemini CLI, Devin, Antigravity, Aider, Hermes, OpenCode, Cline, and Pi.
 - Per-session acquire/release, timed holds, and manual **Let it sleep** control.
 - Closed-lid sleep control through a privileged helper.
 - CLI and MCP access; custom integrations through hooks or command wrappers.

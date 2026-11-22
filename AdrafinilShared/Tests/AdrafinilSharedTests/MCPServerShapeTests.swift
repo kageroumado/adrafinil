@@ -3,8 +3,8 @@ import Testing
 @testable import AdrafinilShared
 
 /// Covers the agent-facing MCP server registration (`adrafinil mcp`) — the upsert/remove/state
-/// machinery, driven through the `HookInstaller` MCP API. Claude Code and Devin are the
-/// device-verified MCP agents (Cursor/Gemini are gated off until verified). MCP registration is
+/// machinery, driven through the `HookInstaller` MCP API. Claude Code, Devin, and Antigravity are
+/// the device-verified MCP agents (Cursor/Gemini are gated off until verified). MCP registration is
 /// gated on `mcpShape != nil`, not `isDetected`, so a bare temp home suffices.
 @Suite("MCP server registration")
 struct MCPServerShapeTests {
@@ -34,11 +34,12 @@ struct MCPServerShapeTests {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
-        // Only Claude Code's and Devin's MCP formats are device-verified, so they're the only
-        // agents that advertise MCP support. Cursor and Gemini are believed-correct but gated off
-        // until verified.
+        // Only Claude Code's, Devin's, and Antigravity's MCP formats are device-verified, so
+        // they're the only agents that advertise MCP support. Cursor and Gemini are believed-correct
+        // but gated off until verified.
         #expect(inst.supportsMCP(for: .claudeCode))
         #expect(inst.supportsMCP(for: .devin))
+        #expect(inst.supportsMCP(for: .antigravity))
         for agent in [AgentKind.codex, .cursor, .geminiCLI, .aider, .cline, .hermes, .openCode, .pi] {
             #expect(!inst.supportsMCP(for: agent), "\(agent.rawValue) should be gated until device-verified")
         }
@@ -85,6 +86,33 @@ struct MCPServerShapeTests {
             "type": "stdio",
             "command": "/usr/local/bin/adrafinil",
             "args": ["mcp", "--tool", "devin"],
+        ]))
+    }
+
+    /// Antigravity's MCP servers live in `~/.gemini/config/mcp_config.json` under `mcpServers` —
+    /// verified against Antigravity CLI 1.5.14, which pre-creates a 0-byte `mcp_config.json` on
+    /// first run and loads `keep_awake`/`release_awake`/`awake_status` once registered.
+    @Test
+    func `install registers antigravity stdio server even over a zero-byte config file`() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let configDir = home.path + "/.gemini/config"
+        let configPath = configDir + "/mcp_config.json"
+        try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: configPath, contents: Data())
+
+        let inst = installer(home)
+        #expect(inst.mcpState(for: .antigravity) == .notInstalled, "a 0-byte config is empty, not unreadable")
+        _ = try inst.installMCP(for: .antigravity)
+        #expect(inst.mcpState(for: .antigravity) == .installed)
+
+        let dict = try readJSON(configPath)
+        let servers = try #require(dict["mcpServers"] as? [String: Any])
+        let entry = try #require(servers["adrafinil"] as? [String: Any])
+        #expect(NSDictionary(dictionary: entry).isEqual(to: [
+            "type": "stdio",
+            "command": "/usr/local/bin/adrafinil",
+            "args": ["mcp", "--tool", "antigravity"],
         ]))
     }
 
