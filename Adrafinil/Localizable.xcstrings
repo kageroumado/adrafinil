@@ -2124,6 +2124,22 @@
         }
       }
     },
+    "Keep your Mac awake while it's plugged in" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "電源に接続中はMacをスリープさせない"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接通电源时保持 Mac 唤醒"
+          }
+        }
+      }
+    },
     "Keeping your Mac awake" : {
       "localizations" : {
         "ja" : {
@@ -2629,6 +2645,22 @@
         }
       }
     },
+    "On the power adapter" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "電源アダプタ接続時"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用电源适配器时"
+          }
+        }
+      }
+    },
     "One anonymous check-in a day counts how many people use Adrafinil. It never includes what you work on or which agents you run. Settings › General lists what is sent." : {
       "localizations" : {
         "ja" : {
@@ -2850,6 +2882,22 @@
     },
     "Plays what the daemon would play as the lid-closed Mac goes back to sleep, honoring the current Settings (sound choice, volume, toggles)." : {
       "shouldTranslate" : false
+    },
+    "Plugged in" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "電源に接続中"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已接通电源"
+          }
+        }
+      }
     },
     "Pre-sleep cue" : {
       "shouldTranslate" : false
@@ -4295,6 +4343,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的 Mac 将恢复正常睡眠，在你再次打开 Adrafinil 之前不会跟踪 Agent。"
+          }
+        }
+      }
+    },
+    "Your Mac stays awake on its power adapter, lid closed included, even when no agent is working — so it stays reachable for remote sessions. It sleeps normally the moment you unplug it. The thermal cutout still applies. “Let it sleep” turns it off until you resume; releasing “Plugged in” in the menu turns it off until you unplug or open the lid. Off by default." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "電源アダプタに接続している間は、エージェントが作業していなくても、蓋を閉じた状態を含めてMacはスリープしません。リモートセッションからいつでも接続できます。電源を外すとすぐに通常どおりスリープします。温度による強制スリープは引き続き有効です。「スリープさせる」を使うと再開するまでオフになり、メニューで「電源に接続中」を解除すると、電源を外すか蓋を開けるまでオフになります。デフォルトはオフです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接通电源适配器时，即使没有代理在工作，Mac 也会保持唤醒，合上盖子时也是如此，因此远程会话始终可以连接。拔掉电源后，它会立即正常进入睡眠。温度保护仍然有效。“让它睡眠”会关闭此功能直到你恢复；在菜单中解除“已接通电源”会关闭此功能，直到你拔掉电源或打开盖子。默认关闭。"
           }
         }
       }

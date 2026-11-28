@@ -33,6 +33,18 @@ drive it explicitly over MCP/CLI, and can be flipped on manually when you need i
 
 Other subcommands: `status`, `install-hooks`, `uninstall-hooks`, `daemon-status`, `version`.
 
+### Keep awake while plugged in
+
+For a MacBook that should stay reachable whenever it is on its charger (remote sessions, a
+headless setup on a desk), turn on **Settings › General › Keep your Mac awake while it's plugged
+in** (`keepAwakeOnPowerAdapter` in `config.json`; off by default). The daemon then keeps a
+**Plugged in** hold of its own whenever the Mac runs on its power adapter, lid closed included and
+whether or not an agent is working, and drops it the moment the Mac goes back on battery, which
+then sleeps normally. The thermal cutout still releases it, and it stays off until the Mac cools.
+**Let it sleep** turns it off until you resume; releasing the **Plugged in** row turns it off
+until you unplug or open the lid. Updates still install while only this hold is active, since no
+agent is working under it.
+
 ### Claude Code profiles (`CLAUDE_CONFIG_DIR`)
 
 A Claude Code profile run with its own `CLAUDE_CONFIG_DIR` (say an alias for a second account) reads

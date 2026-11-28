@@ -95,6 +95,11 @@ public final class IdleReleaseEvaluator {
         let maxAge = config.maxAssertionAgeHours * 3_600
 
         for a in assertions {
+            // The power-adapter hold is governed by the power source alone (`PowerAdapterHold`): it
+            // has no process to watch or measure and is meant to last as long as the Mac stays
+            // plugged in, so no rule here applies to it — the backstop would otherwise drop it every
+            // 24 h and let a lid-closed Mac sleep for the moment it takes to re-place it.
+            if PowerAdapterHold.isKey(a.key) { continue }
             // Safety backstop: a too-old assertion is a leak. Applies regardless of `enabled` or PID.
             if maxAge > 0, now.timeIntervalSince(a.acquiredAt) > maxAge {
                 releases.append(Release(key: a.key, reason: .maxAgeBackstop))
