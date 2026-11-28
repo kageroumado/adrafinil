@@ -57,7 +57,7 @@ struct BackgroundBashHookShapeTests {
         defer { try? FileManager.default.removeItem(at: home) }
         let inst = installer(home)
         #expect(inst.supportsBackgroundHold(for: .claudeCode))
-        for agent in [AgentKind.codex, .cursor, .geminiCLI, .devin, .aider, .cline, .hermes, .openCode, .pi] {
+        for agent in [AgentKind.codex, .cursor, .geminiCLI, .devin, .antigravity, .aider, .cline, .hermes, .openCode, .pi] {
             #expect(!inst.supportsBackgroundHold(for: agent), "\(agent.rawValue) has no clean run_in_background signal")
         }
     }

@@ -63,6 +63,25 @@ struct HookPayloadTests {
         #expect(HookPayload.sessionID(in: data(payload)) == "respected-class")
     }
 
+    // MARK: - Antigravity payloads
+
+    /// Payloads captured verbatim from Antigravity CLI 1.5.14 — Antigravity uses protojson
+    /// camelCase and sends `conversationId` instead of `session_id`.
+    @Test(arguments: [
+        #"{"artifactDirectoryPath":"/Users/u/.gemini/antigravity-cli/brain/fe7fb44c-6d36-4203-bb3a-b59e2164a7d6","conversationId":"fe7fb44c-6d36-4203-bb3a-b59e2164a7d6","cwd":"/tmp/probe","hookEventName":"SessionStart","lastUserInput":"Reply with just the word ok.","modelName":"gemini-4-neon-xhigh","transcriptPath":"/Users/u/.gemini/antigravity-cli/brain/fe7fb44c-6d36-4203-bb3a-b59e2164a7d6/.system_generated/logs/transcript_full.jsonl","workspacePaths":["/tmp/probe"]}"#,
+        #"{"artifactDirectoryPath":"/Users/u/.gemini/antigravity-cli/brain/fe7fb44c-6d36-4203-bb3a-b59e2164a7d6","conversationId":"fe7fb44c-6d36-4203-bb3a-b59e2164a7d6","cwd":"/tmp/probe","hookEventName":"PreInvocation","initialNumSteps":1,"invocationNum":0,"lastUserInput":"Reply with just the word ok.","modelName":"gemini-4-neon-xhigh","transcriptPath":"/Users/u/.gemini/antigravity-cli/brain/fe7fb44c-6d36-4203-bb3a-b59e2164a7d6/.system_generated/logs/transcript_full.jsonl","workspacePaths":["/tmp/probe"]}"#,
+        #"{"artifactDirectoryPath":"/Users/u/.gemini/antigravity-cli/brain/fe7fb44c-6d36-4203-bb3a-b59e2164a7d6","continuationActive":false,"conversationId":"fe7fb44c-6d36-4203-bb3a-b59e2164a7d6","cwd":"/tmp/probe","error":"","executionNum":0,"fullyIdle":true,"hookEventName":"Stop","lastUserInput":"Reply with just the word ok.","modelName":"gemini-4-neon-xhigh","terminationReason":"NO_TOOL_CALL","transcriptPath":"/Users/u/.gemini/antigravity-cli/brain/fe7fb44c-6d36-4203-bb3a-b59e2164a7d6/.system_generated/logs/transcript_full.jsonl","workspacePaths":["/tmp/probe"]}"#,
+    ])
+    func `antigravity hook payloads yield their conversationId`(payload: String) {
+        #expect(HookPayload.sessionID(in: data(payload)) == "fe7fb44c-6d36-4203-bb3a-b59e2164a7d6")
+    }
+
+    @Test
+    func `sessionID prefers session_id over conversationId when both are present`() {
+        let payload = #"{"session_id":"sess-1","conversationId":"conv-2"}"#
+        #expect(HookPayload.sessionID(in: data(payload)) == "sess-1")
+    }
+
     // MARK: - Empty / malformed
 
     @Test
@@ -70,6 +89,7 @@ struct HookPayloadTests {
         // A hook whose expansion came up empty must yield "no id", not the id "".
         #expect(HookPayload.agentID(in: data(#"{"agent_id":""}"#)) == nil)
         #expect(HookPayload.sessionID(in: data(#"{"session_id":""}"#)) == nil)
+        #expect(HookPayload.sessionID(in: data(#"{"conversationId":""}"#)) == nil)
     }
 
     @Test

@@ -6,8 +6,23 @@ import Foundation
 struct GeminiCLIIntegration: AgentIntegration {
     let agent = AgentKind.geminiCLI
 
+    /// Antigravity stores its own data under `~/.gemini/` (`antigravity-cli/`, `antigravity/`,
+    /// `antigravity-ide/`, `config/`), so a `~/.gemini` directory containing only those entries
+    /// belongs to Antigravity rather than Gemini CLI.
+    private static let antigravityOnlyEntries: Set<String> = [
+        "antigravity",
+        "antigravity-cli",
+        "antigravity-ide",
+        "config",
+    ]
+
     func isDetected(_ ctx: HookContext) -> Bool {
-        FileManager.default.fileExists(atPath: "\(ctx.homeRoot)/.gemini")
+        let dir = "\(ctx.homeRoot)/.gemini"
+        guard FileManager.default.fileExists(atPath: dir) else { return false }
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return true }
+        let visible = entries.filter { !$0.hasPrefix(".") }
+        if visible.isEmpty { return true }
+        return visible.contains { !Self.antigravityOnlyEntries.contains($0) }
     }
     func primaryConfigPath(_ ctx: HookContext) -> String {
         "\(ctx.homeRoot)/.gemini/settings.json"

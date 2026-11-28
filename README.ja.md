@@ -17,7 +17,7 @@ Adrafinil は、コーディングエージェントの作業中はふたを閉�
 <details>
 <summary>機能一覧</summary>
 
-- Claude Code、Codex、Cursor、Gemini CLI、Devin、Aider、Hermes、OpenCode、Cline、Pi 向けのフック。
+- Claude Code、Codex、Cursor、Gemini CLI、Devin、Antigravity、Aider、Hermes、OpenCode、Cline、Pi 向けのフック。
 - セッション単位の acquire/release、時間制限付きのスリープ抑止、手動の **スリープさせる** 操作。
 - 特権ヘルパーによる、ふたを閉じた状態でのスリープ制御。
 - CLI と MCP からの利用。フックやコマンドラッパーによる独自エージェントとの連携。

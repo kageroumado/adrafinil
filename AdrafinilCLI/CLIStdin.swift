@@ -3,8 +3,9 @@ import Foundation
 
 /// Reads the identity a hold is keyed on from the hook's stdin payload.
 ///
-/// Every Claude-Code-style hook system (Claude Code, Codex, Gemini CLI, Cursor) invokes the hook
-/// command with a JSON object on **stdin** that includes a `session_id` field. Preferring this over
+/// Every Claude-Code-style hook system (Claude Code, Codex, Gemini CLI, Cursor, Devin) invokes the
+/// hook command with a JSON object on **stdin** that includes a `session_id` field (Antigravity
+/// sends the equivalent camelCase `conversationId`). Preferring this over
 /// shell env-var substitution in the hook command (`$CLAUDE_CODE_SESSION_ID`, `$CODEX_THREAD_ID`, …)
 /// makes the integration immune to per-agent env-var naming differences — the exact class of bug
 /// that left Claude (`$CLAUDE_SESSION_ID` → empty) and Codex (`CODEX_THREAD_ID` is not a documented

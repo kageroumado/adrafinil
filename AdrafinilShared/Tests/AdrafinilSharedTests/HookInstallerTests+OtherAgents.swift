@@ -344,4 +344,140 @@ extension HookInstallerTests {
         let hooks = try #require(try readJSON(path)["hooks"] as? [String: Any])
         #expect(devinHookCommands(hooks, event: "SessionEnd") == [Self.devinRelease])
     }
+
+    // MARK: - Antigravity (named hooks.json shape, camelCase stdin conversationId)
+
+    private func antigravityConfigPath(_ home: URL) -> String {
+        home.path + "/.gemini/config/hooks.json"
+    }
+
+    private static let antigravityAcquire = "/usr/local/bin/adrafinil acquire --tool antigravity"
+    private static let antigravityRelease = "/usr/local/bin/adrafinil release --tool antigravity"
+
+    @Test
+    func `antigravity install writes named PreInvocation and Stop hooks`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli"])
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .antigravity, dryRun: false)
+
+        let dict = try readJSON(antigravityConfigPath(home))
+        let entry = try #require(dict["adrafinil"] as? [String: Any])
+        let pre = try #require(entry["PreInvocation"] as? [[String: Any]])
+        let stop = try #require(entry["Stop"] as? [[String: Any]])
+        #expect(pre.count == 1)
+        #expect(pre.first?["type"] as? String == "command")
+        #expect(pre.first?["command"] as? String == Self.antigravityAcquire)
+        #expect(stop.count == 1)
+        #expect(stop.first?["type"] as? String == "command")
+        #expect(stop.first?["command"] as? String == Self.antigravityRelease)
+        #expect(installer.installState(for: .antigravity) == .installed)
+    }
+
+    @Test
+    func `antigravity install and uninstall preserve sibling named hooks`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli", ".gemini/config"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = antigravityConfigPath(home)
+        let sibling: [String: Any] = [
+            "PreInvocation": [["type": "command", "command": "/bin/sh -c 'echo {}'"]],
+            "Stop": [["type": "command", "command": "/bin/sh -c 'echo {}'"]],
+        ]
+        try writeJSON(["orca-status": sibling], to: path)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .antigravity, dryRun: false)
+        var dict = try readJSON(path)
+        #expect(dict["orca-status"] != nil, "sibling named hooks must survive install")
+        #expect(dict["adrafinil"] != nil)
+
+        try installer.uninstall(for: .antigravity)
+        dict = try readJSON(path)
+        #expect(dict["adrafinil"] == nil, "uninstall must remove the adrafinil named hook")
+        let kept = try #require(dict["orca-status"] as? [String: Any])
+        #expect(NSDictionary(dictionary: kept).isEqual(to: sibling), "sibling named hooks must survive uninstall verbatim")
+        #expect(installer.installState(for: .antigravity) == .notInstalled)
+    }
+
+    @Test
+    func `antigravity install is idempotent and dry run does not touch disk`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+
+        let dry = try installer.install(for: .antigravity, dryRun: true)
+        #expect(!dry.diff.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: antigravityConfigPath(home)))
+
+        _ = try installer.install(for: .antigravity, dryRun: false)
+        let second = try installer.install(for: .antigravity, dryRun: false)
+        #expect(second.diff == "(unchanged)")
+    }
+
+    @Test
+    func `antigravity installState detects drift and reinstall repairs it`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli", ".gemini/config"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = antigravityConfigPath(home)
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        _ = try installer.install(for: .antigravity, dryRun: false)
+
+        // Disabled hook or missing Stop must report `.modifiedExternally`.
+        var dict = try readJSON(path)
+        var entry = try #require(dict["adrafinil"] as? [String: Any])
+        entry["enabled"] = false
+        dict["adrafinil"] = entry
+        try writeJSON(dict, to: path)
+        #expect(installer.installState(for: .antigravity) == .modifiedExternally)
+
+        _ = try installer.install(for: .antigravity, dryRun: false)
+        #expect(installer.installState(for: .antigravity) == .installed)
+
+        // Missing Stop event alone also reads as drift.
+        try writeJSON([
+            "adrafinil": [
+                "PreInvocation": [["type": "command", "command": Self.antigravityAcquire]],
+            ],
+        ], to: path)
+        #expect(installer.installState(for: .antigravity) == .modifiedExternally)
+
+        _ = try installer.install(for: .antigravity, dryRun: false)
+        #expect(installer.installState(for: .antigravity) == .installed)
+    }
+
+    @Test
+    func `antigravity refuses an unparseable hooks json on install and uninstall`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli", ".gemini/config"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = antigravityConfigPath(home)
+        try "{ broken".write(toFile: path, atomically: true, encoding: .utf8)
+
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+        #expect(installer.installState(for: .antigravity) == .configUnreadable)
+        #expect(throws: HookInstaller.SkipReason.self) {
+            _ = try installer.install(for: .antigravity, dryRun: false)
+        }
+        #expect(throws: HookInstaller.SkipReason.self) {
+            try installer.uninstall(for: .antigravity)
+        }
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "{ broken")
+    }
+
+    @Test
+    func `antigravity install preserves file permissions and uninstall is no-op when absent`() throws {
+        let home = try makeFakeHome(detectedDirs: [".gemini/antigravity-cli", ".gemini/config"])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let installer = HookInstaller(cliPath: "/usr/local/bin/adrafinil", homeRoot: home.path)
+
+        let noop = try installer.uninstall(for: .antigravity)
+        #expect(noop.diff == "(unchanged)")
+
+        let path = antigravityConfigPath(home)
+        try writeJSON([:], to: path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        _ = try installer.install(for: .antigravity, dryRun: false)
+        let perms = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
+        #expect(perms == 0o600)
+    }
 }

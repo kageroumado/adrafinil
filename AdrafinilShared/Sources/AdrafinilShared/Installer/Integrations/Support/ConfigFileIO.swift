@@ -21,8 +21,14 @@ enum ConfigFileIO {
 
     static func read(_ path: String) -> ReadResult {
         guard FileManager.default.fileExists(atPath: path) else { return .missing }
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unparseable }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return .unparseable }
+        // Some agents (e.g. Antigravity's `~/.gemini/config/mcp_config.json`) pre-create a 0-byte
+        // config file on first run. An empty or whitespace-only file carries no user content to
+        // preserve, so treat it as an empty JSON object rather than refusing with `.unparseable`.
+        if data.allSatisfy({ $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }) {
+            return .object([:])
+        }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .unparseable }
         return .object(obj)
     }
 

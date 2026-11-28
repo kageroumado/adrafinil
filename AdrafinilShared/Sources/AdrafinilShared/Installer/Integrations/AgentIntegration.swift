@@ -166,6 +166,7 @@ enum AgentIntegrations {
         case .cursor: CursorIntegration()
         case .geminiCLI: GeminiCLIIntegration()
         case .devin: DevinIntegration()
+        case .antigravity: AntigravityIntegration()
         case .aider: AiderIntegration()
         case .cline: ClineIntegration()
         case .hermes: HermesIntegration()

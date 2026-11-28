@@ -3,10 +3,11 @@ import Foundation
 /// Pure extraction of the identity fields Adrafinil keys holds on out of a hook's stdin JSON payload.
 ///
 /// Every Claude-Code-style hook system (Claude Code, Codex, Gemini CLI, Cursor, Devin) invokes the
-/// hook command with a JSON object on stdin. Two fields matter to us:
+/// hook command with a JSON object on stdin carrying `session_id`; Antigravity uses protojson
+/// camelCase and sends `conversationId` instead. Two identities matter to us:
 ///
-///   - `session_id` — the parent session/turn id, present on every hook. `UserPromptSubmit`/`Stop`
-///     key their per-turn hold on it.
+///   - `session_id` / `conversationId` — the parent session/turn id, present on every hook.
+///     `UserPromptSubmit`/`PreInvocation` and `Stop` key their per-turn hold on it.
 ///   - `agent_id` — a **sub-agent's own** id, present only on `SubagentStart`/`SubagentStop`. The
 ///     parent's `session_id` is *also* on those payloads, so a sub-agent hook that keyed on
 ///     `session_id` would collide with — and, being idempotent-by-key, wrongly release — the
@@ -26,8 +27,10 @@ import Foundation
 ///
 /// This is the pure, testable core; `CLIStdin` reads the bytes off stdin and delegates here.
 public enum HookPayload {
-    /// The parent-session field on every hook payload.
+    /// The parent-session field on Claude-Code-style hook payloads.
     public static let sessionIDField = "session_id"
+    /// Antigravity's camelCase equivalent of `session_id` (protojson encoding).
+    public static let conversationIDField = "conversationId"
     /// The sub-agent-id field on `SubagentStart`/`SubagentStop` payloads.
     public static let agentIDField = "agent_id"
     /// The nested container of a tool call's raw input arguments on a `PreToolUse` payload.
@@ -58,10 +61,12 @@ public enum HookPayload {
         case persistent
     }
 
-    /// The parent `session_id` from a hook payload, or nil when the bytes aren't a JSON object with
-    /// a non-empty string at that key.
+    /// The parent session id from a hook payload (`session_id`, or Antigravity's camelCase
+    /// `conversationId`), or nil when the bytes aren't a JSON object with a non-empty string at
+    /// either key.
     public static func sessionID(in data: Data) -> String? {
         string(forField: sessionIDField, in: data)
+            ?? string(forField: conversationIDField, in: data)
     }
 
     /// The sub-agent's own `agent_id` from a `SubagentStart`/`SubagentStop` payload, or nil when the

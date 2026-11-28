@@ -19,7 +19,7 @@ struct AgentKindTests {
 
     @Test
     func `tier classification covers all agents`() {
-        let tier1: Set<AgentKind> = [.claudeCode, .codex, .cursor, .geminiCLI, .devin]
+        let tier1: Set<AgentKind> = [.claudeCode, .codex, .cursor, .geminiCLI, .devin, .antigravity]
         let tier2: Set<AgentKind> = [.aider, .hermes, .openCode, .cline, .pi]
         #expect(tier1.union(tier2) == Set(AgentKind.allCases))
         for k in tier1 {
@@ -99,6 +99,7 @@ struct AgentKindTests {
         #expect(allNames.contains("pi"))
         #expect(allNames.contains("opencode"))
         #expect(allNames.contains("devin"))
+        #expect(allNames.contains("antigravity"))
     }
 
     @Test
@@ -138,6 +139,16 @@ struct AgentKindTests {
     @Test
     func `homebrew devin path is recognized by the owning-agent walk`() {
         let path = "/opt/homebrew/Caskroom/devin-cli/3000.11.3/bin/devin"
+        #expect(ProcessResolver.pathMatchesAgent(path, names: AgentKind.allBinaryNames))
+    }
+
+    /// Homebrew's `antigravity-cli` cask wraps `agy` with a script that execs the real
+    /// `antigravity` binary under Caskroom, so both the owning-PID walk and the sniff sweep see
+    /// basename `antigravity`.
+    @Test
+    func `homebrew antigravity binary resolves to antigravity`() {
+        let path = "/opt/homebrew/Caskroom/antigravity-cli/1.5.14,5302690847260672/antigravity"
+        #expect(AgentKind.forRunningProcess(name: "antigravity", path: path) == .antigravity)
         #expect(ProcessResolver.pathMatchesAgent(path, names: AgentKind.allBinaryNames))
     }
 

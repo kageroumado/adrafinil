@@ -113,8 +113,9 @@ struct LiveAgentHooksProvider: AgentHooksProviding {
             .geminiCLI: .notInstalled,
         ]
         /// Agents the preview reports as MCP-capable (matches the device-verified set in the shared
-        /// package — Cursor/Gemini are gated off until verified, so Claude Code and Devin qualify).
-        private let mcpCapable: Set<AgentKind> = [.claudeCode, .devin]
+        /// package — Cursor/Gemini are gated off until verified, so Claude Code, Devin, and
+        /// Antigravity qualify).
+        private let mcpCapable: Set<AgentKind> = [.claudeCode, .devin, .antigravity]
 
         /// Canned Codex trust status for previews; the trust screen flips this on "Re-check".
         var codexTrust: CodexHookTrust.Status = .untrusted
